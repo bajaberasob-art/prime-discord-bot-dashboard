@@ -1,0 +1,75 @@
+modules = ["python-3.11", "nodejs-24", "postgresql-16"]
+
+[[ports]]
+localPort = 1000
+externalPort = 3000
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+
+[[ports]]
+localPort = 8008
+externalPort = 8008
+
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 8098
+externalPort = 3002
+
+[[ports]]
+localPort = 8099
+externalPort = 8099
+
+[[ports]]
+localPort = 22396
+externalPort = 3001
+
+[nix]
+channel = "stable-25_05"
+packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libsodium", "libtiff", "libwebp", "libxcrypt", "openjpeg", "postgresql", "tcl", "tk", "zlib"]
+
+[deployment]
+deploymentTarget = "cloudrun"
+
+[deployment.run]
+args = ["sh", "-c", "/nix/store/s4ckxp77ljlikarkka88ba7qr5mlka97-python3-wrapper/bin/python3 $file"]
+
+[deployment.run.env]
+file = "main.py"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "PRIME Bot + Dashboard Backend"
+
+[[workflows.workflow]]
+name = "PRIME Bot + Dashboard Backend"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "DASHBOARD_LOCAL_LOGIN=0 DASHBOARD_BASE_PATH=/api/dashboard/ PORT=8008 DASHBOARD_PORT=8008 python main.py"
+
+[userenv]
+
+[userenv.development]
+CLIENT_ID = "1550042204091715634"
+REDIRECT_URI = "https://606ace4b-80f4-436d-a16c-4b91959eec01-00-1btltnca2drwt.pike.replit.dev/api/dashboard/api/auth/callback"

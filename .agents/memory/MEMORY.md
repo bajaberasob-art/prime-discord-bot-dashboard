@@ -1,0 +1,9 @@
+- [Git review branch](git-review-branch.md) — Keep GitHub edits on a review branch; leave `main` untouched unless the user explicitly asks.
+- [Python test setup](python-test-runtime.md) — If base Nix Python lacks pip or project packages, use a supported Python Tools module and Replit package management.
+- [PRIME AI authorization and privacy](prime-ai-authorization-scope.md) — Preserve Discord/PRIME permissions and keep raw conversation text transient.
+- [PRIME management expansion](prime-management-expansion.md) — Extend existing bot, dashboard, and database systems additively; preserve current features and data.
+- [PRIME Discord audit logging](discord-audit-logging.md) — Keep per-guild log categories independent; only claim uniquely evidenced actors/invites, and opt message text in.
+- [Dashboard browser verification](dashboard-browser-verification.md) — Browser follow-ups can retain old service-worker assets; verify a fresh client before diagnosing unchanged UI.
+- [Announcement area scope](announcement-area-scope.md) — Discord Auto Reactions, not paid advertising; preserve live-only processing and bounded work.
+- [Discord file ownership](discord-file-ownership.md) — Caller-provided upload streams need explicit cleanup after discord.File restores their close method.
+- [Discord modal acknowledgements](discord-modal-acknowledgment.md) — Mark callbacks that delegate modal opening so the global interaction guard skips auto-defer.
