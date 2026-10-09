@@ -1,0 +1,15 @@
+.git
+.cache
+.pythonlibs
+.upm
+node_modules
+artifacts
+lib
+scripts
+tests
+attached_assets
+package.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+tsconfig.json
+tsconfig.base.json

@@ -105,7 +105,7 @@ routes = web.RouteTableDef()
 PROJECT_DIR = Path(__file__).parent.resolve()
 DASHBOARD_DIR = (PROJECT_DIR / "dashboard").resolve()
 HOST = "0.0.0.0"
-PORT = int((os.environ.get("PORT") or "10000").strip())
+PORT = int((os.environ.get("PORT") or "8080").strip())
 bot_ref: discord.Client = None
 
 C_ID = (os.getenv("CLIENT_ID") or "").strip()
