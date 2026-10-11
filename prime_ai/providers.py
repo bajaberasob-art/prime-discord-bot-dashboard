@@ -13,7 +13,7 @@ from .errors import AIProviderUnavailable
 
 PROVIDER_NAME = "Google Gemini"
 PROVIDER_MODEL = "gemini-3.8-flash"
-FALLBACK_PROVIDER_MODEL = "gemini-3.1-flash-lite"
+FALLBACK_PROVIDER_MODEL = "gemini-3.5-flash-lite"
 RETRYABLE_PROVIDER_STATUSES = frozenset({408, 425, 500, 502, 503, 504})
 FALLBACK_PROVIDER_STATUSES = frozenset({429, 500, 502, 503, 504})
 
@@ -197,8 +197,9 @@ async def request_with_fallback(
     primary_share = 0.70
     primary_budget = total_budget * primary_share
     fallback_budget = total_budget - primary_budget
+    retry_backoff_budget = min(0.5 * retries, primary_budget * 0.1)
     per_attempt_timeout = max(
-        0.01, primary_budget / (retries + 1)
+        0.01, (primary_budget - retry_backoff_budget) / (retries + 1)
     )
 
     # Keep one overall deadline, but reserve explicit time for fallback. Each
