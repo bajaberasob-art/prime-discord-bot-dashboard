@@ -1657,8 +1657,17 @@ async def generate_response(
         )
         raise AIProviderUnavailable("gemini_connection_failed", status_code=503) from error
     except AIProviderUnavailable as error:
+        LOGGER.warning(
+            "[AI] Gemini provider request failed status=%s reason=%s model=%s",
+            error.status_code if error.status_code is not None else "n/a",
+            str(error)[:80] or "unknown",
+            str(payload.get("model") or PROVIDER_MODEL)[:80],
+        )
         await record_outcome(
-            "failed", f"provider={PROVIDER_NAME} · reason={str(error)[:80]}",
+            "failed",
+            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · "
+            f"status={error.status_code if error.status_code is not None else 'n/a'} · "
+            f"reason={str(error)[:80]}",
         )
         raise
 
