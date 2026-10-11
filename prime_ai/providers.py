@@ -66,10 +66,12 @@ class GeminiProvider:
                 contents[-1]["parts"][0]["text"] += "\n" + text
             else:
                 contents.append({"role": gemini_role, "parts": [{"text": text}]})
+        # Gemini 3.x deprecates temperature/top_p/top_k. Sending a legacy
+        # temperature value makes otherwise valid generateContent calls fail
+        # with HTTP 400, so generation is controlled through thinkingLevel.
         body = {
             "contents": contents,
             "generationConfig": {
-                "temperature": payload.get("temperature", 0.7),
                 "maxOutputTokens": payload.get("max_tokens", 1200),
                 "thinkingConfig": {
                     "thinkingLevel": str(payload.get("thinking_level", "medium")).lower(),
