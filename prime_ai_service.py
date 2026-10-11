@@ -1605,9 +1605,35 @@ async def generate_response(
                 retry_count=retry_count, complete=_complete_with_retries,
                 logger=LOGGER,
             )
-    except (aiohttp.ClientError, asyncio.TimeoutError) as error:
-        await record_outcome("failed", "تعذر الاتصال بمزوّد الذكاء الاصطناعي.")
-        raise AIProviderUnavailable("provider_request_failed") from error
+    except asyncio.TimeoutError as error:
+        elapsed = time.monotonic() - started
+        LOGGER.warning(
+            "[AI] Gemini request timed out model=%s configured_timeout=%ss elapsed=%.1fs",
+            str(payload.get("model") or PROVIDER_MODEL),
+            int(provider.get("timeout_seconds", 30)),
+            elapsed,
+        )
+        await record_outcome(
+            "failed",
+            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · reason=timeout",
+        )
+        raise AIProviderUnavailable("gemini_timeout", status_code=504) from error
+    except aiohttp.ClientError as error:
+        elapsed = time.monotonic() - started
+        detail = getattr(getattr(error, "os_error", None), "strerror", None)
+        LOGGER.warning(
+            "[AI] Gemini transport error type=%s detail=%s model=%s elapsed=%.1fs",
+            type(error).__name__,
+            str(detail or "no_os_error_detail")[:120],
+            str(payload.get("model") or PROVIDER_MODEL),
+            elapsed,
+        )
+        await record_outcome(
+            "failed",
+            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · "
+            f"reason=transport_{type(error).__name__}",
+        )
+        raise AIProviderUnavailable("gemini_connection_failed", status_code=503) from error
     except AIProviderUnavailable as error:
         await record_outcome(
             "failed", f"provider={PROVIDER_NAME} · reason={str(error)[:80]}",
