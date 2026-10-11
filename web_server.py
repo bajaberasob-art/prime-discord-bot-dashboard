@@ -135,7 +135,7 @@ AUTHORIZED_ROLE_NAMES = frozenset(
 # حدود معدل الطلبات: (عدد الطلبات، النافذة بالثواني)
 SAVE_LIMIT, READ_LIMIT = (5, 10.0), (60, 10.0)
 IP_API_LIMIT, IP_SENSITIVE_LIMIT = (180, 60.0), (10, 60.0)
-MAX_BODY = 16 * 1024
+MAX_BODY = 256 * 1024
 GRANT_TTL = 60.0
 RATE_BUCKETS: dict[tuple, deque] = {}
 GRANT_CACHE: dict[tuple[str, int], tuple[float, bool]] = {}
@@ -994,9 +994,20 @@ async def read_json_body(req) -> dict:
     if not req.content_type.startswith("application/json"):
         raise web.HTTPUnsupportedMediaType()
     try:
-        body = json.loads((await req.content.read(MAX_BODY + 1))[:MAX_BODY].decode("utf-8"))
+        raw_body = await req.content.read(MAX_BODY + 1)
+        if len(raw_body) > MAX_BODY:
+            raise web.HTTPRequestEntityTooLarge(
+                max_size=MAX_BODY,
+                actual_size=len(raw_body),
+                text=json.dumps({"error": "request_too_large"}),
+                content_type="application/json",
+            )
+        body = json.loads(raw_body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as error:
-        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_json"}), content_type="application/json") from error
+        raise web.HTTPBadRequest(
+            text=json.dumps({"error": "invalid_json"}),
+            content_type="application/json",
+        ) from error
     if not isinstance(body, dict):
         raise web.HTTPBadRequest(text=json.dumps({"error": "validation"}), content_type="application/json")
     return sanitize_payload(body)
