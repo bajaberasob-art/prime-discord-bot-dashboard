@@ -56,22 +56,38 @@ def _normalize_route_text(value: Any) -> str:
     return text.strip(" \t\r\n,،:;.!؟?/")
 
 
-def _route_text_variants(value: Any) -> list[str]:
-    """Return progressively de-prefixed forms for explicit command invocations."""
+def _route_text_variant_pairs(value: Any) -> list[tuple[str, str]]:
+    """Return normalized match keys paired with the original text and arguments."""
     current = str(value or "").strip()
-    variants: list[str] = []
+    variants: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for _ in range(6):
         normalized = _normalize_route_text(current)
-        if normalized and normalized not in variants:
-            variants.append(normalized)
+        if normalized and normalized not in seen:
+            variants.append((normalized, current))
+            seen.add(normalized)
         match = next((pattern.match(current) for pattern in _ROUTE_LEADERS if pattern.match(current)), None)
         if match is None or match.end() == 0:
             break
-        stripped = current[match.end():].strip(" \t\r\n,،:;.!؟?/")
+        stripped = current[match.end():].strip(" \\t\\r\\n,،:;.!؟?/")
         if not stripped or stripped == current:
             break
         current = stripped
     return variants
+
+
+def _route_text_variants(value: Any) -> list[str]:
+    """Return normalized forms for compatibility with existing callers."""
+    return [normalized for normalized, _source in _route_text_variant_pairs(value)]
+
+
+def _route_arguments_after_prefix(source: str, normalized_prefix: str) -> str:
+    """Extract arguments after a normalized prefix without lowercasing user text."""
+    target = _normalize_route_text(normalized_prefix)
+    for end in range(1, len(source) + 1):
+        if _normalize_route_text(source[:end]) == target:
+            return source[end:].strip(" \\t\\r\\n,،:;.!؟?/")
+    return ""
 
 
 def _match_leading_key(text: str, mapping: dict[str, Any]) -> tuple[str, str] | None:
@@ -427,6 +443,9 @@ class Utilities(commands.Cog):
         self.command_controls: dict[int, dict[str, dict[str, Any]]] = {}
         self.command_aliases: dict[int, dict[str, tuple[str, dict[str, Any]]]] = {}
         self._cooldowns: dict[tuple[int, int, int], TokenBucket] = {}
+        # Message IDs claimed by a command/shortcut route prevent concurrent
+        # Utilities and PRIME-AI listeners from executing the same action twice.
+        self._dispatch_message_claims: dict[int, float] = {}
         self._check_registered = False
         self._original_tree_check = getattr(self.bot.tree, "interaction_check", None)
         self.bot.tree.interaction_check = self.app_command_interceptor
@@ -1011,19 +1030,55 @@ class Utilities(commands.Cog):
             )
         return True
 
+    def _is_message_dispatch_claimed(self, message: discord.Message) -> bool:
+        message_id = getattr(message, "id", None)
+        if message_id is None:
+            return False
+        key = int(message_id)
+        timestamp = self._dispatch_message_claims.get(key)
+        if timestamp is None:
+            return False
+        if time.monotonic() - timestamp > 120:
+            self._dispatch_message_claims.pop(key, None)
+            return False
+        return True
+
+    def _claim_message_dispatch(self, message: discord.Message) -> bool:
+        """Atomically claim a message before any routed action awaits execution."""
+        message_id = getattr(message, "id", None)
+        if message_id is None:
+            return True
+        key = int(message_id)
+        now = time.monotonic()
+        existing = self._dispatch_message_claims.get(key)
+        if existing is not None and now - existing <= 120:
+            return False
+        self._dispatch_message_claims[key] = now
+        if len(self._dispatch_message_claims) > 2048:
+            cutoff = now - 120
+            for old_key, old_timestamp in list(self._dispatch_message_claims.items()):
+                if old_timestamp < cutoff:
+                    self._dispatch_message_claims.pop(old_key, None)
+            while len(self._dispatch_message_claims) > 4096:
+                self._dispatch_message_claims.pop(next(iter(self._dispatch_message_claims)))
+        return True
+
     async def dispatch_assistant_prompt(
         self, message: discord.Message, prompt: str
     ) -> bool:
-        """Route an addressed assistant prompt through configured commands first.
+        """Route explicit PRIME prompts through configured commands before AI planning.
 
-        This deliberately uses the ordinary command callback/policy path rather
-        than asking Gemini to reinterpret a configured alias.
+        A matching route consumes the message even if it is denied or execution
+        fails, avoiding a second attempt through Gemini after an uncertain result.
         """
         if message.guild is None or getattr(message.author, "bot", False):
             return False
+        # Utilities may already be dispatching this same Discord message.
+        if self._is_message_dispatch_claimed(message):
+            return True
         content = str(prompt or "").strip()
-        variants = _route_text_variants(content)
-        if not variants:
+        variant_pairs = _route_text_variant_pairs(content)
+        if not variant_pairs:
             return False
         guild_id = int(message.guild.id)
         if guild_id not in self.auto_responders or guild_id not in self.shortcuts:
@@ -1031,18 +1086,45 @@ class Utilities(commands.Cog):
         if guild_id not in self.command_aliases:
             await self._load_command_controls(guild_id)
 
-        # 1) Command policy aliases keep enabled/role/channel checks and the
-        # original command's parameter parsing and callback semantics.
+        # 1) Policy aliases. Match the longest normalized key and apply the same
+        # enabled/role/channel gates as direct dashboard-alias dispatch.
         aliases = self.command_aliases.get(guild_id, {})
-        for variant in variants:
-            matched = _match_leading_key(variant, aliases)
-            if matched is None:
+        for variant, source_variant in variant_pairs:
+            matches = [
+                (key, value) for key, value in aliases.items()
+                if key and (variant == key or variant.startswith(key + " "))
+            ]
+            if not matches:
                 continue
-            alias, (command_name, _policy) = matched
-            arguments = variant[len(alias):].strip()
-            succeeded = await self._execute_alias_command(
-                message, command_name, arguments
-            )
+            alias, (command_name, policy) = max(matches, key=lambda item: len(item[0]))
+            if not self._claim_message_dispatch(message):
+                return True
+            permissions = getattr(message.author, "guild_permissions", None)
+            is_admin = bool(permissions and getattr(permissions, "administrator", False))
+            allowed_channels = {str(item) for item in policy.get("allowed_channels", [])}
+            allowed_roles = {str(item) for item in policy.get("allowed_roles", [])}
+            member_roles = {
+                str(role.id) for role in getattr(message.author, "roles", [])
+            }
+            if not policy.get("enabled", True):
+                await self._send_alias_denial(
+                    message, "⚠️ هذا الأمر معطل حالياً من إعدادات السيرفر."
+                )
+                return True
+            if allowed_channels and str(message.channel.id) not in allowed_channels and not is_admin:
+                await self._send_alias_denial(
+                    message,
+                    "⚠️ هذا الأمر مخصص للعمل في قنوات محددة فقط. "
+                    "غير مسموح بهذا الاختصار في هذه القناة.",
+                )
+                return True
+            if allowed_roles and not is_admin and not member_roles.intersection(allowed_roles):
+                await self._send_alias_denial(
+                    message, "⛔ ليس لديك الرتبة المسموح لها باستخدام هذا الأمر."
+                )
+                return True
+            arguments = _route_arguments_after_prefix(source_variant, alias)
+            succeeded = await self._execute_alias_command(message, command_name, arguments)
             if succeeded:
                 await self._send_alias_confirmation(
                     message, alias, command_name,
@@ -1050,13 +1132,12 @@ class Utilities(commands.Cog):
                 )
             return True
 
-        # 2) Saved dashboard shortcuts. Command shortcuts accept typed
-        # arguments; help and announcement shortcuts require the whole trigger.
+        # 2) Saved dashboard shortcuts. Longest trigger wins; preserve arguments.
         shortcuts = [
             item for item in self.shortcuts.get(guild_id, [])
             if item.get("enabled", True)
         ]
-        for variant in variants:
+        for variant, source_variant in variant_pairs:
             for shortcut in sorted(
                 shortcuts,
                 key=lambda item: len(_normalize_route_text(item.get("trigger", ""))),
@@ -1067,10 +1148,14 @@ class Utilities(commands.Cog):
                     variant == trigger or variant.startswith(trigger + " ")
                 ):
                     continue
-                arguments = variant[len(trigger):].strip()
                 target_type = shortcut.get("target_type")
+                if target_type not in {"command", "help", "announcement"}:
+                    continue
+                arguments = _route_arguments_after_prefix(source_variant, trigger)
                 if target_type in {"help", "announcement"} and arguments:
                     continue
+                if not self._claim_message_dispatch(message):
+                    return True
                 if target_type == "announcement":
                     embed = discord.Embed(
                         description=self.render_response(
@@ -1083,23 +1168,21 @@ class Utilities(commands.Cog):
                 if target_type == "help":
                     await self._send_command_help(message, shortcut.get("target", ""))
                     return True
-                if target_type == "command":
-                    command_name = str(shortcut.get("target", "")).strip().lstrip("!/")
-                    succeeded = await self._execute_alias_command(
-                        message, command_name, arguments
+                command_name = str(shortcut.get("target", "")).strip().lstrip("!/")
+                succeeded = await self._execute_alias_command(
+                    message, command_name, arguments
+                )
+                if succeeded:
+                    await self._send_alias_confirmation(
+                        message,
+                        str(shortcut.get("trigger", trigger)),
+                        command_name,
+                        details=arguments or "بدون وسائط إضافية",
                     )
-                    if succeeded:
-                        await self._send_alias_confirmation(
-                            message,
-                            str(shortcut.get("trigger", trigger)),
-                            command_name,
-                            details=arguments or "بدون وسائط إضافية",
-                        )
-                    return True
+                return True
 
-        # 3) If the original message itself matches a normal responder, let
-        # Utilities.on_message own it. This prevents two event listeners from
-        # emitting a duplicate response to the same raw-message trigger.
+        # 3) If the raw message matches a responder, let Utilities.on_message
+        # execute it. That listener owns cooldowns and the audit counter.
         raw_responder = self._select_priority_responder(
             self._responder_candidates(message, str(message.content or "")),
             message,
@@ -1107,9 +1190,8 @@ class Utilities(commands.Cog):
         if raw_responder is not None:
             return True
 
-        # 4) Otherwise allow the trigger to match the de-quoted command prompt
-        # (the bot mention/wake word has already been removed).
-        for variant in variants:
+        # 4) Otherwise route a responder matched by the de-quoted prompt.
+        for variant, _source_variant in variant_pairs:
             responder = self._select_priority_responder(
                 self._responder_candidates(message, variant), message
             )
@@ -1131,9 +1213,13 @@ class Utilities(commands.Cog):
         guild_id = int(message.guild.id)
         if guild_id not in self.command_aliases:
             await self._load_command_controls(guild_id)
-        binding = self.command_aliases.get(guild_id, {}).get(token.casefold())
+        binding = self.command_aliases.get(guild_id, {}).get(_normalize_route_text(token))
         if binding is None:
             return False
+        # Claim before the first execution await so the assistant listener cannot
+        # run this same message through a natural-language route concurrently.
+        if not self._claim_message_dispatch(message):
+            return True
         command_name, policy = binding
         if not policy.get("enabled", True):
             await self._send_alias_denial(
@@ -1758,10 +1844,14 @@ class Utilities(commands.Cog):
         return re.sub(r"\{random:([^{}|]+(?:\|[^{}|]+)+)\}", choose, rendered)[:2000]
 
     async def _dispatch_shortcut(self, message: discord.Message) -> bool:
-        trigger = message.content.strip().casefold()
+        trigger = _normalize_route_text(message.content)
         for shortcut in self.shortcuts.get(int(message.guild.id), []):
-            if str(shortcut.get("trigger", "")).strip().casefold() != trigger:
+            if not shortcut.get("enabled", True):
                 continue
+            if _normalize_route_text(shortcut.get("trigger", "")) != trigger:
+                continue
+            if not self._claim_message_dispatch(message):
+                return True
             if shortcut["target_type"] == "announcement":
                 embed = discord.Embed(
                     description=self.render_response(shortcut["announcement"], message),
@@ -1776,6 +1866,8 @@ class Utilities(commands.Cog):
         command = self._text_command_for_trigger(trigger)
         if command is None:
             return False
+        if not self._claim_message_dispatch(message):
+            return True
         target = f"/{command.qualified_name}"
         required = [
             parameter
