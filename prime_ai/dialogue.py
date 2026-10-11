@@ -85,8 +85,16 @@ async def generate_user_response(
     # Capture before any I/O, not after a profile/topic read that may race deletion.
     epoch = store.user_epoch(guild.id, actor.id) if guild is not None else None
     if guild is not None:
-        profile = await intelligence.load_user_profile(int(guild.id), int(actor.id))
         context = dict(context or {})
+        try:
+            profile = await intelligence.load_user_profile(int(guild.id), int(actor.id))
+        except Exception:
+            # A preferences/profile read is optional: a transient database problem
+            # must not prevent the user from getting an otherwise valid AI answer.
+            LOGGER.exception(
+                "[AI] Could not load PRIME user profile; continuing without profile context."
+            )
+            profile = {}
         context["user_profile"] = profile
 
     async def generate(conversation, request_text=question):
@@ -99,18 +107,36 @@ async def generate_user_response(
 
     if key is None:
         return await generate([])
-    topic = await persistence.resolve_topic_key(
-        int(guild.id), int(channel_id), int(actor.id),
-        intelligence._extract_topic(question), reference_message_id,
-        allow_inherit=persistence.is_follow_up(question),
-    )
+    fallback_topic = intelligence._extract_topic(question)
+    try:
+        topic = await persistence.resolve_topic_key(
+            int(guild.id), int(channel_id), int(actor.id),
+            fallback_topic, reference_message_id,
+            allow_inherit=persistence.is_follow_up(question),
+        )
+    except Exception:
+        # Topic resolution is an enhancement, not a prerequisite for answering.
+        LOGGER.exception(
+            "[AI] Could not resolve durable conversation topic; using safe fallback."
+        )
+        topic = fallback_topic
+
     async with store.lock_for(key):
         conversation = []
         if policy.messages and policy.retention_days > 0:
-            conversation = await persistence.load_turns(
-                int(guild.id), int(channel_id), int(actor.id), topic,
-                reference_message_id=reference_message_id, limit=policy.messages // 2,
-            )
+            try:
+                conversation = await persistence.load_turns(
+                    int(guild.id), int(channel_id), int(actor.id), topic,
+                    reference_message_id=reference_message_id,
+                    limit=policy.messages // 2,
+                )
+            except Exception:
+                # Prefer the isolated in-memory conversation when durable history
+                # is temporarily unavailable; it is still scoped by guild/channel/user.
+                LOGGER.exception(
+                    "[AI] Could not load durable conversation history; using in-memory context."
+                )
+                conversation = store.get(key)
         answer = await generate(conversation)
         if intelligence.response_repeats_recent(answer, conversation):
             rewrite_request = (
@@ -125,18 +151,25 @@ async def generate_user_response(
                     answer = rewritten
             except Exception:
                 LOGGER.exception("[AI] Repetition rewrite failed; keeping first answer.")
-        await _persist_turn(
-            store, guild, actor, channel_id, question, answer, policy,
-            epoch=epoch, topic_key=topic,
-            intent=str((context or {}).get("intent") or ""),
-            turn_key=str(turn_key or (
-                f"generated:{guild.id}:{channel_id}:{actor.id}:"
-                f"{int(asyncio.get_running_loop().time() * 1000)}"
-            )),
-            thread_id=thread_id, user_message_id=user_message_id,
-            reference_message_id=reference_message_id,
-            mentioned_user_ids=mentioned_user_ids,
-        )
+        try:
+            await _persist_turn(
+                store, guild, actor, channel_id, question, answer, policy,
+                epoch=epoch, topic_key=topic,
+                intent=str((context or {}).get("intent") or ""),
+                turn_key=str(turn_key or (
+                    f"generated:{guild.id}:{channel_id}:{actor.id}:"
+                    f"{int(asyncio.get_running_loop().time() * 1000)}"
+                )),
+                thread_id=thread_id, user_message_id=user_message_id,
+                reference_message_id=reference_message_id,
+                mentioned_user_ids=mentioned_user_ids,
+            )
+        except Exception:
+            # Delivery must not be lost because optional conversation persistence
+            # failed after the provider already produced a valid response.
+            LOGGER.exception(
+                "[AI] Could not persist generated conversation turn; preserving reply."
+            )
         return answer
 
 
