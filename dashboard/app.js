@@ -366,9 +366,11 @@
     return r;
   }
   async function readJson(response, fallback = {}) {
-    if (!response?.ok) return fallback;
+    if (!response) return fallback;
     const contentType = response.headers?.get("content-type") || "";
     if (!contentType.toLowerCase().includes("application/json")) return fallback;
+    // Read JSON error bodies too. Hiding them made API validation failures
+    // appear as generic save failures in production.
     try {
       return await response.json();
     } catch (_) {
@@ -9912,7 +9914,16 @@
             toast("تغيّرت إعدادات المستويات على السيرفر. حُمّلت النسخة الأحدث؛ راجع تعديلاتك ثم احفظ مجدداً.", "warn", 6000);
             lvRender();
           } else if (!response.ok || !data.draft) {
-            toast(Object.values(data.fields || {})[0] || "تعذر حفظ إعدادات المستويات", "error");
+            const fieldError = Object.values(data.fields || {})[0];
+            const errorMessage = fieldError
+              || (data.error === "invalid_json"
+                ? "وصلت بيانات الحفظ ناقصة أو غير صالحة؛ أعد تحميل الصفحة ثم جرّب مجدداً."
+                : data.error === "request_too_large"
+                  ? "حجم إعدادات الحفظ تجاوز الحد المسموح."
+                  : data.error === "leveling_unavailable"
+                    ? "تعذر حفظ إعدادات المستويات في قاعدة البيانات؛ راجع سجلات الخادم."
+                    : `تعذر حفظ إعدادات المستويات (HTTP ${response.status})`);
+            toast(errorMessage, "error");
           } else {
             s.revision = data.revision;
             s.configured = data.configured;
