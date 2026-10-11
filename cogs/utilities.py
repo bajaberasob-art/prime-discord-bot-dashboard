@@ -1405,6 +1405,11 @@ class Utilities(commands.Cog):
         ctx = await get_context(message)
         ctx.command = command
         try:
+            # Context.invoke does not run the bot's global checks. Apply PRIME's
+            # guild policy/management interceptor explicitly before the prefix
+            # callback so dashboard/assistant shortcuts cannot bypass it.
+            if not await self.command_interceptor(ctx):
+                raise commands.CheckFailure()
             can_run = getattr(command, "can_run", None)
             if can_run is not None and not await can_run(ctx):
                 raise commands.CheckFailure()
