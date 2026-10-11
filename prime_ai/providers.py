@@ -260,7 +260,7 @@ async def request_with_fallback(
                     return await complete(
                         session, payload,
                         timeout_seconds=per_attempt_timeout,
-                        retry_count=retries,
+                        retry_count=effective_retries,
                     )
             except AIProviderUnavailable as primary_error:
                 if (
