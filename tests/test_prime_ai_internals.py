@@ -191,6 +191,30 @@ class ConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await cache.get(1))[0]["revision"], 1)
         self.assertEqual((await cache.get(1))[0]["revision"], 2)
 
+    async def test_transient_408_and_425_statuses_use_fallback_model(self):
+        for status in (408, 425):
+            with self.subTest(status=status):
+                calls = []
+
+                async def complete(session, payload, **kwargs):
+                    calls.append(payload["model"])
+                    if len(calls) == 1:
+                        raise AIProviderUnavailable(
+                            "temporary_request_failure",
+                            retryable=True,
+                            status_code=status,
+                        )
+                    return "fallback answer", 7
+
+                answer, tokens = await request_with_fallback(
+                    None, {"model": PROVIDER_MODEL},
+                    timeout_seconds=1.0, retry_count=0,
+                    complete=complete, logger=Mock(),
+                )
+                self.assertEqual(answer, "fallback answer")
+                self.assertEqual(tokens, 7)
+                self.assertEqual(calls, [PROVIDER_MODEL, FALLBACK_PROVIDER_MODEL])
+
     async def test_provider_retry_and_fallback_share_one_deadline(self):
         gate = BoundedProviderGate(max_active=1)
         calls = []
@@ -344,6 +368,39 @@ class DialogueLifecycleTests(unittest.IsolatedAsyncioTestCase):
         record.assert_not_awaited()
         profile.assert_not_awaited()
         self.assertEqual(store.get((1, 3, 2)), [])
+
+    async def test_optional_profile_and_history_failures_do_not_block_ai_reply(self):
+        store = ConversationStateStore()
+        guild, actor, channel = (
+            SimpleNamespace(id=value) for value in (101, 202, 303)
+        )
+        generated = AsyncMock(return_value="إجابة PRIME محفوظة")
+        profile_loader = AsyncMock(side_effect=RuntimeError("profile_store_unavailable"))
+        topic_loader = AsyncMock(side_effect=RuntimeError("topic_store_unavailable"))
+        history_loader = AsyncMock(side_effect=RuntimeError("history_store_unavailable"))
+        durable_writer = AsyncMock(side_effect=RuntimeError("turn_store_unavailable"))
+
+        with (
+            patch.object(dialogue.intelligence, "load_user_profile", profile_loader),
+            patch.object(dialogue.persistence, "resolve_topic_key", topic_loader),
+            patch.object(dialogue.persistence, "load_turns", history_loader),
+            patch.object(dialogue.service, "generate_response", generated),
+            patch.object(dialogue.persistence, "record_turn", durable_writer),
+        ):
+            answer = await dialogue.generate_user_response(
+                None, guild, actor, channel, "سؤال تجريبي",
+                store=store, config={}, context={}, mode="CHAT", audit_action="test",
+            )
+
+        self.assertEqual(answer, "إجابة PRIME محفوظة")
+        generated.assert_awaited_once()
+        self.assertEqual(generated.await_args.kwargs["context"]["user_profile"], {})
+        self.assertEqual(generated.await_args.kwargs["conversation"], [])
+        self.assertEqual(store.get((101, 303, 202))[-1]["content"], "[PRIME AI]: إجابة PRIME محفوظة")
+        profile_loader.assert_awaited_once()
+        topic_loader.assert_awaited_once()
+        history_loader.assert_awaited_once()
+        durable_writer.assert_awaited_once()
 
     async def test_deletion_waits_for_inflight_storage_then_removes_it(self):
         store = ConversationStateStore()
