@@ -926,7 +926,7 @@ const STATIC = [
   "./static/temp-voice.js?v=temp-voice-5",
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-model-controls-7",
-  "./static/ai-magic-island.js?v=prime-ai-workspace-6",
+  "./static/ai-magic-island.js?v=prime-ai-model-controls-7",
   "./static/app.js?v=prime-level-save-errors-2",
   "./manifest.json",
   "./icon.svg",
