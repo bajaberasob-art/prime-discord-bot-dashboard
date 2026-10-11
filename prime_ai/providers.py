@@ -198,7 +198,7 @@ async def complete_with_retries(
     session, payload: dict, *, provider: GeminiProvider,
     timeout_seconds: int, retry_count: int,
 ) -> tuple[str, int | None]:
-    retries = max(0, min(int(retry_count), 1))
+    retries = max(0, min(int(retry_count), 3))
     for attempt in range(retries + 1):
         try:
             return await provider.complete(
@@ -220,13 +220,32 @@ async def request_with_fallback(
 ) -> tuple[str, int | None]:
     """Try the primary model and fallback within one caller-visible time budget."""
     total_budget = max(0.01, float(timeout_seconds))
-    retries = max(0, min(int(retry_count), 1))
+    requested_retries = max(0, min(int(retry_count), 3))
     primary_share = 0.70
     primary_budget = total_budget * primary_share
     fallback_budget = total_budget - primary_budget
-    retry_backoff_budget = min(0.5 * retries, primary_budget * 0.1)
+
+    # Allocate the primary window across all configured retries and their
+    # exponential backoff. For very short total budgets, reduce the retry
+    # count rather than assigning each request an unusably tiny timeout.
+    effective_retries = requested_retries
+
+    def backoff_budget(count: int) -> float:
+        return sum(min(0.5 * (2 ** attempt), 2.0) for attempt in range(count))
+
+    while effective_retries > 0:
+        planned_backoff = backoff_budget(effective_retries)
+        attempt_timeout = (
+            primary_budget - planned_backoff
+        ) / (effective_retries + 1)
+        if attempt_timeout >= 0.25:
+            break
+        effective_retries -= 1
+
+    retry_backoff_budget = backoff_budget(effective_retries)
     per_attempt_timeout = max(
-        0.01, (primary_budget - retry_backoff_budget) / (retries + 1)
+        0.01,
+        (primary_budget - retry_backoff_budget) / (effective_retries + 1),
     )
 
     # Keep one overall deadline, but reserve explicit time for fallback. Each
@@ -261,6 +280,16 @@ async def request_with_fallback(
                     "[AI] Gemini primary model %s timed out within its budget; "
                     "trying fallback model %s.",
                     payload["model"], FALLBACK_PROVIDER_MODEL,
+                )
+            except aiohttp.ClientError as primary_transport_error:
+                if payload["model"] == FALLBACK_PROVIDER_MODEL:
+                    raise
+                logger.warning(
+                    "[AI] Gemini primary model %s had a transport error (%s); "
+                    "trying fallback model %s.",
+                    payload["model"],
+                    type(primary_transport_error).__name__,
+                    FALLBACK_PROVIDER_MODEL,
                 )
 
             remaining = max(0.01, deadline - loop.time())
