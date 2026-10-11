@@ -67,6 +67,8 @@ def set_gauge(name: str, value: float) -> None:
 
 def adjust_gauge(name: str, delta: float) -> None:
     """Atomically adjust a gauge on the event-loop thread."""
+    if not ENABLED:
+        return
     key = _valid_name(name)
     if key is None:
         return
