@@ -2598,7 +2598,8 @@ class AITools(commands.Cog):
         # Resolve explicit, configured command aliases/shortcuts locally before
         # spending AI rate limits or asking a model to reinterpret the request.
         # Utilities owns the existing command callbacks and applies policy checks.
-        utilities_cog = self.bot.get_cog("Utilities")
+        get_cog = getattr(self.bot, "get_cog", None)
+        utilities_cog = get_cog("Utilities") if callable(get_cog) else None
         assistant_dispatch = getattr(utilities_cog, "dispatch_assistant_prompt", None)
         if callable(assistant_dispatch):
             try:
