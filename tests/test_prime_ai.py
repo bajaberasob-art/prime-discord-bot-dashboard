@@ -945,6 +945,13 @@ class PrimeAIUnderstandingTests(unittest.IsolatedAsyncioTestCase):
             reference=None,
         )
 
+        labeled_prompt = prime_ai_runtime.label_member_mentions(
+            "هذا <@222222222222222222>",
+            [bot_member, target],
+            bot_member.id,
+        )
+        self.assertEqual(labeled_prompt, "هذا [عضو منشن 1]")
+
         context, _ = await prime_ai_runtime.build_context(
             message,
             {"context": {"max_messages": 0, "include_reply_context": False}},
@@ -952,6 +959,10 @@ class PrimeAIUnderstandingTests(unittest.IsolatedAsyncioTestCase):
         )
         safe_context = ai._model_visible_context(context, "CHAT")
         self.assertEqual(len(safe_context["mentioned_members"]), 1)
+        self.assertEqual(
+            safe_context["mentioned_members"][0]["reference"],
+            "[عضو منشن 1]",
+        )
         self.assertEqual(
             safe_context["mentioned_members"][0]["display_name"],
             "P1 KING",
