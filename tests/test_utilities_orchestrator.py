@@ -220,7 +220,7 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "trigger": r"^price\s+\d+$",
                     "match_type": "regex",
-                    "_compiled": re.compile(r"^price\s+\d+$", re.I),
+                    "_compiled": __import__("regex").compile(r"^price\s+\d+$", __import__("regex").I),
                 },
                 "price 20",
             )
