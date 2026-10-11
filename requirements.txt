@@ -9,3 +9,4 @@ Pillow
 arabic-reshaper
 python-bidi
 asyncpg
+regex>=2024.11.6
