@@ -27,6 +27,57 @@ from prime_ai import dialogue
 LOGGER = logging.getLogger("AITools")
 
 
+def _provider_failure_message(error: Exception) -> str:
+    """Translate safe provider error codes into actionable user-facing guidance."""
+    reason = str(error or "")[:120].lower()
+    status = getattr(error, "status_code", None)
+
+    if "gemini_api_key_missing" in reason:
+        return (
+            "مفتاح Gemini غير مضبوط على الخادم. أضف GEMINI_API_KEY في متغيرات "
+            "بيئة Discloud ثم أعد تشغيل التطبيق؛ لا ترسل المفتاح في المحادثة."
+        )
+    if "gemini_connection_failed" in reason:
+        return (
+            "تعذر إنشاء اتصال بخدمة Google Gemini من الخادم. تحقق من اتصال "
+            "Discloud ثم جرّب اختبار المزوّد من لوحة التحكم."
+        )
+    if "gemini_timeout" in reason or status == 504:
+        return (
+            "انتهت مهلة رد Gemini قبل اكتمال الإجابة. أعد المحاولة، أو خفّض "
+            "مستوى التفكير أو طول الإجابة من لوحة التحكم."
+        )
+    if status == 429 or "gemini_status_429" in reason:
+        return (
+            "وصل Gemini إلى حد الطلبات أو الحصة المتاحة حالياً. انتظر قليلاً "
+            "ثم أعد المحاولة، أو راجع الحصة والفوترة في إعدادات Google."
+        )
+    if status in {401, 403}:
+        return (
+            "رفضت Google مفتاح Gemini أو صلاحيات الوصول. تحقق من GEMINI_API_KEY "
+            "وتفعيل Gemini API للمشروع في Google AI Studio."
+        )
+    if status == 404 or "gemini_status_404" in reason:
+        return (
+            "اسم نموذج Gemini المحدد غير متاح لهذا الطلب. راجع اسم النموذج في "
+            "لوحة التحكم واختر نموذجاً مدعوماً."
+        )
+    if status == 400 or "invalid_argument" in reason:
+        return (
+            "رفض Gemini الطلب أو أحد إعداداته. راجع اسم النموذج وإعداداته، ثم "
+            "افحص سجل المزوّد لمعرفة رمز الرفض."
+        )
+    if status == 503 and "gemini_status_503" in reason:
+        return (
+            "خدمة Gemini مشغولة مؤقتاً. لم ينفّذ PRIME أي إجراء إداري؛ انتظر قليلاً "
+            "ثم أعد المحاولة."
+        )
+    return (
+        "تعذر إكمال طلب PRIME AI. لم يتم تأكيد أي إجراء؛ أعد المحاولة أو شغّل "
+        "اختبار المزوّد من لوحة التحكم."
+    )
+
+
 def _split_discord_answer(answer: str, limit: int = 1900) -> list[str]:
     """Split a reply at readable boundaries without dropping any source text."""
     if isinstance(limit, bool) or not isinstance(limit, int) or not 128 <= limit <= 4096:
@@ -1516,8 +1567,7 @@ class AITools(commands.Cog):
                 str(error)[:80] or "unknown",
             )
             await itx.followup.send(
-                "تعذر الاتصال بخدمة PRIME AI الآن. لم يُنفّذ أي إجراء؛ "
-                "حاول مجدداً أو شغّل اختبار المزوّد من لوحة التحكم.",
+                _provider_failure_message(error),
                 allowed_mentions=discord.AllowedMentions.none(),
             )
         except prime_ai_runtime.AccessDenied as error:
@@ -2654,21 +2704,7 @@ class AITools(commands.Cog):
                     "[AI] Semantic intent routing could not reach the provider (%s).",
                     str(error)[:80] or "unknown",
                 )
-                if error.status_code == 503:
-                    notice = (
-                        "طلبات PRIME AI مزدحمة حالياً. لم يُنفّذ أي إجراء؛ "
-                        "انتظر قليلاً ثم أعد الطلب."
-                    )
-                elif error.status_code == 429:
-                    notice = (
-                        "وصل PRIME AI إلى حد الاستخدام الحالي لدى المزوّد. "
-                        "لم يُنفّذ أي إجراء؛ حاول لاحقاً."
-                    )
-                else:
-                    notice = (
-                        "تعذر الاتصال بخدمة PRIME AI الآن. لم يُنفّذ أي إجراء؛ "
-                        "حاول مجدداً بعد قليل."
-                    )
+                notice = _provider_failure_message(error)
                 await message.reply(
                     notice,
                     mention_author=False,
@@ -2989,22 +3025,7 @@ class AITools(commands.Cog):
                 "[AI] Mention/reply provider request failed (%s).",
                 str(error)[:80] or "unknown",
             )
-            if error.status_code == 503:
-                failure_message = (
-                    "طلبات PRIME AI مزدحمة حالياً. لم يُنفّذ أي إجراء؛ "
-                    "انتظر قليلاً ثم أعد الطلب."
-                )
-            elif error.status_code == 429:
-                failure_message = (
-                    "وصل نموذج Gemini إلى حد الاستخدام الحالي؛ لم ينفصل PRIME AI عن "
-                    "Discord، لكن تعذر إكمال هذا الرد. حاول بعد قليل أو راجع حد "
-                    "الاستخدام لدى Google."
-                )
-            else:
-                failure_message = (
-                    "تعذر الاتصال بخدمة PRIME AI الآن. لم يُنفّذ أي إجراء؛ "
-                    "حاول مجدداً أو أخبر مشرف الخادم بتشغيل اختبار المزوّد من لوحة التحكم."
-                )
+            failure_message = _provider_failure_message(error)
             await message.reply(
                 failure_message,
                 mention_author=False,
@@ -3152,7 +3173,7 @@ class AITools(commands.Cog):
                 str(error)[:80] or "unknown",
             )
             return await itx.followup.send(
-                "تعذر الاتصال بخدمة PRIME AI الآن؛ لم يتم إنشاء الملخص. حاول مجدداً لاحقاً.",
+                _provider_failure_message(error),
                 ephemeral=True,
             )
         except Exception:
