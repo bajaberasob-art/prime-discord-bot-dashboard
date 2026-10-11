@@ -232,6 +232,9 @@ class PrimeAIDiscordResponseTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.original_db_name = database.DB_NAME
         database.DB_NAME = "/tmp/test_prime_ai_discord_response.db"
+        # This test swaps/deletes the SQLite file; invalidate schema memoization
+        # so a recycled inode cannot make a freshly created test DB look initialized.
+        prime_ai_intelligence._SCHEMA_READY_DB = None
         prime_ai_runtime.CONVERSATION_STATE.clear()
         if os.path.exists(database.DB_NAME):
             os.remove(database.DB_NAME)
@@ -1636,6 +1639,8 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.original_gemini_api_key = os.environ.get("GEMINI_API_KEY")
         os.environ["GEMINI_API_KEY"] = "prime-ai-test-key"
         database.DB_NAME = "/tmp/test_prime_ai_service.db"
+        # Reset schema memoization when recreating the test database file.
+        prime_ai_intelligence._SCHEMA_READY_DB = None
         if os.path.exists(database.DB_NAME):
             os.remove(database.DB_NAME)
         await database.init_db()
