@@ -988,28 +988,68 @@ self.addEventListener("fetch", (event) => {
 
 
 async def read_json_body(req) -> dict:
-    """Read a bounded JSON object for action endpoints."""
-    if req.content_length and req.content_length > MAX_BODY:
-        raise web.HTTPRequestEntityTooLarge(max_size=MAX_BODY, actual_size=req.content_length)
+    """Read the complete bounded JSON request body before parsing it."""
+    if req.content_length is not None and req.content_length > MAX_BODY:
+        raise web.HTTPRequestEntityTooLarge(
+            max_size=MAX_BODY,
+            actual_size=req.content_length,
+            text=json.dumps({"error": "request_too_large"}),
+            content_type="application/json",
+        )
     if not req.content_type.startswith("application/json"):
         raise web.HTTPUnsupportedMediaType()
-    try:
-        raw_body = await req.content.read(MAX_BODY + 1)
-        if len(raw_body) > MAX_BODY:
+
+    # StreamReader.read(n) may return fewer bytes than requested. Accumulate
+    # chunks through EOF so split network/proxy packets cannot produce a
+    # truncated JSON document and a misleading HTTP 400 on deployment.
+    chunks = []
+    total = 0
+    async for chunk in req.content.iter_chunked(64 * 1024):
+        total += len(chunk)
+        if total > MAX_BODY:
             raise web.HTTPRequestEntityTooLarge(
                 max_size=MAX_BODY,
-                actual_size=len(raw_body),
+                actual_size=total,
                 text=json.dumps({"error": "request_too_large"}),
                 content_type="application/json",
             )
+        chunks.append(chunk)
+    raw_body = b"".join(chunks)
+
+    try:
         body = json.loads(raw_body.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError) as error:
+    except UnicodeDecodeError as error:
+        if req.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            logger.warning(
+                "[JSON BODY INVALID] method=%s path=%s bytes=%s reason=utf8_decode",
+                req.method,
+                req.path,
+                len(raw_body),
+            )
         raise web.HTTPBadRequest(
             text=json.dumps({"error": "invalid_json"}),
             content_type="application/json",
         ) from error
+    except json.JSONDecodeError as error:
+        if req.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            logger.warning(
+                "[JSON BODY INVALID] method=%s path=%s bytes=%s reason=%s position=%s",
+                req.method,
+                req.path,
+                len(raw_body),
+                error.msg,
+                error.pos,
+            )
+        raise web.HTTPBadRequest(
+            text=json.dumps({"error": "invalid_json"}),
+            content_type="application/json",
+        ) from error
+
     if not isinstance(body, dict):
-        raise web.HTTPBadRequest(text=json.dumps({"error": "validation"}), content_type="application/json")
+        raise web.HTTPBadRequest(
+            text=json.dumps({"error": "validation"}),
+            content_type="application/json",
+        )
     return sanitize_payload(body)
 
 
