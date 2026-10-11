@@ -2543,6 +2543,9 @@ class AITools(commands.Cog):
                 return
             if not wake_presence:
                 prompt = "ساعدني في سؤالي."
+        prompt = prime_ai_runtime.label_member_mentions(
+            prompt, message.mentions, bot_id
+        )
         prompt = prompt[:prime_ai_service.MAX_CHAT_PROMPT]
         wait = await self._take_runtime_limits(
             message.guild, message.author, message.channel, config, mode
