@@ -1255,7 +1255,13 @@ class Utilities(commands.Cog):
                     "[COMMAND_ROUTE] Ignored ambiguous direct command trigger: %s",
                     alias,
                 )
-                return False
+                # Do not let the AI planner guess which administrative action
+                # the user meant after local resolution found a collision.
+                await message.channel.send(
+                    "⚠️ اسم الأمر غير محدد؛ استخدم الاسم الكامل أو اختصاراً فريداً.",
+                    delete_after=7,
+                )
+                return True
             command_name = next(iter(targets))
             if not self._claim_message_dispatch(message):
                 return True
