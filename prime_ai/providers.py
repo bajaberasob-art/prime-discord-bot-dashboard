@@ -191,42 +191,62 @@ async def request_with_fallback(
     session, payload: dict, *, timeout_seconds: float, retry_count: int,
     complete, logger,
 ) -> tuple[str, int | None]:
-    """Bound primary retries and one fallback with a deadline that includes all attempts."""
-    primary_timeout = max(3, int(timeout_seconds))
+    """Try the primary model and fallback within one caller-visible time budget."""
+    total_budget = max(0.01, float(timeout_seconds))
     retries = max(0, min(int(retry_count), 1))
-    fallback_timeout = max(3, min(primary_timeout, 20))
-    # The previous deadline equaled one request timeout, so it cancelled the
-    # primary call before complete_with_retries could finish its retry and
-    # before the configured fallback model could run.
-    total_deadline = primary_timeout * (retries + 1) + fallback_timeout + 2
+    primary_share = 0.70
+    primary_budget = total_budget * primary_share
+    fallback_budget = total_budget - primary_budget
+    per_attempt_timeout = max(
+        0.01, primary_budget / (retries + 1)
+    )
 
-    async with asyncio.timeout(total_deadline):
-        try:
+    # Keep one overall deadline, but reserve explicit time for fallback. Each
+    # primary attempt gets only a slice of the primary budget, so retries cannot
+    # consume the entire timeout and silently prevent the fallback from running.
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + total_budget
+    try:
+        async with asyncio.timeout(total_budget):
+            try:
+                async with asyncio.timeout(primary_budget):
+                    return await complete(
+                        session, payload,
+                        timeout_seconds=per_attempt_timeout,
+                        retry_count=retries,
+                    )
+            except AIProviderUnavailable as primary_error:
+                if (
+                    primary_error.status_code not in FALLBACK_PROVIDER_STATUSES
+                    or payload["model"] == FALLBACK_PROVIDER_MODEL
+                ):
+                    raise
+                logger.warning(
+                    "[AI] Gemini model %s returned a retryable API status; "
+                    "trying fallback model %s.",
+                    payload["model"], FALLBACK_PROVIDER_MODEL,
+                )
+            except asyncio.TimeoutError:
+                if payload["model"] == FALLBACK_PROVIDER_MODEL:
+                    raise
+                logger.warning(
+                    "[AI] Gemini primary model %s timed out within its budget; "
+                    "trying fallback model %s.",
+                    payload["model"], FALLBACK_PROVIDER_MODEL,
+                )
+
+            remaining = max(0.01, deadline - loop.time())
+            # The reserved share is an upper bound, not extra time past the
+            # request deadline. This also keeps short custom test budgets valid.
+            fallback_timeout = min(fallback_budget, remaining)
+            payload["model"] = FALLBACK_PROVIDER_MODEL
             return await complete(
-                session, payload, timeout_seconds=primary_timeout,
-                retry_count=retries,
+                session, payload, timeout_seconds=fallback_timeout,
+                retry_count=0,
             )
-        except AIProviderUnavailable as primary_error:
-            if (
-                primary_error.status_code not in FALLBACK_PROVIDER_STATUSES
-                or payload["model"] == FALLBACK_PROVIDER_MODEL
-            ):
-                raise
-            logger.warning(
-                "[AI] Gemini model %s returned a retryable API status; "
-                "trying fallback model %s.",
-                payload["model"], FALLBACK_PROVIDER_MODEL,
-            )
-        except asyncio.TimeoutError:
-            if payload["model"] == FALLBACK_PROVIDER_MODEL:
-                raise
-            logger.warning(
-                "[AI] Gemini primary model %s timed out after retries; "
-                "trying fallback model %s.",
-                payload["model"], FALLBACK_PROVIDER_MODEL,
-            )
-
-        payload["model"] = FALLBACK_PROVIDER_MODEL
-        return await complete(
-            session, payload, timeout_seconds=fallback_timeout, retry_count=0,
+    except asyncio.TimeoutError:
+        logger.warning(
+            "[AI] Gemini primary and fallback exceeded total budget %.2fs.",
+            total_budget,
         )
+        raise
