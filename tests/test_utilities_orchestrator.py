@@ -103,6 +103,49 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.cog.cog_unload()
 
+    async def test_assistant_prompt_routes_multword_policy_alias_once(self):
+        self.cog.auto_responders[700] = []
+        self.cog.shortcuts[700] = []
+        self.cog.command_aliases[700] = {
+            "قفل المحادثة": (
+                "lockdown",
+                {
+                    "enabled": True,
+                    "allowed_roles": [],
+                    "allowed_channels": [],
+                },
+            )
+        }
+        message = FakeMessage(
+            "يا برايم نفذ قفل المحادثة",
+            author=FakeAuthor(administrator=True),
+        )
+        message.id = 123456789
+
+        with (
+            patch.object(
+                self.cog,
+                "_execute_alias_command",
+                new=AsyncMock(return_value=True),
+            ) as execute,
+            patch.object(
+                self.cog, "_send_alias_confirmation", new=AsyncMock()
+            ),
+        ):
+            self.assertTrue(
+                await self.cog.dispatch_assistant_prompt(
+                    message, "نفذ قفل المحادثة"
+                )
+            )
+            # A second listener attempting the same message must not repeat the action.
+            self.assertTrue(
+                await self.cog.dispatch_assistant_prompt(
+                    message, "نفذ قفل المحادثة"
+                )
+            )
+
+        execute.assert_awaited_once_with(message, "lockdown", "")
+
     async def test_dynamic_prefix_reads_shared_settings_cache(self):
         await database.update_guild_settings(700, prefix="?")
         prefixes = await dynamic_prefix(self.bot, FakeMessage("hello"))
