@@ -956,6 +956,17 @@ class Utilities(commands.Cog):
             # The bot's normal prefix-command dispatcher owns this exact
             # built-in alias; do not also route it through dashboard shortcuts.
             return
+        # Let a registered Prefix command be handled only by discord.py's normal
+        # process_commands path. Intercepting it here could execute it twice.
+        try:
+            context = await self.bot.get_context(message)
+            if bool(getattr(context, "valid", False)):
+                return
+        except Exception:
+            LOGGER.debug(
+                "[ORCHESTRATOR] Prefix context check failed; continuing with guarded routes.",
+                exc_info=True,
+            )
         guild_id = int(message.guild.id)
         if await self._dispatch_policy_alias(message):
             return
