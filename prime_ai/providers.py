@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from urllib.parse import quote
 
 import aiohttp
@@ -122,8 +123,25 @@ class GeminiProvider:
             options["params"] = {"alt": "sse"}
         async with session.post(url, **options) as response:
             if response.status != 200:
+                # Google returns a structured error status (for example
+                # INVALID_ARGUMENT or RESOURCE_EXHAUSTED). Preserve only that
+                # safe category, not provider response text that could echo
+                # user-supplied request content.
+                reason_code = ""
+                try:
+                    error_payload = await response.json(content_type=None)
+                    error_info = (
+                        error_payload.get("error", {})
+                        if isinstance(error_payload, dict) else {}
+                    )
+                    if isinstance(error_info, dict):
+                        raw_reason = str(error_info.get("status", "")).upper()
+                        if re.fullmatch(r"[A-Z0-9_]{1,40}", raw_reason):
+                            reason_code = "_" + raw_reason.lower()
+                except (aiohttp.ClientError, ValueError, TypeError, AttributeError):
+                    pass
                 raise AIProviderUnavailable(
-                    f"gemini_status_{response.status}",
+                    f"gemini_status_{response.status}{reason_code}",
                     retryable=response.status in RETRYABLE_PROVIDER_STATUSES,
                     status_code=response.status,
                 )
