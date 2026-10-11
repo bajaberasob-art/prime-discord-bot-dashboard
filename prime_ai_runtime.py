@@ -835,6 +835,22 @@ async def build_context(
         },
         "user": _member_context(author),
     }
+    # Keep actual Discord mention targets as trusted structured context. The
+    # provider-safe chat prompt redacts raw <@id> tokens, so names cannot be
+    # recovered by the model from message.content alone.
+    mentioned_members = []
+    seen_mentioned_ids = set()
+    for mentioned_member in list(getattr(message, "mentions", ()) or ())[:10]:
+        mentioned_id = str(getattr(mentioned_member, "id", "") or "")
+        if not mentioned_id.isdigit() or mentioned_id in seen_mentioned_ids:
+            continue
+        seen_mentioned_ids.add(mentioned_id)
+        mention_context = _member_context(mentioned_member)
+        mention_context["is_bot"] = bool(getattr(mentioned_member, "bot", False))
+        mentioned_members.append(mention_context)
+    if mentioned_members:
+        context["mentioned_members"] = mentioned_members
+
     messages = []
     speaker_ids: dict[str, str] = {}
     bot_user_id = str(getattr(getattr(guild, "me", None), "id", ""))
