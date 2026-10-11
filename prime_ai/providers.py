@@ -91,9 +91,16 @@ class GeminiProvider:
         if not candidates:
             return []
         parts = candidates[0].get("content", {}).get("parts", [])
+        # Thought summaries are optional internal reasoning artifacts, not
+        # user-facing answers. Never forward them to Discord even if a future
+        # request enables includeThoughts or a provider returns them by default.
         return [
             part["text"] for part in parts
-            if isinstance(part, dict) and isinstance(part.get("text"), str)
+            if (
+                isinstance(part, dict)
+                and isinstance(part.get("text"), str)
+                and not bool(part.get("thought", False))
+            )
         ]
 
     async def complete(
