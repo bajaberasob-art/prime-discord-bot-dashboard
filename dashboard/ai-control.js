@@ -1238,10 +1238,19 @@
           state.providerStatus === "configured" ? "مهيّأ" : "غير مهيّأ"
         }. لا يتم تبديله تلقائياً ولا تحفظ اللوحة أي مفاتيح مزوّد.`,
       ));
+      providerSection.content.append(el(
+        "p",
+        "prime-ai-help",
+        "طلبات Gemini 3.x لا تستخدم معامل درجة الإبداع القديم؛ اضبط مستوى التفكير بدلًا منه لتوازن السرعة وجودة التحليل.",
+      ));
       const providerGrid = el("div", "prime-ai-control-grid");
       providerGrid.append(
         controlInput("provider.model", "اسم النموذج", provider.model, { maxLength: 80 }),
-        controlInput("provider.temperature", "درجة الإبداع", provider.temperature, { type: "number", min: 0, max: 2, step: 0.1 }),
+        controlSelect("provider.thinking_level", "مستوى التفكير", provider.thinking_level, [
+          { value: "low", label: "منخفض — أسرع" },
+          { value: "medium", label: "متوازن — موصى به" },
+          { value: "high", label: "مرتفع — تحليل أعمق" },
+        ]),
         controlInput("provider.max_tokens", "حد الرموز", provider.max_tokens, { type: "number", min: 64, max: 8192, step: 1 }),
         controlInput("provider.timeout_seconds", "مهلة المزوّد بالثواني", provider.timeout_seconds, { type: "number", min: 3, max: 120, step: 1 }),
         controlInput("provider.retry_count", "عدد إعادات المحاولة", provider.retry_count, { type: "number", min: 0, max: 3, step: 1 }),
