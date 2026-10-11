@@ -416,5 +416,111 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(message.channel.sent[1][1]["embed"].title, "تعذر تنفيذ الاختصار")
 
 
+    async def test_assistant_policy_alias_is_idempotent_and_preserves_argument_case(self):
+        target = SimpleNamespace(
+            id=42,
+            name="Ahmed",
+            display_name="Ahmed",
+            global_name="Ahmed",
+            mention="<@42>",
+            bot=False,
+        )
+        calls = []
+
+        async def callback(interaction, member, minutes, reason="غير محدد"):
+            calls.append((member, minutes, reason))
+            await interaction.response.send_message("تم التنفيذ")
+
+        async def check_can_run(interaction):
+            return True
+
+        command = SimpleNamespace(
+            name="demo",
+            qualified_name="demo",
+            callback=callback,
+            binding=None,
+            parameters=[
+                SimpleNamespace(name="member", required=True, type=6),
+                SimpleNamespace(name="minutes", required=True, type=4),
+                SimpleNamespace(name="reason", required=False, type=3),
+            ],
+            _check_can_run=check_can_run,
+        )
+        self.bot.tree.get_command = lambda name: command if name == "demo" else None
+        self.bot.tree.walk_commands = lambda: [command]
+        await self.cog.toggle_command(700, "demo", True, aliases=["run"])
+
+        message = FakeMessage(
+            "run 42 2h Policy Reason",
+            author=FakeAuthor(administrator=True),
+        )
+        message.id = 8123
+        message.guild.get_member = lambda member_id: target if member_id == 42 else None
+
+        # The raw Utilities listener and the PRIME prompt router may race on the
+        # same Discord message; the shared claim must permit only one callback.
+        await self.cog.on_message(message)
+        handled = await self.cog.dispatch_assistant_prompt(
+            message, "run 42 2h Policy Reason"
+        )
+
+        self.assertTrue(handled)
+        self.assertEqual(len(calls), 1)
+        self.assertIs(calls[0][0], target)
+        self.assertEqual(calls[0][1], 120)
+        self.assertEqual(calls[0][2], "Policy Reason")
+
+    async def test_assistant_prompt_routes_arabic_command_label_without_gemini(self):
+        executed = []
+
+        async def callback(interaction):
+            executed.append(interaction.command.qualified_name)
+            await interaction.response.send_message("تم قفل المحادثة")
+
+        async def check_can_run(interaction):
+            return True
+
+        command = SimpleNamespace(
+            name="lockdown",
+            qualified_name="lockdown",
+            callback=callback,
+            binding=None,
+            parameters=[],
+            _check_can_run=check_can_run,
+        )
+        self.bot.tree.get_command = lambda name: command if name == "lockdown" else None
+        self.bot.tree.walk_commands = lambda: [command]
+
+        message = FakeMessage(
+            "يا برايم نفّذ قفل المحادثة",
+            author=FakeAuthor(administrator=True),
+        )
+        message.id = 8124
+
+        handled = await self.cog.dispatch_assistant_prompt(
+            message, "نفّذ قفل المحادثة"
+        )
+
+        self.assertTrue(handled)
+        self.assertEqual(executed, ["lockdown"])
+
+    async def test_regex_timeout_is_treated_as_non_match(self):
+        class TimedOutPattern:
+            def search(self, *_args, **_kwargs):
+                raise TimeoutError()
+
+        self.assertFalse(
+            self.cog._matches(
+                {
+                    "trigger": "(a+)+$",
+                    "match_type": "regex",
+                    "_compiled": TimedOutPattern(),
+                    "id": 123,
+                },
+                "a" * 2000 + "!",
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
