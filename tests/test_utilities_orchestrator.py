@@ -146,6 +146,40 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
 
         execute.assert_awaited_once_with(message, "lockdown", "")
 
+    async def test_assistant_prompt_routes_localized_command_label_without_saved_alias(self):
+        command = SimpleNamespace(
+            name="lockdown",
+            qualified_name="lockdown",
+            aliases=[],
+            hidden=False,
+        )
+        self.bot.tree.walk_commands = lambda: [command]
+        self.cog.auto_responders[700] = []
+        self.cog.shortcuts[700] = []
+        message = FakeMessage(
+            "يا برايم نفذ قفل المحادثة",
+            author=FakeAuthor(administrator=True),
+        )
+        message.id = 123456790
+
+        with (
+            patch.object(
+                self.cog,
+                "_execute_alias_command",
+                new=AsyncMock(return_value=True),
+            ) as execute,
+            patch.object(
+                self.cog, "_send_alias_confirmation", new=AsyncMock()
+            ),
+        ):
+            self.assertTrue(
+                await self.cog.dispatch_assistant_prompt(
+                    message, "نفذ قفل المحادثة"
+                )
+            )
+
+        execute.assert_awaited_once_with(message, "lockdown", "")
+
     async def test_dynamic_prefix_reads_shared_settings_cache(self):
         await database.update_guild_settings(700, prefix="?")
         prefixes = await dynamic_prefix(self.bot, FakeMessage("hello"))
@@ -303,11 +337,16 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         async def callback(interaction):
             await interaction.response.send_message("نفّذ الأمر فعلياً")
 
+        async def check_can_run(interaction):
+            return True
+
         command = SimpleNamespace(
             name="warn",
             qualified_name="warn",
             callback=callback,
             binding=None,
+            parameters=[],
+            _check_can_run=check_can_run,
         )
         self.bot.tree.get_command = lambda name: command if name == "warn" else None
         await self.cog.add_shortcut(700, "تحذير", "command", target="/warn")
@@ -369,6 +408,31 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(executed), 1)
         self.assertEqual(message.channel.sent[0][0], "نفّذ أمر Prefix فعلياً")
 
+    async def test_command_shortcut_enforces_native_slash_checks(self):
+        executed = []
+
+        async def callback(interaction):
+            executed.append(True)
+            await interaction.response.send_message("لا يجب أن يصل هنا")
+
+        check = AsyncMock(return_value=False)
+        command = SimpleNamespace(
+            name="secret",
+            qualified_name="secret",
+            callback=callback,
+            binding=None,
+            parameters=[],
+            _check_can_run=check,
+        )
+        self.bot.tree.get_command = lambda name: command if name == "secret" else None
+        await self.cog.add_shortcut(700, "سر", "command", target="/secret")
+
+        message = FakeMessage("سر")
+        await self.cog.on_message(message)
+
+        check.assert_awaited_once()
+        self.assertEqual(executed, [])
+
     async def test_command_shortcut_cannot_bypass_channel_policy(self):
         executed = []
 
@@ -376,11 +440,16 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
             executed.append(True)
             await interaction.response.send_message("لا يجب أن يصل هنا")
 
+        async def check_can_run(interaction):
+            return True
+
         command = SimpleNamespace(
             name="warn",
             qualified_name="warn",
             callback=callback,
             binding=None,
+            parameters=[],
+            _check_can_run=check_can_run,
         )
         self.bot.tree.get_command = lambda name: command if name == "warn" else None
         await self.cog.toggle_command(700, "warn", True, [], [301])
