@@ -896,6 +896,77 @@ class PrimeAIPromptTests(unittest.TestCase):
 
 
 class PrimeAIUnderstandingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_build_context_resolves_explicit_member_mentions_safely(self):
+        mentioned_role = SimpleNamespace(id=333333333333333333, name="P1")
+        target = SimpleNamespace(
+            id=222222222222222222,
+            display_name="P1 KING",
+            global_name="P1 KING",
+            name="p1king",
+            roles=[mentioned_role],
+            guild_permissions=SimpleNamespace(),
+            bot=False,
+        )
+        author = SimpleNamespace(
+            id=111111111111111111,
+            display_name="Caller",
+            global_name="Caller",
+            name="caller",
+            roles=[],
+            guild_permissions=SimpleNamespace(),
+        )
+        bot_member = SimpleNamespace(id=444444444444444444)
+        guild = SimpleNamespace(
+            id=555555555555555555,
+            name="PRIME | TEAM",
+            member_count=3,
+            roles=[],
+            text_channels=[],
+            me=bot_member,
+        )
+        channel = SimpleNamespace(id=666666666666666666, name="ai-chat")
+        message = SimpleNamespace(
+            guild=guild,
+            channel=channel,
+            author=author,
+            mentions=[target],
+            reference=None,
+        )
+
+        context, _ = await prime_ai_runtime.build_context(
+            message,
+            {"context": {"max_messages": 0, "include_reply_context": False}},
+            include_channel_history=False,
+        )
+        safe_context = ai._model_visible_context(context, "CHAT")
+        self.assertEqual(
+            safe_context["mentioned_members"][0]["display_name"],
+            "P1 KING",
+        )
+        self.assertEqual(
+            safe_context["mentioned_members"][0]["username"],
+            "p1king",
+        )
+        self.assertEqual(
+            safe_context["mentioned_members"][0]["role_names"],
+            ["P1"],
+        )
+        self.assertNotIn(
+            "222222222222222222",
+            json.dumps(safe_context, ensure_ascii=False),
+        )
+
+        prompt = ai._build_system_prompt(
+            ai._default_settings(),
+            [],
+            control={"config": deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)},
+            context=context,
+            mode="CHAT",
+        )
+        self.assertIn("P1 KING", prompt)
+        self.assertIn("الحسابات التي منشنها المستخدم صراحةً", prompt)
+        self.assertNotIn("222222222222222222", prompt)
+
     def test_wake_word_recognition_requires_a_direct_vocative(self):
         cases = {
             "يا برايم": (True, ""),
