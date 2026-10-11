@@ -1201,7 +1201,76 @@ class Utilities(commands.Cog):
         if raw_responder is not None:
             return True
 
-        # 4) Otherwise route a responder matched by the de-quoted prompt.
+        # 4) Resolve loaded command names, Prefix aliases, and localized labels
+        # (for example "قفل المحادثة") locally before asking the model to infer
+        # an action. The existing command callback and policy pipeline remain in use.
+        command_targets: dict[str, set[str]] = {}
+        candidates = []
+        tree = getattr(self.bot, "tree", None)
+        walker = getattr(tree, "walk_commands", None)
+        if callable(walker):
+            try:
+                candidates.extend(walker())
+            except (AttributeError, TypeError):
+                LOGGER.debug("[COMMAND_ROUTE] Could not enumerate Slash commands.", exc_info=True)
+        candidates.extend(getattr(self.bot, "commands", []) or [])
+        for command in candidates:
+            if getattr(command, "hidden", False):
+                continue
+            target = str(
+                getattr(command, "qualified_name", "")
+                or getattr(command, "name", "")
+            ).strip()
+            if not target:
+                continue
+            command_name = str(getattr(command, "name", "")).strip().casefold()
+            triggers = {
+                target,
+                str(getattr(command, "name", "")).strip(),
+                *(
+                    str(alias).strip()
+                    for alias in (getattr(command, "aliases", []) or [])
+                ),
+            }
+            localized = COMMAND_HELP_LABELS.get(command_name)
+            if localized:
+                triggers.add(localized)
+            for trigger in triggers:
+                key = _normalize_route_text(trigger)
+                if key:
+                    command_targets.setdefault(key, set()).add(target)
+
+        for variant, source_variant in variant_pairs:
+            matching_targets = [
+                (key, targets)
+                for key, targets in command_targets.items()
+                if variant == key or variant.startswith(key + " ")
+            ]
+            if not matching_targets:
+                continue
+            alias, targets = max(matching_targets, key=lambda item: len(item[0]))
+            # A conflicting name must never select an arbitrary administrative command.
+            if len(targets) != 1:
+                LOGGER.warning(
+                    "[COMMAND_ROUTE] Ignored ambiguous direct command trigger: %s",
+                    alias,
+                )
+                return False
+            command_name = next(iter(targets))
+            if not self._claim_message_dispatch(message):
+                return True
+            arguments = _route_arguments_after_prefix(source_variant, alias)
+            succeeded = await self._execute_alias_command(
+                message, command_name, arguments
+            )
+            if succeeded:
+                await self._send_alias_confirmation(
+                    message, alias, command_name,
+                    details=arguments or "بدون وسائط إضافية",
+                )
+            return True
+
+        # 5) Otherwise route a responder matched by the de-quoted prompt.
         for variant, _source_variant in variant_pairs:
             responder = self._select_priority_responder(
                 self._responder_candidates(message, variant), message
@@ -2003,53 +2072,16 @@ class Utilities(commands.Cog):
         message: discord.Message,
         target: str,
     ) -> bool:
+        """Dispatch a dashboard shortcut through the same guarded command path."""
         target = str(target).strip()
         command_target = target.lstrip("!/").strip() if target else ""
-        command_name = command_target.casefold()
-        if not command_name:
+        if not command_target:
             return False
-        slash_command = None
-        tree = getattr(self.bot, "tree", None)
-        getter = getattr(tree, "get_command", None)
-        if getter is not None:
-            try:
-                slash_command = getter(command_target)
-            except (AttributeError, TypeError):
-                slash_command = None
-        is_slash_command = slash_command is not None
-        if is_slash_command and target.startswith("/"):
-            callback = slash_command.callback
-            interaction = ShortcutInteraction(message, slash_command)
-            try:
-                if not await self.app_command_interceptor(interaction):
-                    return True
-                binding = getattr(slash_command, "binding", None)
-                if binding is not None:
-                    await callback(binding, interaction)
-                else:
-                    await callback(interaction)
-                return True
-            except Exception:
-                LOGGER.exception(
-                    "[SHORTCUT] فشل تشغيل الأمر Slash /%s", command_name
-                )
-                if not interaction.response.is_done():
-                    await message.channel.send(f"⚠️ تعذر تنفيذ الاختصار للأمر `/{command_name}`.")
-                return True
-        command = self.bot.get_command(command_name.split()[0])
-        if command is None:
-            await message.channel.send(f"⚠️ الأمر `{command_name}` غير موجود حالياً.")
-            return True
-        ctx = await self.bot.get_context(message)
-        ctx.command = command
-        try:
-            if not await self.command_interceptor(ctx):
-                return True
-            await ctx.invoke(command)
-            return True
-        except Exception:
-            LOGGER.exception("[SHORTCUT] فشل تشغيل الأمر %s", command_name)
-            return True
+
+        # Do not call Slash callbacks directly here: that skips command-local
+        # checks. _execute_alias_command handles qualified groups, argument
+        # validation, the global policy interceptor, and native command checks.
+        return await self._execute_alias_command(message, command_target, "")
 
     @commands.Cog.listener()
     async def on_voice_state_update(
