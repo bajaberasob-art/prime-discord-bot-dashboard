@@ -1707,6 +1707,33 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
 
+    async def test_provider_honors_configured_timeout_up_to_120_seconds(self):
+        config = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
+        config["provider"]["timeout_seconds"] = 120
+        request = AsyncMock(return_value=("answer", 3))
+
+        with (
+            patch.object(ai, "get_settings", new=AsyncMock(return_value=ai._default_settings())),
+            patch.object(
+                prime_ai_control, "get_control_settings",
+                new=AsyncMock(return_value={"config": config}),
+            ),
+            patch.object(ai, "list_context_memories", new=AsyncMock(return_value=[])),
+            patch.object(ai, "request_with_fallback", request),
+            patch.object(ai, "record_audit", new=AsyncMock()),
+            patch.object(prime_ai_control, "record_request", new=AsyncMock()),
+        ):
+            answer = await ai.generate_response(
+                FakeProviderSession(),
+                100000000000000071,
+                100000000000000072,
+                300000000000000073,
+                "Hello PRIME AI.",
+            )
+
+        self.assertEqual(answer, "answer")
+        self.assertEqual(request.await_args.kwargs["timeout_seconds"], 120)
+
     async def test_provider_gate_bounds_running_and_waiting_requests(self):
         gate = ai._BoundedProviderGate(
             max_active=1,
