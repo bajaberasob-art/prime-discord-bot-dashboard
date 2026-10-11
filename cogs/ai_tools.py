@@ -2594,6 +2594,26 @@ class AITools(commands.Cog):
             if not wake_presence:
                 prompt = "ساعدني في سؤالي."
         prompt = prompt[:prime_ai_service.MAX_CHAT_PROMPT]
+
+        # Resolve explicit, configured command aliases/shortcuts locally before
+        # spending AI rate limits or asking a model to reinterpret the request.
+        # Utilities owns the existing command callbacks and applies policy checks.
+        utilities_cog = self.bot.get_cog("Utilities")
+        assistant_dispatch = getattr(utilities_cog, "dispatch_assistant_prompt", None)
+        if callable(assistant_dispatch):
+            try:
+                if await assistant_dispatch(message, prompt):
+                    return
+            except Exception:
+                # A routed action may have reached Discord before an unexpected
+                # exception. Never fall through to AI planning and risk executing
+                # the same administrative request a second time.
+                LOGGER.exception(
+                    "[AI] Local PRIME command dispatch failed; stopping fallback "
+                    "to prevent a duplicate action."
+                )
+                return
+
         wait = await self._take_runtime_limits(
             message.guild, message.author, message.channel, config, mode
         )
