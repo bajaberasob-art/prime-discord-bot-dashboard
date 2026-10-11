@@ -18,7 +18,7 @@ from prime_ai.errors import AIProviderUnavailable
 from prime_ai.limits import SlidingWindowLimiter
 from prime_ai.providers import (
     GeminiProvider, PROVIDER_MODEL, PROVIDER_NAME,
-    FALLBACK_PROVIDER_MODEL, request_with_fallback,
+    FALLBACK_PROVIDER_MODEL, complete_with_retries, request_with_fallback,
 )
 from prime_ai.tasks import TaskSupervisor
 from prime_ai import dialogue
@@ -214,6 +214,45 @@ class ConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(answer, "fallback answer")
                 self.assertEqual(tokens, 7)
                 self.assertEqual(calls, [PROVIDER_MODEL, FALLBACK_PROVIDER_MODEL])
+
+    async def test_provider_retry_count_setting_supports_three_retries(self):
+        calls = []
+
+        class TransientProvider:
+            async def complete(self, _session, _payload, *, timeout_seconds):
+                calls.append(timeout_seconds)
+                if len(calls) <= 3:
+                    raise AIProviderUnavailable(
+                        "temporary_unavailable", retryable=True, status_code=503
+                    )
+                return "recovered", 12
+
+        with patch("prime_ai.providers.asyncio.sleep", new=AsyncMock()):
+            answer, tokens = await complete_with_retries(
+                None, {"model": PROVIDER_MODEL}, provider=TransientProvider(),
+                timeout_seconds=2, retry_count=3,
+            )
+
+        self.assertEqual(answer, "recovered")
+        self.assertEqual(tokens, 12)
+        self.assertEqual(len(calls), 4)
+
+    async def test_retryable_408_uses_fallback_model(self):
+        calls = []
+
+        async def complete(_session, payload, **_kwargs):
+            calls.append(payload["model"])
+            if len(calls) == 1:
+                raise AIProviderUnavailable("request_timeout", status_code=408)
+            return "fallback answer", 5
+
+        answer, tokens = await request_with_fallback(
+            None, {"model": PROVIDER_MODEL}, timeout_seconds=1,
+            retry_count=0, complete=complete, logger=Mock(),
+        )
+        self.assertEqual(answer, "fallback answer")
+        self.assertEqual(tokens, 5)
+        self.assertEqual(calls, [PROVIDER_MODEL, FALLBACK_PROVIDER_MODEL])
 
     async def test_provider_retry_and_fallback_share_one_deadline(self):
         gate = BoundedProviderGate(max_active=1)
