@@ -191,12 +191,20 @@ async def request_with_fallback(
     session, payload: dict, *, timeout_seconds: float, retry_count: int,
     complete, logger,
 ) -> tuple[str, int | None]:
-    """One total deadline for primary, retry backoff and same-provider fallback."""
-    async with asyncio.timeout(timeout_seconds):
+    """Bound primary retries and one fallback with a deadline that includes all attempts."""
+    primary_timeout = max(3, int(timeout_seconds))
+    retries = max(0, min(int(retry_count), 1))
+    fallback_timeout = max(3, min(primary_timeout, 20))
+    # The previous deadline equaled one request timeout, so it cancelled the
+    # primary call before complete_with_retries could finish its retry and
+    # before the configured fallback model could run.
+    total_deadline = primary_timeout * (retries + 1) + fallback_timeout + 2
+
+    async with asyncio.timeout(total_deadline):
         try:
             return await complete(
-                session, payload, timeout_seconds=timeout_seconds,
-                retry_count=retry_count,
+                session, payload, timeout_seconds=primary_timeout,
+                retry_count=retries,
             )
         except AIProviderUnavailable as primary_error:
             if (
@@ -205,10 +213,20 @@ async def request_with_fallback(
             ):
                 raise
             logger.warning(
-                "[AI] Gemini model %s stayed unavailable; retrying with same-provider model %s.",
+                "[AI] Gemini model %s returned a retryable API status; "
+                "trying fallback model %s.",
                 payload["model"], FALLBACK_PROVIDER_MODEL,
             )
-            payload["model"] = FALLBACK_PROVIDER_MODEL
-            return await complete(
-                session, payload, timeout_seconds=timeout_seconds, retry_count=0,
+        except asyncio.TimeoutError:
+            if payload["model"] == FALLBACK_PROVIDER_MODEL:
+                raise
+            logger.warning(
+                "[AI] Gemini primary model %s timed out after retries; "
+                "trying fallback model %s.",
+                payload["model"], FALLBACK_PROVIDER_MODEL,
             )
+
+        payload["model"] = FALLBACK_PROVIDER_MODEL
+        return await complete(
+            session, payload, timeout_seconds=fallback_timeout, retry_count=0,
+        )
