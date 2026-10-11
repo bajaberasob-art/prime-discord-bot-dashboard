@@ -21,6 +21,27 @@ class ProviderGateDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
             0.0,
         )
 
+    async def test_queue_rejection_is_counted(self):
+        gate = BoundedProviderGate(max_active=1, max_waiting=0)
+        await gate.acquire()
+        with self.assertRaises(Exception):
+            await gate.acquire()
+        self.assertEqual(
+            runtime_diagnostics.snapshot()["gauges"]["ai.provider_gate.rejections"],
+            1.0,
+        )
+        await gate.release()
+
+    async def test_queue_timeout_is_counted_and_waiter_removed(self):
+        gate = BoundedProviderGate(max_active=1, max_waiting=1, queue_timeout=0.1)
+        await gate.acquire()
+        with self.assertRaises(Exception):
+            await gate.acquire()
+        gauges = runtime_diagnostics.snapshot()["gauges"]
+        self.assertEqual(gauges["ai.provider_gate.timeouts"], 1.0)
+        self.assertEqual(gauges["ai.provider_gate.waiters"], 0.0)
+        await gate.release()
+
 
 if __name__ == "__main__":
     unittest.main()
