@@ -1619,7 +1619,7 @@ async def generate_response(
     try:
         retry_count = int(provider.get("retry_count", 0))
         timeout_seconds = max(
-            3, min(int(provider.get("timeout_seconds", 30)), 30)
+            3, min(int(provider.get("timeout_seconds", 30)), 120)
         )
         async with _PROVIDER_GATE.slot():
             answer, tokens_used = await request_with_fallback(
