@@ -940,51 +940,60 @@ class Utilities(commands.Cog):
         guild_id = int(message.guild.id)
         if await self._dispatch_policy_alias(message):
             return
-        if guild_id not in self.auto_responders:
+        if guild_id not in self.auto_responders or guild_id not in self.shortcuts:
             await self.sync_auto_responders(guild_id)
         content = str(message.content or "")
         if not content.strip():
             return
         if await self._dispatch_shortcut(message):
             return
+        responder = self._select_priority_responder(
+            self._responder_candidates(message, content), message
+        )
+        if responder is not None:
+            # A selected rule consumes the message even when its cooldown is
+            # exhausted; never fall through to a lower-priority responder.
+            await self._run_auto_responder(message, responder)
+
+    def _responder_candidates(
+        self, message: discord.Message, content: str
+    ) -> list[dict[str, Any]]:
         candidates = []
-        for responder in self.auto_responders.get(guild_id, []):
+        for responder in self.auto_responders.get(int(message.guild.id), []):
             if (
                 responder.get("channel_id") is not None
                 and str(responder["channel_id"]) != str(message.channel.id)
             ):
                 continue
-            if not self._matches(responder, content):
-                continue
-            candidates.append(responder)
-        responder = self._select_priority_responder(candidates, message)
-        if responder is None:
-            return
-        # Priority is strict: a selected rule consumes the message even when
-        # its cooldown is exhausted; never fall through to a lower tier.
+            if self._matches(responder, content):
+                candidates.append(responder)
+        return candidates
+
+    async def _run_auto_responder(
+        self, message: discord.Message, responder: dict[str, Any]
+    ) -> bool:
+        """Run a selected responder while keeping cooldown and audit behavior."""
+        guild_id = int(message.guild.id)
         if not self._consume_bucket(message, responder):
-            return
+            return True
         rendered = self.render_response(responder.get("response", ""), message)
         reaction = self._resolve_reaction(responder.get("reaction_emoji", ""))
         if not rendered.strip() and reaction is None:
-            return
+            return True
         executed = False
         if rendered.strip():
             try:
                 await message.channel.send(
                     rendered,
                     allowed_mentions=discord.AllowedMentions(
-                        users=True,
-                        roles=False,
-                        everyone=False,
+                        users=True, roles=False, everyone=False
                     ),
                 )
                 executed = True
             except (discord.Forbidden, discord.HTTPException):
                 LOGGER.warning(
                     "[AUTORESPONDER] تعذر إرسال رد في السيرفر %s",
-                    guild_id,
-                    exc_info=True,
+                    guild_id, exc_info=True,
                 )
         if reaction is not None:
             try:
@@ -994,13 +1003,119 @@ class Utilities(commands.Cog):
                 LOGGER.warning(
                     "[AUTORESPONDER] تعذر إضافة التفاعل %s في السيرفر %s",
                     responder.get("reaction_emoji", ""),
-                    guild_id,
-                    exc_info=True,
+                    guild_id, exc_info=True,
                 )
         if executed:
             responder["execution_count"] = await record_auto_responder_execution(
                 guild_id, int(responder["id"])
             )
+        return True
+
+    async def dispatch_assistant_prompt(
+        self, message: discord.Message, prompt: str
+    ) -> bool:
+        """Route an addressed assistant prompt through configured commands first.
+
+        This deliberately uses the ordinary command callback/policy path rather
+        than asking Gemini to reinterpret a configured alias.
+        """
+        if message.guild is None or getattr(message.author, "bot", False):
+            return False
+        content = str(prompt or "").strip()
+        variants = _route_text_variants(content)
+        if not variants:
+            return False
+        guild_id = int(message.guild.id)
+        if guild_id not in self.auto_responders or guild_id not in self.shortcuts:
+            await self.sync_auto_responders(guild_id)
+        if guild_id not in self.command_aliases:
+            await self._load_command_controls(guild_id)
+
+        # 1) Command policy aliases keep enabled/role/channel checks and the
+        # original command's parameter parsing and callback semantics.
+        aliases = self.command_aliases.get(guild_id, {})
+        for variant in variants:
+            matched = _match_leading_key(variant, aliases)
+            if matched is None:
+                continue
+            alias, (command_name, _policy) = matched
+            arguments = variant[len(alias):].strip()
+            succeeded = await self._execute_alias_command(
+                message, command_name, arguments
+            )
+            if succeeded:
+                await self._send_alias_confirmation(
+                    message, alias, command_name,
+                    details=arguments or "بدون وسائط إضافية",
+                )
+            return True
+
+        # 2) Saved dashboard shortcuts. Command shortcuts accept typed
+        # arguments; help and announcement shortcuts require the whole trigger.
+        shortcuts = [
+            item for item in self.shortcuts.get(guild_id, [])
+            if item.get("enabled", True)
+        ]
+        for variant in variants:
+            for shortcut in sorted(
+                shortcuts,
+                key=lambda item: len(_normalize_route_text(item.get("trigger", ""))),
+                reverse=True,
+            ):
+                trigger = _normalize_route_text(shortcut.get("trigger", ""))
+                if not trigger or not (
+                    variant == trigger or variant.startswith(trigger + " ")
+                ):
+                    continue
+                arguments = variant[len(trigger):].strip()
+                target_type = shortcut.get("target_type")
+                if target_type in {"help", "announcement"} and arguments:
+                    continue
+                if target_type == "announcement":
+                    embed = discord.Embed(
+                        description=self.render_response(
+                            shortcut.get("announcement", ""), message
+                        ),
+                        color=0x5865F2,
+                    )
+                    await message.channel.send(embed=embed)
+                    return True
+                if target_type == "help":
+                    await self._send_command_help(message, shortcut.get("target", ""))
+                    return True
+                if target_type == "command":
+                    command_name = str(shortcut.get("target", "")).strip().lstrip("!/")
+                    succeeded = await self._execute_alias_command(
+                        message, command_name, arguments
+                    )
+                    if succeeded:
+                        await self._send_alias_confirmation(
+                            message,
+                            str(shortcut.get("trigger", trigger)),
+                            command_name,
+                            details=arguments or "بدون وسائط إضافية",
+                        )
+                    return True
+
+        # 3) If the original message itself matches a normal responder, let
+        # Utilities.on_message own it. This prevents two event listeners from
+        # emitting a duplicate response to the same raw-message trigger.
+        raw_responder = self._select_priority_responder(
+            self._responder_candidates(message, str(message.content or "")),
+            message,
+        )
+        if raw_responder is not None:
+            return True
+
+        # 4) Otherwise allow the trigger to match the de-quoted command prompt
+        # (the bot mention/wake word has already been removed).
+        for variant in variants:
+            responder = self._select_priority_responder(
+                self._responder_candidates(message, variant), message
+            )
+            if responder is not None:
+                return await self._run_auto_responder(message, responder)
+        return False
 
     async def _dispatch_policy_alias(self, message: discord.Message) -> bool:
         """Execute a dashboard alias from the O(1) in-memory policy index."""
