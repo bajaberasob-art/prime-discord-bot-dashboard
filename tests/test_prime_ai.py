@@ -1797,6 +1797,25 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("الطول المفضل: مختصر", system_text)
         self.assertIn("استخدام الإيموجي: تجنبه", system_text)
 
+    async def test_memory_retrieval_failure_does_not_block_gemini_response(self):
+        session = FakeProviderSession()
+
+        with patch.object(
+            ai,
+            "list_context_memories",
+            new=AsyncMock(side_effect=RuntimeError("memory_store_unavailable")),
+        ):
+            answer = await ai.generate_response(
+                session,
+                100000000000000071,
+                100000000000000072,
+                300000000000000073,
+                "Hello PRIME AI.",
+            )
+
+        self.assertEqual(answer, "PRIME AI answer")
+        self.assertEqual(session.post_count, 1)
+
     async def test_user_profile_persists_actual_topic_separately_from_intent(self):
         profile = await prime_ai_intelligence.update_user_profile(
             100000000000000081,
