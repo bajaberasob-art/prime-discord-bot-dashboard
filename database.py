@@ -657,8 +657,8 @@ async def _migrate_legacy_level_schema(db: aiosqlite.Connection) -> None:
         await db.execute("DROP TABLE users")
         await db.execute("ALTER TABLE users_wallet_v2 RENAME TO users")
 
-    # Level rewards have no remaining consumer and are not part of wallet data.
-    await db.execute("DROP TABLE IF EXISTS level_rewards")
+    # Keep the retired table for recovery/compatibility. The current level
+    # engine reads level_role_rewards, but startup must not erase legacy rows.
 
     async with db.execute("PRAGMA table_info(economy_audit_logs);") as cur:
         audit_columns = {row[1] for row in await cur.fetchall()}
@@ -729,7 +729,8 @@ async def _migrate_legacy_level_schema(db: aiosqlite.Connection) -> None:
         await db.execute(
             "ALTER TABLE self_role_panels_wallet_v2 RENAME TO self_role_panels"
         )
-    await db.execute("DROP TABLE IF EXISTS self_role_buttons")
+    # Preserve legacy self-role button rows; no startup migration should
+    # delete a table merely because the current UI no longer reads it.
 
 
 async def init_db() -> None:
