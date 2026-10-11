@@ -170,6 +170,31 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         alias_dispatch.assert_not_awaited()
         shortcut_dispatch.assert_not_awaited()
 
+    async def test_prefix_alias_runs_global_command_policy_before_callback(self):
+        command = SimpleNamespace(
+            name="secret",
+            qualified_name="secret",
+            clean_params={},
+            can_run=AsyncMock(return_value=True),
+        )
+        self.bot.commands.append(command)
+        message = FakeMessage("secret")
+        message.id = 987654321
+        context = await self.bot.get_context(message)
+
+        with (
+            patch.object(
+                self.cog, "command_interceptor", new=AsyncMock(return_value=True)
+            ) as policy_check,
+        ):
+            # The fake context invokes the registered callback. No target-side effect
+            # is needed here: this regression is specifically about global policy.
+            with patch.object(self.cog, "_parse_alias_arguments", new=AsyncMock(return_value=({}, None))):
+                await self.cog._execute_prefix_alias(message, command, "", "secret")
+
+        policy_check.assert_awaited_once()
+        command.can_run.assert_awaited_once()
+
     async def test_command_interceptor_blocks_disabled_and_roleless_commands(self):
         command = SimpleNamespace(qualified_name="secret")
         ctx = SimpleNamespace(
