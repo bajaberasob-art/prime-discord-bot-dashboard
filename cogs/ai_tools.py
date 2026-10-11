@@ -2833,17 +2833,6 @@ class AITools(commands.Cog):
                     LOGGER.exception("[AI] Could not deliver natural action failure.")
             return
 
-        # Keep raw Discord mention tokens through deterministic skill/action
-        # routing so server actions can resolve the real target ID safely.
-        # Only once the request is known to be conversational, replace targets
-        # with safe aliases that match the structured context sent to Gemini.
-        prompt = prime_ai_runtime.label_member_mentions(
-            prompt, message.mentions, bot_id
-        )
-        turn_prompt = prime_ai_runtime.label_member_mentions(
-            turn_prompt, message.mentions, bot_id
-        )
-
         referenced_author = getattr(referenced, "author", None)
         safe_reply_context = (
             referenced
@@ -2891,6 +2880,16 @@ class AITools(commands.Cog):
             return
         if skill_request:
             context["intent"] = skill_request["intent"]
+
+        # Preserve raw mention IDs through both write-action routing and
+        # read-skill target resolution; label them only for free-form Gemini chat.
+        prompt = prime_ai_runtime.label_member_mentions(
+            prompt, message.mentions, bot_id
+        )
+        turn_prompt = prime_ai_runtime.label_member_mentions(
+            turn_prompt, message.mentions, bot_id
+        )
+
         response_config = config.get("response", {})
         try:
             if response_config.get("typing_indicator", True) and hasattr(message.channel, "typing"):
