@@ -840,9 +840,16 @@ async def build_context(
     # recovered by the model from message.content alone.
     mentioned_members = []
     seen_mentioned_ids = set()
+    bot_user_id = str(getattr(getattr(guild, "me", None), "id", "") or "")
     for mentioned_member in list(getattr(message, "mentions", ()) or ())[:10]:
         mentioned_id = str(getattr(mentioned_member, "id", "") or "")
-        if not mentioned_id.isdigit() or mentioned_id in seen_mentioned_ids:
+        # A mention that addresses PRIME is a trigger, not a user target.
+        # Exclude it so "this member" resolves to the actual member being asked about.
+        if (
+            not mentioned_id.isdigit()
+            or mentioned_id in seen_mentioned_ids
+            or (bot_user_id and mentioned_id == bot_user_id)
+        ):
             continue
         seen_mentioned_ids.add(mentioned_id)
         mention_context = _member_context(mentioned_member)
