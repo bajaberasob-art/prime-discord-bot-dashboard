@@ -1608,7 +1608,7 @@ async def generate_response(
     except asyncio.TimeoutError as error:
         elapsed = time.monotonic() - started
         LOGGER.warning(
-            "[AI] Gemini request timed out model=%s configured_timeout=%ss elapsed=%.1fs",
+            "[AI] Gemini request timed out model=%s primary_timeout=%ss total_elapsed=%.1fs",
             str(payload.get("model") or PROVIDER_MODEL),
             int(provider.get("timeout_seconds", 30)),
             elapsed,
