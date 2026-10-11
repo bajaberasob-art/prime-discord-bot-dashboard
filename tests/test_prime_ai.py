@@ -1668,6 +1668,36 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(profile["last_intent"], "CHAT")
         self.assertEqual(profile["last_topic"], "design")
 
+    async def test_primary_timeout_uses_flash_lite_fallback(self):
+        session = FakeProviderSession()
+        tried_models = []
+
+        async def timeout_primary_then_fallback(
+            _session, payload, *, timeout_seconds, retry_count,
+        ):
+            tried_models.append(payload["model"])
+            if payload["model"] == "gemini-3.8-flash":
+                raise asyncio.TimeoutError()
+            return "PRIME AI fallback answer", 11
+
+        with patch.object(
+            ai, "_complete_with_retries",
+            side_effect=timeout_primary_then_fallback,
+        ):
+            answer = await ai.generate_response(
+                session,
+                100000000000000068,
+                100000000000000069,
+                300000000000000070,
+                "Hello PRIME AI.",
+            )
+
+        self.assertEqual(answer, "PRIME AI fallback answer")
+        self.assertEqual(
+            tried_models,
+            ["gemini-3.8-flash", "gemini-3.1-flash-lite"],
+        )
+
     async def test_transient_provider_503_retries_then_succeeds(self):
         session = FakeProviderSession(statuses=[503, 200])
 
