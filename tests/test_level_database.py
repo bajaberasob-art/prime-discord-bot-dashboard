@@ -12,6 +12,38 @@ class LevelDatabaseTests(unittest.IsolatedAsyncioTestCase):
             os.remove(database.DB_NAME)
         await database.init_db()
 
+    async def test_startup_preserves_legacy_reward_and_self_role_rows(self):
+        async with database.connect() as db:
+            await db.execute(
+                "CREATE TABLE level_rewards (id INTEGER PRIMARY KEY, guild_id INTEGER, payload TEXT)"
+            )
+            await db.execute(
+                "INSERT INTO level_rewards (id, guild_id, payload) VALUES (1, 703, 'legacy reward')"
+            )
+            await db.execute(
+                "CREATE TABLE self_role_buttons (id INTEGER PRIMARY KEY, guild_id INTEGER, payload TEXT)"
+            )
+            await db.execute(
+                "INSERT INTO self_role_buttons (id, guild_id, payload) VALUES (1, 703, 'legacy button')"
+            )
+            await db.commit()
+
+        # Startup migrations must never delete legacy tables just because the
+        # current UI no longer reads them.
+        await database.init_db()
+
+        async with database.connect() as db:
+            async with db.execute(
+                "SELECT guild_id, payload FROM level_rewards WHERE id = 1"
+            ) as cur:
+                reward = await cur.fetchone()
+            async with db.execute(
+                "SELECT guild_id, payload FROM self_role_buttons WHERE id = 1"
+            ) as cur:
+                button = await cur.fetchone()
+        self.assertEqual(tuple(reward), (703, "legacy reward"))
+        self.assertEqual(tuple(button), (703, "legacy button"))
+
     async def test_level_tables_indexes_and_defaults(self):
         async with database.connect() as db:
             async with db.execute(
