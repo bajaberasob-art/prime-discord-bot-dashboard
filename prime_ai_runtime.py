@@ -773,6 +773,29 @@ def _history_entry(
     return {"role": role, "content": f"[{speaker}]: {content}"}
 
 
+def label_member_mentions(text: Any, mentions: Any, bot_user_id: Any = None) -> str:
+    """Replace Discord member tokens with stable, safe aliases for the current prompt."""
+    value = str(text or "")
+    bot_id = str(bot_user_id or "")
+    aliases: dict[str, str] = {}
+    for member in list(mentions or ())[:10]:
+        member_id = str(getattr(member, "id", "") or "")
+        if (
+            not member_id.isdigit()
+            or member_id == bot_id
+            or getattr(member, "bot", False) and member_id == bot_id
+        ):
+            continue
+        if member_id not in aliases:
+            aliases[member_id] = f"[عضو منشن {len(aliases) + 1}]"
+        value = re.sub(
+            r"<@!?" + re.escape(member_id) + r">",
+            aliases[member_id],
+            value,
+        )
+    return value
+
+
 def talk_channel_allows(config: dict, channel_id: Any) -> bool:
     talk_channel = (config or {}).get("talk_channel", {})
     return not talk_channel.get("enabled") or str(
@@ -853,6 +876,7 @@ async def build_context(
             continue
         seen_mentioned_ids.add(mentioned_id)
         mention_context = _member_context(mentioned_member)
+        mention_context["reference"] = f"[عضو منشن {len(mentioned_members) + 1}]"
         mention_context["is_bot"] = bool(getattr(mentioned_member, "bot", False))
         mentioned_members.append(mention_context)
     if mentioned_members:
