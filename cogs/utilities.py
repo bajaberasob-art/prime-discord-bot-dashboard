@@ -1265,6 +1265,22 @@ class Utilities(commands.Cog):
         token = parts[0].lstrip("!/")
         if not token:
             return False
+        # A real Prefix command belongs exclusively to process_commands(); routing
+        # it again as a dashboard alias could execute a privileged callback twice.
+        if parts[0].startswith(("!", "/")):
+            get_context = getattr(self.bot, "get_context", None)
+            if get_context is not None:
+                try:
+                    existing_context = await get_context(message)
+                except Exception:
+                    LOGGER.debug(
+                        "[COMMAND_ALIAS] Could not inspect a prefixed message; "
+                        "leaving it to the normal command dispatcher.",
+                        exc_info=True,
+                    )
+                    return False
+                if getattr(existing_context, "valid", False):
+                    return False
         guild_id = int(message.guild.id)
         if guild_id not in self.command_aliases:
             await self._load_command_controls(guild_id)
