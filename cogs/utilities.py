@@ -69,7 +69,7 @@ def _route_text_variant_pairs(value: Any) -> list[tuple[str, str]]:
         match = next((pattern.match(current) for pattern in _ROUTE_LEADERS if pattern.match(current)), None)
         if match is None or match.end() == 0:
             break
-        stripped = current[match.end():].strip(" \\t\\r\\n,،:;.!؟?/")
+        stripped = current[match.end():].strip(" \t\r\n,،:;.!؟?/")
         if not stripped or stripped == current:
             break
         current = stripped
@@ -86,7 +86,7 @@ def _route_arguments_after_prefix(source: str, normalized_prefix: str) -> str:
     target = _normalize_route_text(normalized_prefix)
     for end in range(1, len(source) + 1):
         if _normalize_route_text(source[:end]) == target:
-            return source[end:].strip(" \\t\\r\\n,،:;.!؟?/")
+            return source[end:].strip(" \t\r\n,،:;.!؟?/")
     return ""
 
 
