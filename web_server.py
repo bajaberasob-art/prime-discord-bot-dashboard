@@ -472,6 +472,34 @@ async def private_responses(req, handler):
             response = await handler(req)
     except web.HTTPException as error:
         response = error
+    except Exception:
+        if req.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            logger.exception(
+                "[WRITE EXCEPTION] method=%s path=%s host=%s",
+                req.method,
+                req.path,
+                req.host,
+            )
+        raise
+
+    if (
+        req.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and response.status >= 400
+    ):
+        origin = req.headers.get("Origin") or req.headers.get("Referer") or ""
+        origin_host = urlsplit(origin).netloc.lower() if origin else ""
+        logger.warning(
+            "[WRITE FAILURE] method=%s path=%s status=%s host=%s "
+            "origin_host=%s forwarded_host=%s csrf_present=%s",
+            req.method,
+            req.path,
+            response.status,
+            req.host,
+            origin_host,
+            req.headers.get("X-Forwarded-Host", ""),
+            bool(req.headers.get("X-CSRF-Token")),
+        )
+
     if req.path == "/sw.js":
         # The worker must be revalidated so routing fixes can reach existing
         # clients instead of leaving an older worker in control indefinitely.
