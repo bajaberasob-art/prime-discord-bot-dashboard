@@ -6,11 +6,13 @@ import random
 import re
 import shlex
 import time
+import unicodedata
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
 import discord
+import regex as safe_regex
 from discord import app_commands
 from discord.ext import commands
 
@@ -36,6 +38,72 @@ HUB_NAME = "➕ اضغط للإنشاء"
 LOGGER = logging.getLogger("UtilitiesOrchestrator")
 MATCH_TYPES = {"exact", "contains", "regex"}
 SHORTCUT_TYPES = {"command", "help", "announcement"}
+_ARABIC_DIACRITICS = re.compile(r"[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]")
+_ROUTE_LEADERS = (
+    re.compile(r"^(?:يا\s+)?(?:برايم|prime)\b[\s,:;.!؟?_-]*", re.IGNORECASE),
+    re.compile(r"^(?:(?:please|kindly)\s+)?(?:run|execute|use|invoke|trigger|call)\b[\s,:;.!؟?_-]*", re.IGNORECASE),
+    re.compile(r"^(?:نفّذ|نفذ|شغّل|شغل|استخدم|استعمل|فعّل|فعل|استدع|استدعي|قم\s+بتنفيذ)\b[\s,:;.!؟?_-]*", re.IGNORECASE),
+    re.compile(r"^(?:الاختصار|اختصار|الأمر|امر|command|shortcut)\b[\s,:;.!؟?_-]*", re.IGNORECASE),
+)
+
+
+def _normalize_route_text(value: Any) -> str:
+    """Normalize Arabic/English command labels while preserving typed arguments."""
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    text = _ARABIC_DIACRITICS.sub("", text).replace("ـ", "").casefold()
+    text = re.sub(r"[_-]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip(" \t\r\n,،:;.!؟?/")
+
+
+def _route_text_variants(value: Any) -> list[str]:
+    """Return progressively de-prefixed forms for explicit command invocations."""
+    current = str(value or "").strip()
+    variants: list[str] = []
+    for _ in range(6):
+        normalized = _normalize_route_text(current)
+        if normalized and normalized not in variants:
+            variants.append(normalized)
+        match = next((pattern.match(current) for pattern in _ROUTE_LEADERS if pattern.match(current)), None)
+        if match is None or match.end() == 0:
+            break
+        stripped = current[match.end():].strip(" \t\r\n,،:;.!؟?/")
+        if not stripped or stripped == current:
+            break
+        current = stripped
+    return variants
+
+
+def _match_leading_key(text: str, mapping: dict[str, Any]) -> tuple[str, str] | None:
+    """Match the longest configured trigger at the start and return its arguments."""
+    for key in sorted(mapping, key=len, reverse=True):
+        if text == key:
+            return key, ""
+        if text.startswith(key + " "):
+            return key, text[len(key):].strip()
+    return None
+
+
+def _build_command_alias_index(
+    controls: dict[str, dict[str, Any]],
+) -> dict[str, tuple[str, dict[str, Any]]]:
+    """Build an unambiguous normalized alias index for a guild."""
+    aliases: dict[str, tuple[str, dict[str, Any]]] = {}
+    ambiguous: set[str] = set()
+    for command_name, policy in controls.items():
+        for alias in policy.get("aliases", []):
+            key = _normalize_route_text(alias)
+            if not key:
+                continue
+            previous = aliases.get(key)
+            if previous and previous[0] != command_name:
+                ambiguous.add(key)
+            else:
+                aliases[key] = (command_name, policy)
+    for key in ambiguous:
+        aliases.pop(key, None)
+        LOGGER.warning("[COMMAND_ALIAS] تجاهل الاختصار الملتبس بعد التطبيع: %s", key)
+    return aliases
 COMMAND_HELP_LABELS = {
     "warn": "تحذير",
     "timeout": "تايم أوت",
