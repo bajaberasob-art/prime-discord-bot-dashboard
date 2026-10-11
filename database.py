@@ -1,4 +1,5 @@
 import aiosqlite
+import runtime_diagnostics
 import asyncio
 import json
 import logging
@@ -216,12 +217,19 @@ class _Connection:
     def __init__(self, row_factory=None):
         self._row_factory = row_factory
         self._db: Optional[aiosqlite.Connection] = None
+        self._entered_at: float | None = None
 
     async def __aenter__(self) -> aiosqlite.Connection:
         global _db_semaphore
         if _db_semaphore is None:
             _db_semaphore = asyncio.Semaphore(8)
+        semaphore_started = time.perf_counter()
         await _db_semaphore.acquire()
+        runtime_diagnostics.record_timing(
+            "db.semaphore_wait", (time.perf_counter() - semaphore_started) * 1000.0
+        )
+        runtime_diagnostics.adjust_gauge("db.active_connections", 1)
+        setup_started = time.perf_counter()
         try:
             self._db = await aiosqlite.connect(
                 DB_NAME,
@@ -230,8 +238,15 @@ class _Connection:
             if self._row_factory:
                 self._db.row_factory = self._row_factory
             await _configure(self._db)
+            runtime_diagnostics.record_timing(
+                "db.connection_setup", (time.perf_counter() - setup_started) * 1000.0
+            )
+            self._entered_at = time.perf_counter()
             return self._db
         except BaseException:
+            runtime_diagnostics.record_timing(
+                "db.connection_setup_failed", (time.perf_counter() - setup_started) * 1000.0
+            )
             # Cancellation can occur while opening/configuring a connection.
             # Always close any partially opened handle and release the slot;
             # otherwise eight cancelled tasks can permanently stall all DB work.
@@ -244,13 +259,19 @@ class _Connection:
                     exc_info=True,
                 )
             finally:
+                runtime_diagnostics.adjust_gauge("db.active_connections", -1)
                 _db_semaphore.release()
             raise
 
     async def __aexit__(self, *exc) -> None:
         try:
+            if self._entered_at is not None:
+                runtime_diagnostics.record_timing(
+                    "db.connection_lifetime", (time.perf_counter() - self._entered_at) * 1000.0
+                )
             await self._db.close()
         finally:
+            runtime_diagnostics.adjust_gauge("db.active_connections", -1)
             _db_semaphore.release()
 
 
