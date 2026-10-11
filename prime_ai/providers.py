@@ -16,7 +16,7 @@ PROVIDER_NAME = "Google Gemini"
 PROVIDER_MODEL = "gemini-3.8-flash"
 FALLBACK_PROVIDER_MODEL = "gemini-3.5-flash-lite"
 RETRYABLE_PROVIDER_STATUSES = frozenset({408, 425, 500, 502, 503, 504})
-FALLBACK_PROVIDER_STATUSES = frozenset({429, 500, 502, 503, 504})
+FALLBACK_PROVIDER_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 class PollinationsProvider:
