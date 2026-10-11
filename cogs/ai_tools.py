@@ -2700,17 +2700,16 @@ class AITools(commands.Cog):
                     config=config,
                 )
             except prime_ai_service.AIProviderUnavailable as error:
+                # Semantic routing is an optional classifier, not the chat
+                # response itself. If it is unavailable, do not execute a
+                # natural-language action; safely continue through normal chat
+                # generation so ordinary questions can still receive an answer.
                 LOGGER.warning(
-                    "[AI] Semantic intent routing could not reach the provider (%s).",
+                    "[AI] Semantic intent routing unavailable (%s); "
+                    "falling back to safe chat response without executing actions.",
                     str(error)[:80] or "unknown",
                 )
-                notice = _provider_failure_message(error)
-                await message.reply(
-                    notice,
-                    mention_author=False,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-                return
+                semantic_route = None
             except (
                 prime_ai_service.AIChannelDenied,
                 prime_ai_service.AISettingsDisabled,
