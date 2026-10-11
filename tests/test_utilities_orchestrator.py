@@ -180,6 +180,26 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
 
         execute.assert_awaited_once_with(message, "lockdown", "")
 
+    async def test_ambiguous_direct_command_does_not_fall_through_to_ai(self):
+        self.bot.tree.walk_commands = lambda: [
+            SimpleNamespace(name="secret", qualified_name="admin secret", hidden=False),
+            SimpleNamespace(name="secret", qualified_name="chat secret", hidden=False),
+        ]
+        self.cog.auto_responders[700] = []
+        self.cog.shortcuts[700] = []
+        message = FakeMessage("secret", author=FakeAuthor(administrator=True))
+        message.id = 123456791
+
+        with patch.object(
+            self.cog, "_execute_alias_command", new=AsyncMock()
+        ) as execute:
+            self.assertTrue(
+                await self.cog.dispatch_assistant_prompt(message, "secret")
+            )
+
+        execute.assert_not_awaited()
+        self.assertIn("اسم الأمر غير محدد", message.channel.sent[0][0])
+
     async def test_dynamic_prefix_reads_shared_settings_cache(self):
         await database.update_guild_settings(700, prefix="?")
         prefixes = await dynamic_prefix(self.bot, FakeMessage("hello"))
