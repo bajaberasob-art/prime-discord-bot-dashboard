@@ -24,6 +24,7 @@ from cogs.ai_tools import (
     PrimeAIMemoryCandidateView,
     PrimeAIModerationReviewView,
     _parse_private_memory_command,
+    _provider_failure_message,
     _split_discord_answer,
 )
 from tests.dashboard_harness import FakeBot, FakeGuild, CHANNELS, Chan, ROLES
@@ -167,6 +168,22 @@ class PrimeAIDiscordFormattingTests(unittest.TestCase):
         for invalid in (0, -1, 127, 4097, True, 1.5):
             with self.subTest(limit=invalid), self.assertRaises(ValueError):
                 _split_discord_answer("answer", limit=invalid)
+
+    def test_provider_errors_are_translated_to_accurate_guidance(self):
+        cases = (
+            ("gemini_api_key_missing", None, "GEMINI_API_KEY"),
+            ("gemini_connection_failed", 503, "اتصال بخدمة Google Gemini"),
+            ("gemini_timeout", 504, "انتهت مهلة"),
+            ("gemini_status_429_resource_exhausted", 429, "حد الطلبات"),
+            ("gemini_status_403_permission_denied", 403, "صلاحيات الوصول"),
+            ("gemini_status_404_not_found", 404, "غير متاح"),
+            ("gemini_status_400_invalid_argument", 400, "رفض Gemini الطلب"),
+            ("gemini_status_503_overloaded", 503, "مشغولة مؤقتاً"),
+        )
+        for reason, status, expected in cases:
+            with self.subTest(reason=reason):
+                error = ai.AIProviderUnavailable(reason, status_code=status)
+                self.assertIn(expected, _provider_failure_message(error))
 
 
 class PrimeAIDashboardPhaseFiveContractTests(unittest.TestCase):
