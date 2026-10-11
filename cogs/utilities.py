@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import discord
+import runtime_diagnostics
 import regex as safe_regex
 from discord import app_commands
 from discord.ext import commands
@@ -949,6 +950,7 @@ class Utilities(commands.Cog):
             LOGGER.error("[COMMAND] تعذر إرسال رسالة الخطأ", exc_info=True)
 
     @commands.Cog.listener()
+    @runtime_diagnostics.timed_async("commands.utilities_listener")
     async def on_message(self, message: discord.Message):
         if message.author.bot or message.guild is None:
             return
@@ -1074,6 +1076,7 @@ class Utilities(commands.Cog):
                 self._dispatch_message_claims.pop(next(iter(self._dispatch_message_claims)))
         return True
 
+    @runtime_diagnostics.timed_async("commands.assistant_route")
     async def dispatch_assistant_prompt(
         self, message: discord.Message, prompt: str
     ) -> bool:
