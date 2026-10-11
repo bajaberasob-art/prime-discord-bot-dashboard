@@ -527,11 +527,7 @@ class Utilities(commands.Cog):
         guild_id = int(guild_id)
         controls = await get_command_policies(guild_id, refresh=refresh)
         self.command_controls[guild_id] = controls
-        aliases = {}
-        for command_name, policy in controls.items():
-            for alias in policy.get("aliases", []):
-                aliases[str(alias).casefold()] = (command_name, policy)
-        self.command_aliases[guild_id] = aliases
+        self.command_aliases[guild_id] = _build_command_alias_index(controls)
         return controls
 
     async def toggle_command(
@@ -580,11 +576,9 @@ class Utilities(commands.Cog):
         )
         result["custom_aliases"] = list(result.get("aliases", []))
         self.command_controls.setdefault(int(guild_id), {})[name] = result
-        self.command_aliases[int(guild_id)] = {
-            str(alias).casefold(): (command, policy)
-            for command, policy in self.command_controls[int(guild_id)].items()
-            for alias in policy.get("aliases", [])
-        }
+        self.command_aliases[int(guild_id)] = _build_command_alias_index(
+            self.command_controls[int(guild_id)]
+        )
         return result
 
     async def sync_auto_responders(self, guild_id: int) -> dict[str, int]:
@@ -598,10 +592,10 @@ class Utilities(commands.Cog):
                 continue
             if responder["match_type"] == "regex":
                 try:
-                    responder["_compiled"] = re.compile(
-                        responder["trigger"], re.IGNORECASE
+                    responder["_compiled"] = safe_regex.compile(
+                        responder["trigger"], safe_regex.IGNORECASE
                     )
-                except re.error:
+                except safe_regex.error:
                     LOGGER.warning(
                         "[AUTORESPONDER] Regex غير صالح في السيرفر %s: %s",
                         guild_id,
@@ -640,7 +634,10 @@ class Utilities(commands.Cog):
         if not trigger or len(trigger) > 500:
             raise ValueError("trigger must contain 1-500 characters")
         if match_type == "regex":
-            re.compile(trigger, re.IGNORECASE)
+            try:
+                safe_regex.compile(trigger, safe_regex.IGNORECASE)
+            except safe_regex.error as error:
+                raise ValueError(f"Regex غير صالح: {error}") from error
         if len(str(response)) > 2000:
             raise ValueError("response must contain at most 2000 characters")
         target_type = str(target_type).strip().lower()
@@ -1483,12 +1480,30 @@ class Utilities(commands.Cog):
         trigger = str(responder.get("trigger", ""))
         match_type = responder.get("match_type")
         if match_type == "exact":
-            return content.strip().casefold() == trigger.casefold()
+            return _normalize_route_text(content) == _normalize_route_text(trigger)
         if match_type == "contains":
-            return trigger.casefold() in content.casefold()
+            return _normalize_route_text(trigger) in _normalize_route_text(content)
         if match_type == "regex":
             compiled = responder.get("_compiled")
-            return bool(compiled and compiled.search(content))
+            if compiled is None:
+                return False
+            try:
+                # Regex is configured from the dashboard and is inspected for
+                # every incoming message. A short timeout prevents one pattern
+                # from blocking the asyncio loop for the entire bot/dashboard.
+                return bool(compiled.search(str(content or "")[:2000], timeout=0.005))
+            except TimeoutError:
+                LOGGER.warning(
+                    "[AUTORESPONDER] Regex exceeded 5ms and was skipped (rule_id=%s).",
+                    responder.get("id", "unknown"),
+                )
+                return False
+            except safe_regex.error:
+                LOGGER.warning(
+                    "[AUTORESPONDER] Regex evaluation failed (rule_id=%s).",
+                    responder.get("id", "unknown"),
+                )
+                return False
         return False
 
     @staticmethod
