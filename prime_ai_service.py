@@ -1504,29 +1504,36 @@ async def generate_response(
         if not config.get("modes", {}).get(str(mode).lower(), mode == "CHAT"):
             raise AISettingsDisabled("ai_mode_disabled")
 
-    memories = (
-        await list_context_memories(
-            guild_id,
-            channel_id=channel_id,
-            role_ids=role_ids,
-            user_id=actor_id,
-            limit=int(config.get("memory", {}).get("context_limit", MAX_CONTEXT_MEMORIES)),
-            query=value,
-            include_user_memory=bool(
-                config.get("memory", {}).get("user_memory_enabled", True)
-            ),
-            include_server_memory=bool(
-                config.get("memory", {}).get("server_memory_enabled", True)
-            ),
-        )
-        if (
-            guild_id is not None
-            and include_memories
-            and config.get("memory", {}).get("enabled", True)
-            and config.get("memory", {}).get("retrieval_enabled", True)
-        )
-        else []
-    )
+    memories = []
+    if (
+        guild_id is not None
+        and include_memories
+        and config.get("memory", {}).get("enabled", True)
+        and config.get("memory", {}).get("retrieval_enabled", True)
+    ):
+        try:
+            memories = await list_context_memories(
+                guild_id,
+                channel_id=channel_id,
+                role_ids=role_ids,
+                user_id=actor_id,
+                limit=int(config.get("memory", {}).get("context_limit", MAX_CONTEXT_MEMORIES)),
+                query=value,
+                include_user_memory=bool(
+                    config.get("memory", {}).get("user_memory_enabled", True)
+                ),
+                include_server_memory=bool(
+                    config.get("memory", {}).get("server_memory_enabled", True)
+                ),
+            )
+        except Exception:
+            # Retrieved memories enrich responses but must not block the base AI
+            # path if the optional memory store has a temporary read failure.
+            LOGGER.exception(
+                "[AI] Memory retrieval failed; continuing without retrieved memories."
+            )
+            memories = []
+
     prompt_context = dict(context or {})
     # Bind provider-visible user context to the authenticated Discord actor.
     # Reuse an already-loaded profile to avoid a duplicate database read.
