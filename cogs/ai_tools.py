@@ -2594,6 +2594,40 @@ class AITools(commands.Cog):
             if not wake_presence:
                 prompt = "ساعدني في سؤالي."
         prompt = prompt[:prime_ai_service.MAX_CHAT_PROMPT]
+
+        # Resolve saved PRIME command aliases and dashboard shortcuts locally before
+        # rate-limited semantic classification or any Gemini request. Do not steal
+        # messages from an existing pending action-confirmation flow.
+        if prompt and not pending_action:
+            get_cog = getattr(self.bot, "get_cog", None)
+            utilities = get_cog("Utilities") if get_cog is not None else None
+            dispatch_prompt = getattr(utilities, "dispatch_assistant_prompt", None)
+            if callable(dispatch_prompt):
+                try:
+                    if await dispatch_prompt(message, prompt):
+                        return
+                except Exception:
+                    # Fail closed: a route can fail after its callback ran, so
+                    # never fall through to Gemini and risk executing it twice.
+                    LOGGER.exception(
+                        "[AI] Local command routing failed; refusing AI fallback "
+                        "for message %s.",
+                        turn_message_id,
+                    )
+                    try:
+                        await message.reply(
+                            "تعذر التحقق من مسار الأمر محلياً؛ لم أرسل الطلب إلى "
+                            "الذكاء الاصطناعي لتجنب تنفيذ غير مقصود.",
+                            mention_author=False,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                    except (discord.Forbidden, discord.HTTPException):
+                        LOGGER.warning(
+                            "[AI] Could not send local-routing failure notice.",
+                            exc_info=True,
+                        )
+                    return
+
         wait = await self._take_runtime_limits(
             message.guild, message.author, message.channel, config, mode
         )
