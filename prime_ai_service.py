@@ -29,6 +29,7 @@ from prime_ai.providers import (
     FALLBACK_PROVIDER_STATUSES, complete_with_retries, request_with_fallback,
 )
 from prime_ai.limits import SlidingWindowLimiter
+import runtime_diagnostics
 
 LOGGER = logging.getLogger("PrimeAI")
 
@@ -1437,6 +1438,7 @@ def _model_visible_context(context: dict | None, mode: str) -> dict:
     return visible
 
 
+@runtime_diagnostics.timed_async("ai.generate_response")
 async def generate_response(
     session: aiohttp.ClientSession,
     guild_id: int | None,
@@ -1628,12 +1630,24 @@ async def generate_response(
         timeout_seconds = max(
             3, min(int(provider.get("timeout_seconds", 30)), 120)
         )
+        gate_wait_started = time.perf_counter()
         async with _PROVIDER_GATE.slot():
-            answer, tokens_used = await request_with_fallback(
-                session, payload, timeout_seconds=timeout_seconds,
-                retry_count=retry_count, complete=_complete_with_retries,
-                logger=LOGGER,
+            runtime_diagnostics.record_timing(
+                "ai.provider_queue_wait",
+                (time.perf_counter() - gate_wait_started) * 1000.0,
             )
+            provider_started = time.perf_counter()
+            try:
+                answer, tokens_used = await request_with_fallback(
+                    session, payload, timeout_seconds=timeout_seconds,
+                    retry_count=retry_count, complete=_complete_with_retries,
+                    logger=LOGGER,
+                )
+            finally:
+                runtime_diagnostics.record_timing(
+                    "ai.provider_request",
+                    (time.perf_counter() - provider_started) * 1000.0,
+                )
     except asyncio.TimeoutError as error:
         elapsed = time.monotonic() - started
         LOGGER.warning(

@@ -22,6 +22,7 @@ from database import (
 from cogs.utilities import dynamic_prefix
 import prime_ai_intelligence
 import prime_ai_persistence
+import runtime_diagnostics
 from interaction_runtime import (
     install_ui_guards,
     send_interaction_message,
@@ -196,6 +197,7 @@ class EnterpriseBot(commands.Bot):
         self._analytics_writer_task: asyncio.Task | None = None
         self._voice_sessions: dict[tuple[int, int], tuple[int, float]] = {}
         self._gateway_watchdog_task: asyncio.Task | None = None
+        self._diagnostics_task: asyncio.Task | None = None
         self._wal_checkpoint_task: asyncio.Task | None = None
         self._is_initialized = False
         self._retry_delay = 5
@@ -241,6 +243,7 @@ class EnterpriseBot(commands.Bot):
                 await self.unload_extension(module)
         for attribute in (
             "_gateway_watchdog_task",
+            "_diagnostics_task",
             "_wal_checkpoint_task",
             "_analytics_writer_task",
         ):
@@ -276,6 +279,9 @@ class EnterpriseBot(commands.Bot):
             return
 
         self.session = aiohttp.ClientSession()
+        self._diagnostics_task = asyncio.create_task(
+            runtime_diagnostics.monitor_loop(), name="prime-runtime-diagnostics"
+        )
         self._gateway_watchdog_task = asyncio.create_task(
             self._gateway_startup_watchdog()
         )
@@ -389,6 +395,11 @@ class EnterpriseBot(commands.Bot):
         if self._gateway_watchdog_task:
             self._gateway_watchdog_task.cancel()
             self._gateway_watchdog_task = None
+        if self._diagnostics_task:
+            self._diagnostics_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._diagnostics_task
+            self._diagnostics_task = None
         if self._wal_checkpoint_task:
             self._wal_checkpoint_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -477,6 +488,7 @@ class EnterpriseBot(commands.Bot):
             )
         logger.info("=" * 45)
 
+    @runtime_diagnostics.timed_async("discord.process_commands")
     async def on_message(self, message: discord.Message):
         """Keep prefix-command dispatch active alongside cog listeners."""
         guild = getattr(message, "guild", None)
@@ -494,6 +506,7 @@ class EnterpriseBot(commands.Bot):
         """Queue telemetry without making a Discord gateway callback wait on SQLite."""
         try:
             self._analytics_queue.put_nowait(event)
+            runtime_diagnostics.set_gauge("analytics.queue_depth", self._analytics_queue.qsize())
             return True
         except asyncio.QueueFull:
             logger.warning("[ANALYTICS] queue full; dropping one telemetry event.")
@@ -541,6 +554,7 @@ class EnterpriseBot(commands.Bot):
             finally:
                 for _ in batch:
                     self._analytics_queue.task_done()
+                runtime_diagnostics.set_gauge("analytics.queue_depth", self._analytics_queue.qsize())
 
     async def _close_voice_session(self, guild_id: int, user_id: int, ended_at: float):
         session = self._voice_sessions.pop((int(guild_id), int(user_id)), None)

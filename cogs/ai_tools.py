@@ -23,6 +23,7 @@ from prime_ai.cache import RuntimePolicyCache
 from prime_ai.tasks import TaskSupervisor
 from prime_ai.errors import ActionOutcomeTrackingError
 from prime_ai import dialogue
+import runtime_diagnostics
 
 LOGGER = logging.getLogger("AITools")
 
@@ -473,6 +474,7 @@ class AITools(commands.Cog):
         snapshot = await prime_ai_control.get_control_settings(guild_id)
         return settings, snapshot
 
+    @runtime_diagnostics.timed_async("ai.runtime_policy_load")
     async def _runtime_policies(self, guild_id: int) -> tuple[dict, dict]:
         """Share the two per-message policy reads for a short, bounded interval."""
         return await self._policy_store.get(guild_id)
@@ -2291,6 +2293,7 @@ class AITools(commands.Cog):
                 ephemeral=True,
             )
 
+    @runtime_diagnostics.timed_async("ai.moderation_classification")
     async def moderate_message(self, message: discord.Message, config: dict, settings: dict):
         policy = config.get("moderation", {})
         mode = policy.get("mode", "OFF")
@@ -2485,6 +2488,7 @@ class AITools(commands.Cog):
             LOGGER.exception("[AI] Moderation classification failed; no action was taken.")
 
     @commands.Cog.listener()
+    @runtime_diagnostics.timed_async("discord.ai_message_listener")
     async def on_message(self, message: discord.Message):
         if (
             message.guild is None
