@@ -231,10 +231,20 @@ class _Connection:
                 self._db.row_factory = self._row_factory
             await _configure(self._db)
             return self._db
-        except Exception:
-            if self._db is not None:
-                await self._db.close()
-            _db_semaphore.release()
+        except BaseException:
+            # Cancellation can occur while opening/configuring a connection.
+            # Always close any partially opened handle and release the slot;
+            # otherwise eight cancelled tasks can permanently stall all DB work.
+            try:
+                if self._db is not None:
+                    await self._db.close()
+            except BaseException:
+                logger.warning(
+                    "[DB] Failed to close a partially initialized connection.",
+                    exc_info=True,
+                )
+            finally:
+                _db_semaphore.release()
             raise
 
     async def __aexit__(self, *exc) -> None:
