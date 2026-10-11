@@ -1771,7 +1771,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer, "PRIME AI fallback answer")
         self.assertEqual(
             tried_models,
-            ["gemini-3.8-flash", "gemini-3.1-flash-lite"],
+            ["gemini-3.8-flash", "gemini-3.5-flash-lite"],
         )
 
     async def test_transient_provider_503_retries_then_succeeds(self):
@@ -1802,10 +1802,10 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer, "PRIME AI answer")
         self.assertEqual(session.post_count, 3)
         self.assertTrue(session.url.endswith(
-            "/gemini-3.1-flash-lite:generateContent"
+            "/gemini-3.5-flash-lite:generateContent"
         ))
         audit = await ai.list_audit(100000000000000077)
-        self.assertIn("model=gemini-3.1-flash-lite", audit[0]["detail"])
+        self.assertIn("model=gemini-3.5-flash-lite", audit[0]["detail"])
 
     async def test_quota_429_switches_to_fallback_without_retrying_exhausted_model(self):
         session = FakeProviderSession(statuses=[429, 200])
@@ -1821,7 +1821,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer, "PRIME AI answer")
         self.assertEqual(session.post_count, 2)
         self.assertTrue(session.url.endswith(
-            "/gemini-3.1-flash-lite:generateContent"
+            "/gemini-3.5-flash-lite:generateContent"
         ))
 
     async def test_permanent_provider_error_is_not_retried(self):
