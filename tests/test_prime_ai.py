@@ -1914,11 +1914,13 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             session.payload["generationConfig"],
             {
-                "temperature": 0.4,
                 "maxOutputTokens": 768,
                 "thinkingConfig": {"thinkingLevel": "medium"},
             },
         )
+        self.assertNotIn("temperature", session.payload["generationConfig"])
+        self.assertNotIn("top_p", session.payload["generationConfig"])
+        self.assertNotIn("top_k", session.payload["generationConfig"])
 
     async def test_gemini_adapter_supports_sse_and_rejects_missing_key(self):
         session = FakeProviderSession()
