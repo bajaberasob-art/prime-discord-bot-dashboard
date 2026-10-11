@@ -918,7 +918,15 @@ class PrimeAIUnderstandingTests(unittest.IsolatedAsyncioTestCase):
             roles=[],
             guild_permissions=SimpleNamespace(),
         )
-        bot_member = SimpleNamespace(id=444444444444444444)
+        bot_member = SimpleNamespace(
+            id=444444444444444444,
+            display_name="PRIME",
+            global_name="PRIME",
+            name="prime",
+            roles=[],
+            guild_permissions=SimpleNamespace(),
+            bot=True,
+        )
         guild = SimpleNamespace(
             id=555555555555555555,
             name="PRIME | TEAM",
@@ -932,7 +940,8 @@ class PrimeAIUnderstandingTests(unittest.IsolatedAsyncioTestCase):
             guild=guild,
             channel=channel,
             author=author,
-            mentions=[target],
+            content="<@444444444444444444> هذا <@222222222222222222>",
+            mentions=[bot_member, target],
             reference=None,
         )
 
@@ -942,6 +951,7 @@ class PrimeAIUnderstandingTests(unittest.IsolatedAsyncioTestCase):
             include_channel_history=False,
         )
         safe_context = ai._model_visible_context(context, "CHAT")
+        self.assertEqual(len(safe_context["mentioned_members"]), 1)
         self.assertEqual(
             safe_context["mentioned_members"][0]["display_name"],
             "P1 KING",
