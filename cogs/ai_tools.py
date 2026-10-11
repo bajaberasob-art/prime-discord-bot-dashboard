@@ -2543,9 +2543,6 @@ class AITools(commands.Cog):
                 return
             if not wake_presence:
                 prompt = "ساعدني في سؤالي."
-        prompt = prime_ai_runtime.label_member_mentions(
-            prompt, message.mentions, bot_id
-        )
         prompt = prompt[:prime_ai_service.MAX_CHAT_PROMPT]
         wait = await self._take_runtime_limits(
             message.guild, message.author, message.channel, config, mode
@@ -2835,6 +2832,18 @@ class AITools(commands.Cog):
                 except discord.HTTPException:
                     LOGGER.exception("[AI] Could not deliver natural action failure.")
             return
+
+        # Keep raw Discord mention tokens through deterministic skill/action
+        # routing so server actions can resolve the real target ID safely.
+        # Only once the request is known to be conversational, replace targets
+        # with safe aliases that match the structured context sent to Gemini.
+        prompt = prime_ai_runtime.label_member_mentions(
+            prompt, message.mentions, bot_id
+        )
+        turn_prompt = prime_ai_runtime.label_member_mentions(
+            turn_prompt, message.mentions, bot_id
+        )
+
         referenced_author = getattr(referenced, "author", None)
         safe_reply_context = (
             referenced
