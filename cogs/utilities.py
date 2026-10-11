@@ -56,15 +56,20 @@ def _normalize_route_text(value: Any) -> str:
     return text.strip(" \t\r\n,،:;.!؟?/")
 
 
-def _route_text_variants(value: Any) -> list[str]:
-    """Return progressively de-prefixed forms for explicit command invocations."""
+def _route_text_variant_pairs(value: Any) -> list[tuple[str, str]]:
+    """Return normalized match text paired with the original-cased source text."""
     current = str(value or "").strip()
-    variants: list[str] = []
+    variants: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for _ in range(6):
         normalized = _normalize_route_text(current)
-        if normalized and normalized not in variants:
-            variants.append(normalized)
-        match = next((pattern.match(current) for pattern in _ROUTE_LEADERS if pattern.match(current)), None)
+        if normalized and normalized not in seen:
+            variants.append((normalized, current))
+            seen.add(normalized)
+        match = next(
+            (pattern.match(current) for pattern in _ROUTE_LEADERS if pattern.match(current)),
+            None,
+        )
         if match is None or match.end() == 0:
             break
         stripped = current[match.end():].strip(" \t\r\n,،:;.!؟?/")
@@ -72,6 +77,26 @@ def _route_text_variants(value: Any) -> list[str]:
             break
         current = stripped
     return variants
+
+
+def _route_text_variants(value: Any) -> list[str]:
+    """Compatibility helper returning normalized forms only."""
+    return [normalized for normalized, _source in _route_text_variant_pairs(value)]
+
+
+def _original_arguments_after_key(source: str, normalized_key: str) -> str:
+    """Extract arguments from original text without lowercasing names or reasons."""
+    source = str(source or "")
+    if _normalize_route_text(source) == normalized_key:
+        return ""
+    separators = " \t\r\n,،:;.!؟?/ _-"
+    for end in range(1, len(source) + 1):
+        if end < len(source) and source[end] not in separators:
+            continue
+        prefix = source[:end].rstrip(separators)
+        if prefix and _normalize_route_text(prefix) == normalized_key:
+            return source[end:].lstrip(separators)
+    return ""
 
 
 def _match_leading_key(text: str, mapping: dict[str, Any]) -> tuple[str, str] | None:
@@ -427,6 +452,9 @@ class Utilities(commands.Cog):
         self.command_controls: dict[int, dict[str, dict[str, Any]]] = {}
         self.command_aliases: dict[int, dict[str, tuple[str, dict[str, Any]]]] = {}
         self._cooldowns: dict[tuple[int, int, int], TokenBucket] = {}
+        # Shared by the Utilities and AI listeners to make message-driven routes
+        # idempotent even when both listeners run concurrently.
+        self._claimed_route_messages: dict[tuple[int, int], float] = {}
         self._check_registered = False
         self._original_tree_check = getattr(self.bot.tree, "interaction_check", None)
         self.bot.tree.interaction_check = self.app_command_interceptor
@@ -439,6 +467,24 @@ class Utilities(commands.Cog):
             self._check_registered = False
         if self._original_tree_check is not None:
             self.bot.tree.interaction_check = self._original_tree_check
+        self._claimed_route_messages.clear()
+
+    def _claim_route_message(self, message: discord.Message) -> bool:
+        """Atomically claim one route per Discord message across event listeners."""
+        message_id = getattr(message, "id", None)
+        if message_id is None:
+            # Test doubles and synthetic messages may not have a Discord ID.
+            return True
+        guild_id = int(getattr(getattr(message, "guild", None), "id", 0) or 0)
+        key = (guild_id, int(message_id))
+        if key in self._claimed_route_messages:
+            return False
+        self._claimed_route_messages[key] = time.monotonic()
+        # Keep the guard bounded on long-running bots while retaining recent
+        # message IDs long enough for concurrent listeners to finish.
+        while len(self._claimed_route_messages) > 4096:
+            self._claimed_route_messages.pop(next(iter(self._claimed_route_messages)))
+        return True
 
     async def get_guild_commands_status(self, guild_id: int) -> dict[str, Any]:
         """Return command policy state merged with the commands currently loaded."""
@@ -529,6 +575,70 @@ class Utilities(commands.Cog):
         self.command_controls[guild_id] = controls
         self.command_aliases[guild_id] = _build_command_alias_index(controls)
         return controls
+
+    def _assistant_command_index(self) -> dict[str, str]:
+        """Build an unambiguous local index for explicit command names and labels."""
+        targets: dict[str, str] = {}
+        ambiguous: set[str] = set()
+
+        def add(trigger: Any, target: Any) -> None:
+            key = _normalize_route_text(trigger)
+            target_name = str(target or "").strip().lstrip("!/")
+            if not key or not target_name:
+                return
+            previous = targets.get(key)
+            if previous is not None and _normalize_route_text(previous) != _normalize_route_text(target_name):
+                ambiguous.add(key)
+            else:
+                targets[key] = target_name
+
+        candidates = []
+        tree = getattr(self.bot, "tree", None)
+        walker = getattr(tree, "walk_commands", None)
+        if walker is not None:
+            try:
+                candidates.extend(walker())
+            except (AttributeError, TypeError):
+                LOGGER.debug("[ASSISTANT_ROUTE] Could not enumerate Slash commands.", exc_info=True)
+        candidates.extend(getattr(self.bot, "commands", []) or [])
+
+        for command in candidates:
+            if getattr(command, "hidden", False):
+                continue
+            target = str(
+                getattr(command, "qualified_name", None)
+                or getattr(command, "name", "")
+            ).strip()
+            if not target:
+                continue
+            add(target, target)
+            add(getattr(command, "name", ""), target)
+            for alias in getattr(command, "aliases", []) or []:
+                add(alias, target)
+
+        for command_name, label in COMMAND_HELP_LABELS.items():
+            command = self._registered_command(command_name)
+            if command is not None:
+                target = getattr(command, "qualified_name", None) or getattr(command, "name", command_name)
+                add(label, target)
+
+        for alias, target_name in {
+            "purge": "clear",
+            "mute": "timeout",
+            "unmute": "untimeout",
+            "lock": "lockdown",
+            "unlock": "lockdown",
+            "قفل": "lockdown",
+        }.items():
+            command = self._registered_command(target_name)
+            if command is not None:
+                target = getattr(command, "qualified_name", None) or getattr(command, "name", target_name)
+                add(alias, target)
+
+        for key in ambiguous:
+            targets.pop(key, None)
+            LOGGER.warning("[ASSISTANT_ROUTE] Ignoring ambiguous command trigger after normalization: %s", key)
+        return targets
 
     async def toggle_command(
         self,
@@ -1014,16 +1124,17 @@ class Utilities(commands.Cog):
     async def dispatch_assistant_prompt(
         self, message: discord.Message, prompt: str
     ) -> bool:
-        """Route an addressed assistant prompt through configured commands first.
+        """Route addressed prompts locally before AI intent inference.
 
-        This deliberately uses the ordinary command callback/policy path rather
-        than asking Gemini to reinterpret a configured alias.
+        All command callbacks still pass through the existing command policy and
+        Discord permission checks. A shared message-ID claim prevents the raw
+        message listener and this prompt router from executing one route twice.
         """
         if message.guild is None or getattr(message.author, "bot", False):
             return False
         content = str(prompt or "").strip()
-        variants = _route_text_variants(content)
-        if not variants:
+        variant_pairs = _route_text_variant_pairs(content)
+        if not variant_pairs:
             return False
         guild_id = int(message.guild.id)
         if guild_id not in self.auto_responders or guild_id not in self.shortcuts:
@@ -1031,15 +1142,16 @@ class Utilities(commands.Cog):
         if guild_id not in self.command_aliases:
             await self._load_command_controls(guild_id)
 
-        # 1) Command policy aliases keep enabled/role/channel checks and the
-        # original command's parameter parsing and callback semantics.
+        # 1) Configured command-policy aliases have highest priority.
         aliases = self.command_aliases.get(guild_id, {})
-        for variant in variants:
+        for variant, source_variant in variant_pairs:
             matched = _match_leading_key(variant, aliases)
             if matched is None:
                 continue
             alias, (command_name, _policy) = matched
-            arguments = variant[len(alias):].strip()
+            if not self._claim_route_message(message):
+                return True
+            arguments = _original_arguments_after_key(source_variant, alias)
             succeeded = await self._execute_alias_command(
                 message, command_name, arguments
             )
@@ -1050,13 +1162,13 @@ class Utilities(commands.Cog):
                 )
             return True
 
-        # 2) Saved dashboard shortcuts. Command shortcuts accept typed
-        # arguments; help and announcement shortcuts require the whole trigger.
+        # 2) Saved dashboard shortcuts; longest trigger wins and command
+        # shortcuts preserve the user's original argument casing.
         shortcuts = [
             item for item in self.shortcuts.get(guild_id, [])
             if item.get("enabled", True)
         ]
-        for variant in variants:
+        for variant, source_variant in variant_pairs:
             for shortcut in sorted(
                 shortcuts,
                 key=lambda item: len(_normalize_route_text(item.get("trigger", ""))),
@@ -1067,10 +1179,12 @@ class Utilities(commands.Cog):
                     variant == trigger or variant.startswith(trigger + " ")
                 ):
                     continue
-                arguments = variant[len(trigger):].strip()
+                arguments = _original_arguments_after_key(source_variant, trigger)
                 target_type = shortcut.get("target_type")
                 if target_type in {"help", "announcement"} and arguments:
                     continue
+                if not self._claim_route_message(message):
+                    return True
                 if target_type == "announcement":
                     embed = discord.Embed(
                         description=self.render_response(
@@ -1097,9 +1211,8 @@ class Utilities(commands.Cog):
                         )
                     return True
 
-        # 3) If the original message itself matches a normal responder, let
-        # Utilities.on_message own it. This prevents two event listeners from
-        # emitting a duplicate response to the same raw-message trigger.
+        # 3) If the raw message matches an ordinary responder, Utilities.on_message
+        # owns that route. Do not let the AI listener emit or execute it again.
         raw_responder = self._select_priority_responder(
             self._responder_candidates(message, str(message.content or "")),
             message,
@@ -1107,13 +1220,37 @@ class Utilities(commands.Cog):
         if raw_responder is not None:
             return True
 
-        # 4) Otherwise allow the trigger to match the de-quoted command prompt
-        # (the bot mention/wake word has already been removed).
-        for variant in variants:
+        # 4) Explicit command names/registered aliases and known Arabic labels are
+        # resolved locally before prompt-only automatic responders or Gemini.
+        direct_commands = self._assistant_command_index()
+        for variant, source_variant in variant_pairs:
+            matched = _match_leading_key(variant, direct_commands)
+            if matched is None:
+                continue
+            trigger, command_name = matched
+            if not self._claim_route_message(message):
+                return True
+            arguments = _original_arguments_after_key(source_variant, trigger)
+            succeeded = await self._execute_alias_command(
+                message, command_name, arguments
+            )
+            if succeeded:
+                await self._send_alias_confirmation(
+                    message,
+                    trigger,
+                    command_name,
+                    details=arguments or "بدون وسائط إضافية",
+                )
+            return True
+
+        # 5) Prompt-only responder matches are safe local routes too.
+        for variant, _source_variant in variant_pairs:
             responder = self._select_priority_responder(
                 self._responder_candidates(message, variant), message
             )
             if responder is not None:
+                if not self._claim_route_message(message):
+                    return True
                 return await self._run_auto_responder(message, responder)
         return False
 
@@ -1131,9 +1268,11 @@ class Utilities(commands.Cog):
         guild_id = int(message.guild.id)
         if guild_id not in self.command_aliases:
             await self._load_command_controls(guild_id)
-        binding = self.command_aliases.get(guild_id, {}).get(token.casefold())
+        binding = self.command_aliases.get(guild_id, {}).get(_normalize_route_text(token))
         if binding is None:
             return False
+        if not self._claim_route_message(message):
+            return True
         command_name, policy = binding
         if not policy.get("enabled", True):
             await self._send_alias_denial(
@@ -1603,17 +1742,21 @@ class Utilities(commands.Cog):
             if compiled is None:
                 return False
             try:
-                # Regex is configured from the dashboard and is inspected for
-                # every incoming message. A short timeout prevents one pattern
-                # from blocking the asyncio loop for the entire bot/dashboard.
-                return bool(compiled.search(str(content or "")[:2000], timeout=0.005))
+                # Only the regex package supports this timeout argument. A legacy
+                # stdlib Pattern (e.g. supplied by older cached/test adapters) is
+                # recompiled with the bounded engine rather than evaluated unbounded.
+                try:
+                    return bool(compiled.search(str(content or "")[:2000], timeout=0.005))
+                except TypeError:
+                    compiled = safe_regex.compile(trigger, safe_regex.IGNORECASE)
+                    return bool(compiled.search(str(content or "")[:2000], timeout=0.005))
             except TimeoutError:
                 LOGGER.warning(
                     "[AUTORESPONDER] Regex exceeded 5ms and was skipped (rule_id=%s).",
                     responder.get("id", "unknown"),
                 )
                 return False
-            except safe_regex.error:
+            except (safe_regex.error, TypeError):
                 LOGGER.warning(
                     "[AUTORESPONDER] Regex evaluation failed (rule_id=%s).",
                     responder.get("id", "unknown"),
@@ -1758,10 +1901,12 @@ class Utilities(commands.Cog):
         return re.sub(r"\{random:([^{}|]+(?:\|[^{}|]+)+)\}", choose, rendered)[:2000]
 
     async def _dispatch_shortcut(self, message: discord.Message) -> bool:
-        trigger = message.content.strip().casefold()
+        trigger = _normalize_route_text(message.content)
         for shortcut in self.shortcuts.get(int(message.guild.id), []):
-            if str(shortcut.get("trigger", "")).strip().casefold() != trigger:
+            if _normalize_route_text(shortcut.get("trigger", "")) != trigger:
                 continue
+            if not self._claim_route_message(message):
+                return True
             if shortcut["target_type"] == "announcement":
                 embed = discord.Embed(
                     description=self.render_response(shortcut["announcement"], message),
@@ -1776,6 +1921,8 @@ class Utilities(commands.Cog):
         command = self._text_command_for_trigger(trigger)
         if command is None:
             return False
+        if not self._claim_route_message(message):
+            return True
         target = f"/{command.qualified_name}"
         required = [
             parameter
@@ -1794,22 +1941,23 @@ class Utilities(commands.Cog):
         if tree and hasattr(tree, "walk_commands"):
             candidates.extend(tree.walk_commands())
         candidates.extend(getattr(self.bot, "commands", []) or [])
+        trigger = _normalize_route_text(trigger)
         arabic_labels = {
-            label.casefold(): name
+            _normalize_route_text(label): name
             for name, label in COMMAND_HELP_LABELS.items()
         }
         for command in candidates:
             if getattr(command, "hidden", False):
                 continue
             names = {
-                str(getattr(command, "name", "")).casefold(),
-                str(getattr(command, "qualified_name", "")).casefold(),
+                _normalize_route_text(getattr(command, "name", "")),
+                _normalize_route_text(getattr(command, "qualified_name", "")),
             }
             names.update(
-                str(alias).strip().casefold()
+                _normalize_route_text(alias)
                 for alias in getattr(command, "aliases", []) or []
             )
-            command_name = str(getattr(command, "name", "")).casefold()
+            command_name = _normalize_route_text(getattr(command, "name", ""))
             if arabic_labels.get(trigger) == command_name:
                 return command
             if trigger in names:
