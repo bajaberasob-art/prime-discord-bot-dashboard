@@ -1312,6 +1312,7 @@ def _build_system_prompt(
         + "قواعد الفهم والموثوقية:\n"
         + "- افهم العربية الفصحى واللهجات والكتابة العامية والأخطاء الإملائية والمزج بالعربية والإنجليزية؛ استنتج المقصود من العبارة والسياق لا من كلمة واحدة.\n"
         + "- استخدم سجل الحوار المؤقت لحل الإحالات مثل «هذا» و«هو» و«مثل قبل»، وانسب كل رسالة إلى المتحدث المبيّن دون خلط كلام الأعضاء.\n"
+        + "- إذا احتوى السياق على mentioned_members، فهذه الحسابات التي منشنها المستخدم صراحةً في الرسالة الحالية. اربط «هذا/هذي/هو/هي/مين هذا» بها بحسب ترتيب المنشن، واستخدم display_name أو username المعروضين دون طلب الاسم مرة أخرى. لا تخترع معلومات عن العضو غير الموجودة في السياق.\n"
           + "- صحّح فهمك فوراً عند ورود تصحيح مثل «لا، مو كذا» أو «خلها مثل قبل»؛ اعتمد أحدث توضيح، ولا تطلب إعادة سياق موجود في الحوار. «رجعها» لا يجيز تغييراً تلقائياً إذا لم يكن الهدف أو الحالة السابقة مؤكداً.\n"
           + "- قبل الرد، قرر داخلياً هل PRIME مُخاطَب، ومن المتحدث، وما المقصود في سياق الحوار، وهل يلزم توضيح أو قراءة أو إجراء محمي؛ لا تعرض هذه الخطوات أو سلسلة التفكير، ولا تستدعِ تحليلاً إضافياً إذا كانت المعلومات كافية.\n"
           + "- حافظ على هوية PRIME وإعدادات شخصيته بين الأدوار؛ خصّص طول الرد أو لغته للمستخدم الحالي فقط. قدّم خلاصة مبررة عند الحاجة دون كشف سلسلة التفكير الخاصة.\n"
@@ -1387,6 +1388,26 @@ def _model_visible_context(context: dict | None, mode: str) -> dict:
         }
         if safe_user["display_name"] or safe_user["username"] or safe_user["role_names"]:
             visible["current_user"] = safe_user
+
+    mentioned_members = value.get("mentioned_members")
+    if isinstance(mentioned_members, list):
+        safe_mentions = []
+        for member in mentioned_members[:10]:
+            if not isinstance(member, dict):
+                continue
+            safe_member = {
+                "display_name": str(member.get("display_name", ""))[:100],
+                "username": str(member.get("username", ""))[:100],
+                "role_names": [
+                    str(name)[:80] for name in (member.get("role_names") or [])[:15]
+                ],
+                "is_bot": bool(member.get("is_bot", False)),
+            }
+            if safe_member["display_name"] or safe_member["username"]:
+                safe_mentions.append(safe_member)
+        if safe_mentions:
+            visible["mentioned_members"] = safe_mentions
+
     channel_history = value.get("channel_history")
     if isinstance(channel_history, list):
         visible_history = []
