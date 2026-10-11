@@ -1922,6 +1922,23 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("top_p", session.payload["generationConfig"])
         self.assertNotIn("top_k", session.payload["generationConfig"])
 
+    async def test_gemini_thought_parts_are_never_returned_as_chat_text(self):
+        response = {
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        {"text": "private thought summary", "thought": True},
+                        {"text": "Public answer.", "thought": False},
+                        {"text": "Answer without explicit thought flag."},
+                    ]
+                }
+            }]
+        }
+        self.assertEqual(
+            ai.GEMINI_PROVIDER._text_parts(response),
+            ["Public answer.", "Answer without explicit thought flag."],
+        )
+
     async def test_gemini_adapter_supports_sse_and_rejects_missing_key(self):
         session = FakeProviderSession()
         answer, tokens_used = await ai.GEMINI_PROVIDER.complete(
