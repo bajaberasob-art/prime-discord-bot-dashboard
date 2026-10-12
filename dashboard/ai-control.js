@@ -1642,6 +1642,7 @@
         ["طلبات هذا الشهر", monthly.requests || 0],
         ["ناجحة", monthly.successful || 0],
         ["فاشلة", monthly.failed || 0],
+        ["مرفوضة بسبب الحدود", monthly.blocked_requests || 0],
         ["متوسط التأخير", String(monthly.avg_latency_ms || 0) + " ms"],
         ["الرموز المسجّلة", Number(monthly.tokens || 0).toLocaleString("en-US")],
         ["الصور المُنشأة/المحاولة", monthly.images || 0],
