@@ -50,10 +50,13 @@ def estimate_cost(
     """Estimate tokens and images using administrator-supplied rates."""
     token_rate = float(usd_per_million_tokens or 0)
     image_rate = float(usd_per_image or 0)
+    image_count = max(0, int(images or 0))
     if token_rate <= 0 and image_rate <= 0:
         return None
+    if token_rate > 0 and tokens is None:
+        return None
     token_cost = max(0, int(tokens or 0)) * token_rate / 1_000_000 if token_rate > 0 else 0.0
-    image_cost = max(0, int(images or 0)) * image_rate
+    image_cost = image_count * image_rate
     return round(token_cost + image_cost, 6)
 
 
