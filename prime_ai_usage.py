@@ -317,7 +317,8 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         async with db.execute(
             "SELECT COUNT(*) AS requests,SUM(CASE WHEN result='success' THEN 1 ELSE 0 END) AS successful,"
             "SUM(CASE WHEN result='failed' THEN 1 ELSE 0 END) AS failed,"
-            "SUM(COALESCE(tokens_used,0)) AS tokens,AVG(latency_ms) AS avg_latency_ms "
+            "SUM(COALESCE(tokens_used,0)) AS tokens,COUNT(tokens_used) AS token_records,"
+            "AVG(latency_ms) AS avg_latency_ms "
             "FROM prime_ai_request_events WHERE guild_id=? AND created_at>=?",
             (int(guild_id), start),
         ) as cur:
@@ -333,14 +334,16 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         ) as cur:
             failures_30m = int((await cur.fetchone())[0] or 0)
         async with db.execute(
-            "SELECT SUM(CASE WHEN skill='image_generation' THEN 1 ELSE 0 END) AS images,"
-            "SUM(CASE WHEN skill NOT IN ('image_generation','image_generation_blocked') THEN 1 ELSE 0 END) AS text_requests "
+            "SELECT SUM(CASE WHEN skill='image_generation' AND result IN ('success','failed') THEN 1 ELSE 0 END) AS images,"
+            "SUM(CASE WHEN skill NOT IN ('image_generation','image_generation_blocked') AND result IN ('success','failed') THEN 1 ELSE 0 END) AS text_requests,"
+            "SUM(CASE WHEN skill NOT IN ('image_generation','image_generation_blocked') AND result IN ('success','failed') AND tokens_used IS NOT NULL THEN 1 ELSE 0 END) AS metered_text_requests "
             "FROM prime_ai_request_events WHERE guild_id=? AND created_at>=?",
             (int(guild_id), start),
         ) as cur:
             category_counts = dict(await cur.fetchone())
             monthly_images = int(category_counts.get("images") or 0)
             monthly_text_requests = int(category_counts.get("text_requests") or 0)
+            metered_text_requests = int(category_counts.get("metered_text_requests") or 0)
         async with db.execute(
             "SELECT skill,COUNT(*) AS requests FROM prime_ai_request_events "
             "WHERE guild_id=? AND created_at>=? GROUP BY skill ORDER BY requests DESC LIMIT 8",
@@ -372,6 +375,12 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         ) as cur:
             alerts = [dict(item) for item in await cur.fetchall()]
     tokens = int(row.get("tokens") or 0)
+    estimated_cost = estimate_cost(
+        tokens, settings["usd_per_million_tokens"], monthly_images,
+        settings["usd_per_image"], monthly_text_requests,
+    )
+    if metered_text_requests < monthly_text_requests:
+        estimated_cost = None
     monthly = {
         "requests": int(row.get("requests") or 0),
         "successful": int(row.get("successful") or 0),
@@ -380,10 +389,7 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         "avg_latency_ms": round(float(row.get("avg_latency_ms") or 0), 1),
         "images": monthly_images,
         "text_requests": monthly_text_requests,
-        "estimated_cost_usd": estimate_cost(
-            tokens, settings["usd_per_million_tokens"], monthly_images,
-            settings["usd_per_image"], monthly_text_requests,
-        ),
+        "estimated_cost_usd": estimated_cost,
     }
     return {
         "settings": settings, "monthly": monthly, "requests_10m": requests_10m,
