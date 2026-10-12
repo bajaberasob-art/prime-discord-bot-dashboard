@@ -9,13 +9,14 @@ import aiosqlite
 import database
 
 _SETTING_FIELDS = {
-    "monthly_request_limit", "monthly_budget_usd", "usd_per_million_tokens",
+    "monthly_request_limit", "monthly_budget_usd", "usd_per_million_tokens", "usd_per_image",
     "request_spike_threshold", "provider_failure_threshold", "alerts_enabled",
 }
 DEFAULT_SETTINGS = {
     "monthly_request_limit": 0,
     "monthly_budget_usd": 0.0,
     "usd_per_million_tokens": 0.0,
+    "usd_per_image": 0.0,
     "request_spike_threshold": 30,
     "provider_failure_threshold": 3,
     "alerts_enabled": True,
@@ -40,12 +41,20 @@ def month_start(now: datetime | None = None) -> str:
     return current.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
 
 
-def estimate_cost(tokens: int | None, usd_per_million_tokens: float) -> float | None:
-    """Return None until an administrator configures a blended token price."""
-    rate = float(usd_per_million_tokens or 0)
-    if rate <= 0 or tokens is None:
+def estimate_cost(
+    tokens: int | None,
+    usd_per_million_tokens: float,
+    images: int = 0,
+    usd_per_image: float = 0.0,
+) -> float | None:
+    """Estimate tokens and images using administrator-supplied rates."""
+    token_rate = float(usd_per_million_tokens or 0)
+    image_rate = float(usd_per_image or 0)
+    if token_rate <= 0 and image_rate <= 0:
         return None
-    return round(max(0, int(tokens)) * rate / 1_000_000, 6)
+    token_cost = max(0, int(tokens or 0)) * token_rate / 1_000_000 if token_rate > 0 else 0.0
+    image_cost = max(0, int(images or 0)) * image_rate
+    return round(token_cost + image_cost, 6)
 
 
 def normalize_settings(values: dict[str, Any]) -> dict[str, Any]:
@@ -85,6 +94,7 @@ def normalize_settings(values: dict[str, Any]) -> dict[str, Any]:
     result["provider_failure_threshold"] = integer("provider_failure_threshold", 1, 10_000)
     result["monthly_budget_usd"] = money("monthly_budget_usd", 0, 10_000_000)
     result["usd_per_million_tokens"] = money("usd_per_million_tokens", 0, 10_000)
+    result["usd_per_image"] = money("usd_per_image", 0, 100)
     if not isinstance(result["alerts_enabled"], bool):
         raise ValueError("invalid_alerts_enabled")
     return result
@@ -96,6 +106,7 @@ async def _ensure_schema(db) -> None:
         monthly_request_limit INTEGER NOT NULL DEFAULT 0,
         monthly_budget_usd REAL NOT NULL DEFAULT 0,
         usd_per_million_tokens REAL NOT NULL DEFAULT 0,
+        usd_per_image REAL NOT NULL DEFAULT 0,
         request_spike_threshold INTEGER NOT NULL DEFAULT 30,
         provider_failure_threshold INTEGER NOT NULL DEFAULT 3,
         alerts_enabled INTEGER NOT NULL DEFAULT 1,
@@ -103,6 +114,10 @@ async def _ensure_schema(db) -> None:
         updated_by INTEGER,
         updated_at TEXT
     )""")
+    async with db.execute("PRAGMA table_info(prime_ai_usage_settings)") as cur:
+        setting_columns = {str(row[1]) for row in await cur.fetchall()}
+    if "usd_per_image" not in setting_columns:
+        await db.execute("ALTER TABLE prime_ai_usage_settings ADD COLUMN usd_per_image REAL NOT NULL DEFAULT 0")
     await db.execute("""CREATE TABLE IF NOT EXISTS prime_ai_usage_alerts (
         alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
         guild_id INTEGER NOT NULL,
@@ -142,6 +157,7 @@ def _settings_from_row(row) -> dict[str, Any]:
         "monthly_request_limit": int(row["monthly_request_limit"] or 0),
         "monthly_budget_usd": float(row["monthly_budget_usd"] or 0),
         "usd_per_million_tokens": float(row["usd_per_million_tokens"] or 0),
+        "usd_per_image": float(row["usd_per_image"] or 0),
         "request_spike_threshold": int(row["request_spike_threshold"] or 30),
         "provider_failure_threshold": int(row["provider_failure_threshold"] or 3),
         "alerts_enabled": bool(row["alerts_enabled"]),
@@ -187,19 +203,19 @@ async def save_settings(
         next_revision = revision + 1
         await db.execute(
             "INSERT INTO prime_ai_usage_settings "
-            "(guild_id,monthly_request_limit,monthly_budget_usd,usd_per_million_tokens,"
+            "(guild_id,monthly_request_limit,monthly_budget_usd,usd_per_million_tokens,usd_per_image,"
             "request_spike_threshold,provider_failure_threshold,alerts_enabled,revision,updated_by,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(guild_id) DO UPDATE SET "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(guild_id) DO UPDATE SET "
             "monthly_request_limit=excluded.monthly_request_limit,"
             "monthly_budget_usd=excluded.monthly_budget_usd,"
-            "usd_per_million_tokens=excluded.usd_per_million_tokens,"
+            "usd_per_million_tokens=excluded.usd_per_million_tokens,usd_per_image=excluded.usd_per_image,"
             "request_spike_threshold=excluded.request_spike_threshold,"
             "provider_failure_threshold=excluded.provider_failure_threshold,"
             "alerts_enabled=excluded.alerts_enabled,revision=excluded.revision,"
             "updated_by=excluded.updated_by,updated_at=excluded.updated_at",
             (
                 int(guild_id), clean["monthly_request_limit"], clean["monthly_budget_usd"],
-                clean["usd_per_million_tokens"], clean["request_spike_threshold"],
+                clean["usd_per_million_tokens"], clean["usd_per_image"], clean["request_spike_threshold"],
                 clean["provider_failure_threshold"], int(clean["alerts_enabled"]),
                 next_revision, int(updated_by) if updated_by is not None else None, _stamp(),
             ),
@@ -288,6 +304,12 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         ) as cur:
             failures_30m = int((await cur.fetchone())[0] or 0)
         async with db.execute(
+            "SELECT COUNT(*) FROM prime_ai_request_events "
+            "WHERE guild_id=? AND skill='image_generation' AND created_at>=?",
+            (int(guild_id), start),
+        ) as cur:
+            monthly_images = int((await cur.fetchone())[0] or 0)
+        async with db.execute(
             "SELECT skill,COUNT(*) AS requests FROM prime_ai_request_events "
             "WHERE guild_id=? AND created_at>=? GROUP BY skill ORDER BY requests DESC LIMIT 8",
             (int(guild_id), start),
@@ -324,7 +346,8 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         "failed": int(row.get("failed") or 0),
         "tokens": tokens,
         "avg_latency_ms": round(float(row.get("avg_latency_ms") or 0), 1),
-        "estimated_cost_usd": estimate_cost(tokens, settings["usd_per_million_tokens"]),
+        "images": monthly_images,
+        "estimated_cost_usd": estimate_cost(tokens, settings["usd_per_million_tokens"], monthly_images, settings["usd_per_image"]),
     }
     return {
         "settings": settings, "monthly": monthly, "requests_10m": requests_10m,
