@@ -9,6 +9,11 @@ def test_cost_estimation_requires_an_explicit_price():
     assert prime_ai_usage.estimate_cost(100_000, 1.5) == 0.15
 
 
+def test_cost_estimation_can_count_generated_images_separately():
+    assert prime_ai_usage.estimate_cost(0, 0, images=3, usd_per_image=0.04) == 0.12
+    assert prime_ai_usage.estimate_cost(100_000, 1.0, images=2, usd_per_image=0.05) == 0.2
+
+
 def test_usage_settings_keep_caps_disabled_by_default_and_alerts_enabled():
     settings = prime_ai_usage.normalize_settings({})
     assert settings["monthly_request_limit"] == 0
