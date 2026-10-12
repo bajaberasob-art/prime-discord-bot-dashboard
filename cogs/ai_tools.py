@@ -35,6 +35,11 @@ def _provider_failure_message(error: Exception) -> str:
     reason = str(error or "")[:120].lower()
     status = getattr(error, "status_code", None)
 
+    if "prime_monthly_request_limit" in reason:
+        return "تم بلوغ حصة هذا الخادم الشهرية من طلبات PRIME AI. راجع مركز الاستهلاك والموثوقية في الداشبورد لرفع الحد أو انتظار الشهر القادم."
+    if "prime_monthly_budget_limit" in reason:
+        return "تم بلوغ الميزانية الشهرية المقدّرة لهذا الخادم. راجع إعدادات الميزانية وسعر الرموز في مركز الاستهلاك والموثوقية."
+
     if "gemini_api_key_missing" in reason:
         return (
             "مفتاح Gemini غير مضبوط على الخادم. أضف GEMINI_API_KEY في متغيرات "
