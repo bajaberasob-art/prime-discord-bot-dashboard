@@ -248,6 +248,31 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("latency_p95_high", alert_types)
         self.assertIn("success_rate_low", alert_types)
 
+    async def test_analytics_period_and_provider_filter(self):
+        guild_id = 123456789012357
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="success", latency_ms=120,
+            tokens_used=100, provider="Google Gemini", model="gemini-test",
+        )
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="failed", latency_ms=300,
+            tokens_used=None, error_reason="provider_timeout",
+            provider="OpenAI", model="gpt-test",
+        )
+        filtered = await prime_ai_control.get_analytics(
+            guild_id, days=7, provider="Google Gemini",
+        )
+        self.assertEqual(filtered["period_days"], 7)
+        self.assertEqual(filtered["selected_provider"], "Google Gemini")
+        self.assertEqual(filtered["totals"]["requests"], 1)
+        self.assertEqual(filtered["providers"][0]["provider"], "Google Gemini")
+        self.assertEqual(filtered["models"][0]["model"], "gemini-test")
+        self.assertIn("OpenAI", filtered["available_providers"])
+        all_providers = await prime_ai_control.get_analytics(guild_id, days=30)
+        self.assertEqual(all_providers["totals"]["requests"], 2)
+
     async def test_usage_isolated_by_guild(self):
         await prime_ai_control.record_request(
             123456789012347, 111111111111111, None,
