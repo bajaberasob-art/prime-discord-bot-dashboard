@@ -2029,22 +2029,33 @@ async def record_request(
     result: str,
     latency_ms: int,
     tokens_used: int | None = None,
+    failure_reason: str = "",
 ) -> None:
+    import prime_ai_usage
+
+    await prime_ai_usage.ensure_schema()
     async with database.connect() as db:
         await db.execute(
             "INSERT INTO prime_ai_request_events "
-            "(guild_id,user_id,channel_id,skill,mode,result,latency_ms,tokens_used,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "(guild_id,user_id,channel_id,skill,mode,result,latency_ms,tokens_used,created_at,failure_reason) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
                 int(guild_id), int(user_id) if user_id is not None else None,
                 int(channel_id) if channel_id is not None else None,
                 str(skill)[:80], str(mode)[:20], str(result)[:30],
                 max(0, min(int(latency_ms), 3_600_000)),
                 max(0, int(tokens_used)) if tokens_used is not None else None,
-                timestamp(),
+                timestamp(), str(failure_reason or "")[:500],
             ),
         )
         await db.commit()
+    try:
+        await prime_ai_usage.evaluate_alerts(int(guild_id))
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug(
+            "Could not evaluate PRIME AI usage alerts.", exc_info=True
+        )
 
 
 async def record_moderation(
