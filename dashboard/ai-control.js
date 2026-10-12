@@ -1588,8 +1588,8 @@
       );
       const budgetNumbers = el("div", "prime-ai-budget-summary");
       [
-        ["استهلاك الشهر", `${Number(budget.estimated_cost_usd || 0).toFixed(4)}`],
-        ["الحد الشهري", `${Number(budget.monthly_limit_usd ?? 25).toFixed(2)}`],
+        ["استهلاك الشهر", `${Number(budget.estimated_cost_usd || 0).toFixed(4)} USD`],
+        ["الحد الشهري", `${Number(budget.monthly_limit_usd ?? 25).toFixed(2)} USD`],
         ["الطلبات هذا الشهر", Number(budget.monthly_requests || 0).toLocaleString()],
         ["الرموز هذا الشهر", Number(budget.monthly_tokens || 0).toLocaleString()],
       ].forEach(([label, value]) => {
