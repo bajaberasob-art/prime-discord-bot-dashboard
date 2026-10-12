@@ -1,6 +1,7 @@
 """Per-guild PRIME AI quotas, cost estimates, and reliability alerts."""
 from __future__ import annotations
 
+import asyncio
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -22,6 +23,9 @@ DEFAULT_SETTINGS = {
     "alerts_enabled": True,
 }
 _ALERT_COOLDOWN_MINUTES = 30
+_SCHEMA_READY_FOR = None
+_SCHEMA_LOCK = None
+_SCHEMA_LOCK_LOOP = None
 
 
 class UsageSettingsConflict(ValueError):
@@ -146,9 +150,21 @@ async def _ensure_schema(db) -> None:
 
 
 async def ensure_schema() -> None:
-    async with database.connect() as db:
-        await _ensure_schema(db)
-        await db.commit()
+    global _SCHEMA_READY_FOR, _SCHEMA_LOCK, _SCHEMA_LOCK_LOOP
+    path = str(getattr(database, "DB_NAME", ""))
+    if _SCHEMA_READY_FOR == path:
+        return
+    loop = asyncio.get_running_loop()
+    if _SCHEMA_LOCK is None or _SCHEMA_LOCK_LOOP is not loop:
+        _SCHEMA_LOCK = asyncio.Lock()
+        _SCHEMA_LOCK_LOOP = loop
+    async with _SCHEMA_LOCK:
+        if _SCHEMA_READY_FOR == path:
+            return
+        async with database.connect() as db:
+            await _ensure_schema(db)
+            await db.commit()
+        _SCHEMA_READY_FOR = path
 
 
 def _settings_from_row(row) -> dict[str, Any]:
@@ -367,7 +383,6 @@ async def evaluate_alerts(guild_id: int) -> None:
     now = _stamp()
     cutoff = _stamp(_now() - timedelta(minutes=_ALERT_COOLDOWN_MINUTES))
     async with database.connect(aiosqlite.Row) as db:
-        await _ensure_schema(db)
         for candidate in _alert_candidates(snapshot):
             async with db.execute(
                 "SELECT alert_id,last_seen_at FROM prime_ai_usage_alerts "
