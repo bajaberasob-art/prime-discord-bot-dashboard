@@ -1618,7 +1618,7 @@
     function renderUsageCard() {
       const snapshot = state.usage || {};
       const settings = snapshot.settings || {
-        monthly_request_limit: 0, monthly_budget_usd: 0, usd_per_million_tokens: 0,
+        monthly_request_limit: 0, monthly_budget_usd: 0, usd_per_million_tokens: 0, usd_per_image: 0,
         request_spike_threshold: 30, provider_failure_threshold: 3, alerts_enabled: true, revision: 0,
       };
       const monthly = snapshot.monthly || {};
@@ -1644,7 +1644,8 @@
         ["فاشلة", monthly.failed || 0],
         ["متوسط التأخير", String(monthly.avg_latency_ms || 0) + " ms"],
         ["الرموز المسجّلة", Number(monthly.tokens || 0).toLocaleString("en-US")],
-        ["التكلفة المقدّرة", monthly.estimated_cost_usd == null ? "اضبط السعر أولاً" : "$" + Number(monthly.estimated_cost_usd).toFixed(4)],
+        ["الصور المُنشأة/المحاولة", monthly.images || 0],
+        ["التكلفة المقدّرة", monthly.estimated_cost_usd == null ? "اضبط سعر الرموز أو الصور" : "$" + Number(monthly.estimated_cost_usd).toFixed(4)],
         ["طلبات آخر 10 دقائق", snapshot.requests_10m || 0],
         ["إخفاقات المزوّد آخر 30 دقيقة", snapshot.provider_failures_30m || 0],
       ].forEach(([label, value]) => {
