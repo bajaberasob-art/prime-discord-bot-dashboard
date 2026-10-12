@@ -1680,13 +1680,31 @@ async def generate_response(
             "نجح" if result == "success" else "فشل", details,
         )
         try:
+            reason_match = re.search(r"reason=([^·]+)", details) if result != "success" else None
+            error_reason = (
+                str(reason_match.group(1)).strip()[:120]
+                if reason_match else ("provider_failure" if result != "success" else "")
+            )
             await prime_ai_control.record_request(
                 guild_id, actor_id, channel_id, skill=skill, mode=mode,
                 result=result, latency_ms=int((time.monotonic() - started) * 1000),
-                tokens_used=tokens_used,
+                tokens_used=tokens_used, error_reason=error_reason,
             )
         except Exception:
             LOGGER.debug("Failed to record PRIME AI request metrics.", exc_info=True)
+
+    if guild_id is not None:
+        try:
+            budget_status = await prime_ai_control.check_usage_budget(guild_id)
+        except Exception:
+            LOGGER.warning("Could not check PRIME AI monthly budget; allowing request.", exc_info=True)
+            budget_status = {"exceeded": False}
+        if budget_status.get("exceeded"):
+            await record_outcome(
+                "failed",
+                "provider=PRIME AI · reason=monthly_budget_exceeded",
+            )
+            raise AIProviderUnavailable("monthly_budget_exceeded", status_code=429)
 
     tokens_used = None
     try:

@@ -2019,6 +2019,222 @@ async def list_operations(guild_id: int, limit: int = 50) -> list[dict]:
     return items
 
 
+async def _ensure_usage_schema(db) -> None:
+    """Additive, idempotent usage schema migration for existing SQLite databases."""
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS prime_ai_usage_settings (
+            guild_id INTEGER PRIMARY KEY,
+            monthly_limit_usd REAL NOT NULL DEFAULT 25.0,
+            cost_per_million_tokens REAL NOT NULL DEFAULT 1.0,
+            request_spike_count INTEGER NOT NULL DEFAULT 60,
+            request_spike_window_minutes INTEGER NOT NULL DEFAULT 10,
+            provider_failure_count INTEGER NOT NULL DEFAULT 5,
+            failure_window_minutes INTEGER NOT NULL DEFAULT 10,
+            alerts_enabled INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS prime_ai_usage_alerts (
+            alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            alert_type TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'warning',
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            fingerprint TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            acknowledged_at TEXT,
+            UNIQUE(guild_id, fingerprint)
+        )
+    """)
+    async with db.execute("PRAGMA table_info(prime_ai_request_events)") as cur:
+        columns = {row[1] for row in await cur.fetchall()}
+    if "error_reason" not in columns:
+        await db.execute(
+            "ALTER TABLE prime_ai_request_events ADD COLUMN error_reason TEXT NOT NULL DEFAULT ''"
+        )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_prime_ai_usage_alerts_guild "
+        "ON prime_ai_usage_alerts(guild_id, created_at DESC)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_prime_ai_requests_result_time "
+        "ON prime_ai_request_events(guild_id, result, created_at DESC)"
+    )
+
+
+async def _usage_settings(db, guild_id: int) -> dict:
+    await db.execute(
+        "INSERT OR IGNORE INTO prime_ai_usage_settings (guild_id) VALUES (?)",
+        (int(guild_id),),
+    )
+    async with db.execute(
+        "SELECT monthly_limit_usd, cost_per_million_tokens, request_spike_count, "
+        "request_spike_window_minutes, provider_failure_count, failure_window_minutes, "
+        "alerts_enabled, updated_at FROM prime_ai_usage_settings WHERE guild_id=?",
+        (int(guild_id),),
+    ) as cur:
+        row = dict(await cur.fetchone())
+    row["alerts_enabled"] = bool(row["alerts_enabled"])
+    return row
+
+
+async def _emit_usage_alert(
+    db, guild_id: int, alert_type: str, severity: str, title: str,
+    detail: str, fingerprint: str,
+) -> None:
+    await db.execute(
+        "INSERT OR IGNORE INTO prime_ai_usage_alerts "
+        "(guild_id, alert_type, severity, title, detail, fingerprint, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            int(guild_id), str(alert_type)[:40], str(severity)[:16],
+            str(title)[:120], str(detail)[:500], str(fingerprint)[:120], timestamp(),
+        ),
+    )
+
+
+async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
+    if not settings["alerts_enabled"]:
+        return
+    now = now_utc()
+    month_key = now.strftime("%Y-%m")
+    spike_window = max(1, min(int(settings["request_spike_window_minutes"]), 1440))
+    fail_window = max(1, min(int(settings["failure_window_minutes"]), 1440))
+    async with db.execute(
+        "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
+        "AND julianday(created_at) >= julianday('now', ?)",
+        (int(guild_id), f"-{spike_window} minutes"),
+    ) as cur:
+        spike_count = int((await cur.fetchone())[0] or 0)
+    if spike_count >= int(settings["request_spike_count"]):
+        bucket = int(now.timestamp() // (spike_window * 60))
+        await _emit_usage_alert(
+            db, guild_id, "request_spike", "warning", "ارتفاع مفاجئ في طلبات PRIME AI",
+            f"تم تسجيل {spike_count} طلباً خلال {spike_window} دقيقة؛ الحد المضبوط "
+            f"{settings['request_spike_count']}.",
+            f"request_spike:{bucket}",
+        )
+    async with db.execute(
+        "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
+        "AND result!='success' AND (error_reason LIKE '%timeout%' "
+        "OR error_reason LIKE '%transport_%' OR error_reason LIKE '%gemini_%' "
+        "OR error_reason LIKE '%provider_%') "
+        "AND julianday(created_at) >= julianday('now', ?)",
+        (int(guild_id), f"-{fail_window} minutes"),
+    ) as cur:
+        failures = int((await cur.fetchone())[0] or 0)
+    if failures >= int(settings["provider_failure_count"]):
+        bucket = int(now.timestamp() // (fail_window * 60))
+        await _emit_usage_alert(
+            db, guild_id, "provider_failures", "critical",
+            "تكرار فشل مزوّد الذكاء الاصطناعي",
+            f"تم تسجيل {failures} حالات فشل للمزوّد خلال {fail_window} دقيقة؛ "
+            f"الحد المضبوط {settings['provider_failure_count']}.",
+            f"provider_failures:{bucket}",
+        )
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    async with db.execute(
+        "SELECT COALESCE(SUM(tokens_used),0) FROM prime_ai_request_events "
+        "WHERE guild_id=? AND created_at >= ?",
+        (int(guild_id), month_start),
+    ) as cur:
+        monthly_tokens = int((await cur.fetchone())[0] or 0)
+    estimated = monthly_tokens * float(settings["cost_per_million_tokens"]) / 1_000_000
+    limit = float(settings["monthly_limit_usd"])
+    if limit > 0 and estimated >= limit * 0.8:
+        is_exceeded = estimated >= limit
+        kind = "budget_exceeded" if is_exceeded else "budget_warning"
+        title = "تم بلوغ حد ميزانية PRIME AI" if is_exceeded else "اقترب استهلاك PRIME AI من الميزانية"
+        await _emit_usage_alert(
+            db, guild_id, kind, "critical" if is_exceeded else "warning", title,
+            f"التكلفة التقديرية لهذا الشهر {estimated:.4f} USD من حد {limit:.2f} USD "
+            f"({min(100.0, estimated / limit * 100):.1f}%).",
+            f"{kind}:{month_key}",
+        )
+    await db.execute(
+        "DELETE FROM prime_ai_usage_alerts WHERE guild_id=? "
+        "AND julianday(created_at) < julianday('now','-90 days')",
+        (int(guild_id),),
+    )
+
+
+async def save_usage_settings(
+    guild_id: int, *, monthly_limit_usd: float,
+    cost_per_million_tokens: float, request_spike_count: int,
+    request_spike_window_minutes: int, provider_failure_count: int,
+    failure_window_minutes: int, alerts_enabled: bool,
+) -> dict:
+    values = {
+        "monthly_limit_usd": float(monthly_limit_usd),
+        "cost_per_million_tokens": float(cost_per_million_tokens),
+        "request_spike_count": int(request_spike_count),
+        "request_spike_window_minutes": int(request_spike_window_minutes),
+        "provider_failure_count": int(provider_failure_count),
+        "failure_window_minutes": int(failure_window_minutes),
+        "alerts_enabled": bool(alerts_enabled),
+    }
+    if not 1 <= values["monthly_limit_usd"] <= 100000:
+        raise ValueError("invalid_monthly_limit_usd")
+    if not 0 <= values["cost_per_million_tokens"] <= 10000:
+        raise ValueError("invalid_cost_per_million_tokens")
+    if not 1 <= values["request_spike_count"] <= 100000:
+        raise ValueError("invalid_request_spike_count")
+    if not 1 <= values["request_spike_window_minutes"] <= 1440:
+        raise ValueError("invalid_request_spike_window_minutes")
+    if not 1 <= values["provider_failure_count"] <= 1000:
+        raise ValueError("invalid_provider_failure_count")
+    if not 1 <= values["failure_window_minutes"] <= 1440:
+        raise ValueError("invalid_failure_window_minutes")
+    async with database.connect() as db:
+        await _ensure_usage_schema(db)
+        await db.execute(
+            "INSERT INTO prime_ai_usage_settings "
+            "(guild_id, monthly_limit_usd, cost_per_million_tokens, request_spike_count, "
+            "request_spike_window_minutes, provider_failure_count, failure_window_minutes, "
+            "alerts_enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET monthly_limit_usd=excluded.monthly_limit_usd, "
+            "cost_per_million_tokens=excluded.cost_per_million_tokens, "
+            "request_spike_count=excluded.request_spike_count, "
+            "request_spike_window_minutes=excluded.request_spike_window_minutes, "
+            "provider_failure_count=excluded.provider_failure_count, "
+            "failure_window_minutes=excluded.failure_window_minutes, "
+            "alerts_enabled=excluded.alerts_enabled, updated_at=excluded.updated_at",
+            (
+                int(guild_id), values["monthly_limit_usd"], values["cost_per_million_tokens"],
+                values["request_spike_count"], values["request_spike_window_minutes"],
+                values["provider_failure_count"], values["failure_window_minutes"],
+                int(values["alerts_enabled"]), timestamp(),
+            ),
+        )
+        await db.commit()
+    return values
+
+
+async def check_usage_budget(guild_id: int) -> dict:
+    async with database.connect(aiosqlite.Row) as db:
+        await _ensure_usage_schema(db)
+        settings = await _usage_settings(db, guild_id)
+        now = now_utc()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        async with db.execute(
+            "SELECT COALESCE(SUM(tokens_used),0) FROM prime_ai_request_events "
+            "WHERE guild_id=? AND created_at >= ?",
+            (int(guild_id), month_start),
+        ) as cur:
+            tokens = int((await cur.fetchone())[0] or 0)
+        cost = tokens * float(settings["cost_per_million_tokens"]) / 1_000_000
+        await _evaluate_usage_alerts(db, guild_id, settings)
+        await db.commit()
+    return {
+        "exceeded": float(settings["monthly_limit_usd"]) > 0 and cost >= float(settings["monthly_limit_usd"]),
+        "estimated_cost_usd": round(cost, 6),
+        "monthly_limit_usd": float(settings["monthly_limit_usd"]),
+        "remaining_usd": round(max(0.0, float(settings["monthly_limit_usd"]) - cost), 6),
+    }
+
+
 async def record_request(
     guild_id: int,
     user_id: int | None,
@@ -2029,23 +2245,26 @@ async def record_request(
     result: str,
     latency_ms: int,
     tokens_used: int | None = None,
+    error_reason: str = "",
 ) -> None:
-    async with database.connect() as db:
+    async with database.connect(aiosqlite.Row) as db:
+        await _ensure_usage_schema(db)
         await db.execute(
             "INSERT INTO prime_ai_request_events "
-            "(guild_id,user_id,channel_id,skill,mode,result,latency_ms,tokens_used,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "(guild_id,user_id,channel_id,skill,mode,result,latency_ms,tokens_used,error_reason,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
                 int(guild_id), int(user_id) if user_id is not None else None,
                 int(channel_id) if channel_id is not None else None,
                 str(skill)[:80], str(mode)[:20], str(result)[:30],
                 max(0, min(int(latency_ms), 3_600_000)),
                 max(0, int(tokens_used)) if tokens_used is not None else None,
-                timestamp(),
+                str(error_reason or "")[:120], timestamp(),
             ),
         )
+        settings = await _usage_settings(db, guild_id)
+        await _evaluate_usage_alerts(db, guild_id, settings)
         await db.commit()
-
 
 async def record_moderation(
     guild_id: int,
@@ -2136,6 +2355,9 @@ async def update_moderation_action(
 
 async def get_analytics(guild_id: int) -> dict:
     async with database.connect(aiosqlite.Row) as db:
+        await _ensure_usage_schema(db)
+        settings = await _usage_settings(db, guild_id)
+        await _evaluate_usage_alerts(db, guild_id, settings)
         async with db.execute(
             "SELECT COUNT(*) AS requests, "
             "SUM(CASE WHEN result='success' THEN 1 ELSE 0 END) AS successful, "
@@ -2170,17 +2392,70 @@ async def get_analytics(guild_id: int) -> dict:
             "SELECT COUNT(*) FROM prime_ai_operations WHERE guild_id=? AND created_at >= datetime('now','-30 days')",
             (int(guild_id),),
         ) as cur:
-            actions = int((await cur.fetchone())[0])
+            actions = int((await cur.fetchone())[0] or 0)
         async with db.execute(
             "SELECT COUNT(*) FROM prime_ai_moderation_events WHERE guild_id=? AND created_at >= datetime('now','-30 days')",
             (int(guild_id),),
         ) as cur:
-            moderation = int((await cur.fetchone())[0])
+            moderation = int((await cur.fetchone())[0] or 0)
+        now = now_utc()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        async with db.execute(
+            "SELECT COUNT(*) AS requests, COALESCE(SUM(tokens_used),0) AS tokens "
+            "FROM prime_ai_request_events WHERE guild_id=? AND created_at >= ?",
+            (int(guild_id), month_start),
+        ) as cur:
+            monthly = dict(await cur.fetchone())
+        async with db.execute(
+            "SELECT error_reason, COUNT(*) AS requests FROM prime_ai_request_events "
+            "WHERE guild_id=? AND result!='success' AND error_reason!='' "
+            "AND created_at >= datetime('now','-30 days') "
+            "GROUP BY error_reason ORDER BY requests DESC LIMIT 8",
+            (int(guild_id),),
+        ) as cur:
+            failure_reasons = [dict(row) for row in await cur.fetchall()]
+        async with db.execute(
+            "SELECT operation_id, detected_intent, status, error, updated_at "
+            "FROM prime_ai_operations WHERE guild_id=? AND error!='' "
+            "ORDER BY updated_at DESC LIMIT 8",
+            (int(guild_id),),
+        ) as cur:
+            failed_actions = [dict(row) for row in await cur.fetchall()]
+        async with db.execute(
+            "SELECT alert_id, alert_type, severity, title, detail, created_at, acknowledged_at "
+            "FROM prime_ai_usage_alerts WHERE guild_id=? ORDER BY created_at DESC LIMIT 12",
+            (int(guild_id),),
+        ) as cur:
+            alerts = [dict(row) for row in await cur.fetchall()]
+        await db.commit()
     for key in ("requests", "successful", "failed", "tokens"):
         totals[key] = int(totals.get(key) or 0)
     totals["avg_latency_ms"] = round(float(totals.get("avg_latency_ms") or 0), 1)
-    return {"totals": totals, "actions": actions, "moderation_events": moderation, "skills": skills, "channels": channels, "users": users}
-
+    monthly_tokens = int(monthly.get("tokens") or 0)
+    monthly_requests = int(monthly.get("requests") or 0)
+    monthly_cost = monthly_tokens * float(settings["cost_per_million_tokens"]) / 1_000_000
+    budget_limit = float(settings["monthly_limit_usd"])
+    return {
+        "totals": totals,
+        "actions": actions,
+        "moderation_events": moderation,
+        "skills": skills,
+        "channels": channels,
+        "users": users,
+        "budget": {
+            "settings": settings,
+            "monthly_requests": monthly_requests,
+            "monthly_tokens": monthly_tokens,
+            "estimated_cost_usd": round(monthly_cost, 6),
+            "monthly_limit_usd": budget_limit,
+            "remaining_usd": round(max(0.0, budget_limit - monthly_cost), 6),
+            "usage_percent": round(min(100.0, monthly_cost / budget_limit * 100), 1) if budget_limit else 0,
+            "exceeded": bool(budget_limit and monthly_cost >= budget_limit),
+        },
+        "alerts": alerts,
+        "failure_reasons": failure_reasons,
+        "failed_actions": failed_actions,
+    }
 
 async def prune_expired_data(guild_id: int, settings: dict) -> dict:
     retention = settings.get("retention", {})
