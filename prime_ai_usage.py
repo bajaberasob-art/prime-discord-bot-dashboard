@@ -249,6 +249,7 @@ async def save_settings(
             ),
         )
         await db.commit()
+    await evaluate_alerts(guild_id)
     return await get_snapshot(guild_id)
 
 
