@@ -57,3 +57,20 @@ real dashboard/backend routes with a fake Discord guild and a temporary SQLite
 database. Always disable durable storage and explicitly use a temporary database
 when running that harness. Its `/__test_login` route is strictly for that isolated
 test server; never add it to the production app or leave the test server public.
+
+
+## Consumption and reliability center
+
+The Analytics destination now includes guild-scoped calendar-month request and
+token totals, optional monthly request/token/USD limits, recent provider failure
+reasons, failed action explanations, and deduplicated alerts for request spikes,
+repeated failures, and 80%/100% budget thresholds. Settings are stored in the
+existing SQLite database and are isolated by guild.
+
+The USD estimate is deliberately labeled as an estimate: administrators must
+configure a blended USD-per-million-token rate for their provider/model mix.
+A zero rate means "not configured", not free usage. It is not a provider invoice
+and does not include separate input/output rates unless the operator's blended
+rate accounts for them. Alerts are evaluated as request events are recorded and
+are visible in the authenticated dashboard; no live-host deployment or external
+Discord notification delivery is implied by the repository change.
