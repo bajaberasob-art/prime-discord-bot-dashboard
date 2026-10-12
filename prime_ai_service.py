@@ -26,7 +26,7 @@ from prime_ai.errors import (
 )
 from prime_ai.text import sanitize_discord_text
 from prime_ai.providers import (
-    GeminiProvider, PollinationsProvider, PROVIDER_NAME, PROVIDER_MODEL,
+    GeminiImageProvider, GeminiProvider, PollinationsProvider, PROVIDER_NAME, PROVIDER_MODEL,
     FALLBACK_PROVIDER_MODEL, RETRYABLE_PROVIDER_STATUSES,
     FALLBACK_PROVIDER_STATUSES, complete_with_retries, request_with_fallback,
 )
