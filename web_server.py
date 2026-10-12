@@ -914,11 +914,11 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v37";
+    return """const CACHE = "prime-dashboard-shell-v38";
 const STATIC = [
   "./",
   "./static/app.css?v=prime-guild-backup-1",
-  "./static/ai-control.css?v=prime-ai-workspace-6",
+  "./static/ai-control.css?v=prime-ai-usage-1",
   "./static/visual-refresh.css?v=visual-refresh-2",
   "./static/subscriptions.css?v=subs-1",
   "./static/announcement-space.css?v=announcements-3",
@@ -926,8 +926,8 @@ const STATIC = [
   "./static/temp-voice.css?v=temp-voice-5",
   "./static/temp-voice.js?v=temp-voice-5",
   "./static/leveling-card-assets.css?v=phase7",
-  "./static/ai-control.js?v=prime-ai-knowledge-1",
-  "./static/ai-magic-island.js?v=prime-ai-knowledge-1",
+  "./static/ai-control.js?v=prime-ai-usage-1",
+  "./static/ai-magic-island.js?v=prime-ai-usage-1",
   "./static/app.js?v=prime-level-save-errors-2",
   "./manifest.json",
   "./icon.svg",
@@ -5631,6 +5631,39 @@ async def api_prime_ai_moderation(req):
 async def api_prime_ai_analytics(req):
     _, guild = await authorize(req)
     return web.json_response(await prime_ai_control.get_analytics(guild.id))
+
+
+@routes.post('/api/guild/{guild_id}/ai/analytics/budget')
+async def api_save_prime_ai_usage_budget(req):
+    _, guild = await authorize(req, write=True)
+    body = await read_json_body(req)
+    numeric_fields = {
+        "monthly_limit_usd": ((int, float), 1, 100000),
+        "cost_per_million_tokens": ((int, float), 0, 10000),
+        "request_spike_count": ((int,), 1, 100000),
+        "request_spike_window_minutes": ((int,), 1, 1440),
+        "provider_failure_count": ((int,), 1, 1000),
+        "failure_window_minutes": ((int,), 1, 1440),
+    }
+    fields = {}
+    clean = {}
+    for key, (kinds, minimum, maximum) in numeric_fields.items():
+        value = body.get(key)
+        if isinstance(value, bool) or not isinstance(value, kinds) or not minimum <= value <= maximum:
+            fields[key] = "القيمة خارج النطاق المسموح."
+        else:
+            clean[key] = value
+    if not isinstance(body.get("alerts_enabled"), bool):
+        fields["alerts_enabled"] = "قيمة تفعيل التنبيهات غير صالحة."
+    if fields:
+        return json_error(400, "validation", fields=fields)
+    try:
+        saved = await prime_ai_control.save_usage_settings(
+            guild.id, **clean, alerts_enabled=body["alerts_enabled"],
+        )
+    except (ValueError, TypeError):
+        return json_error(400, "validation", message="إعدادات الميزانية غير صالحة.")
+    return web.json_response({"budget_settings": saved})
 
 
 @routes.post('/api/guild/{guild_id}/ai/settings')
