@@ -4240,6 +4240,99 @@ class PrimeAIActionEngineTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(normalized["safety"]["confirmation_enabled"])
 
+    async def test_moderation_timeout_review_creates_confirmation_request(self):
+        guild, actor, channel, bot, _channels, _members = self._runtime_context()
+        actor.send = AsyncMock(return_value=SimpleNamespace(id=300000000000000905))
+        config = self._action_config("timeout_member")
+        config["moderation"].update({
+            "mode": "AUTO_WITH_CONFIRMATION",
+            "channel_ids": [str(channel.id)],
+            "alert_channel_id": str(channel.id),
+            "categories": ["spam"],
+            "auto_action_policy": "TIMEOUT_MEMBER",
+            "timeout_minutes": 5,
+            "log_findings": True,
+        })
+        event = {
+            "action": "REVIEW_PENDING",
+            "detection_type": "spam",
+            "channel_id": str(channel.id),
+            "user_id": "100000000000000904",
+            "confidence": 0.99,
+        }
+        operation = {
+            "operation_id": "moderation-review-confirmation-test",
+            "user_id": actor.id,
+        }
+        interaction = SimpleNamespace(
+            guild=guild,
+            guild_id=guild.id,
+            user=actor,
+        )
+        cog = AITools(bot)
+
+        with (
+            patch.object(
+                prime_ai_control,
+                "get_moderation_event",
+                new=AsyncMock(return_value=event),
+            ),
+            patch.object(
+                prime_ai_control,
+                "get_control_settings",
+                new=AsyncMock(return_value={"config": config}),
+            ),
+            patch.object(
+                ai,
+                "get_settings",
+                new=AsyncMock(return_value={"enabled": True}),
+            ),
+            patch.object(
+                prime_ai_runtime,
+                "validate_action_policy",
+                new=AsyncMock(),
+            ) as validate,
+            patch.object(
+                prime_ai_control,
+                "update_moderation_action",
+                new=AsyncMock(side_effect=[True, True]),
+            ) as update_action,
+            patch.object(
+                prime_ai_control,
+                "create_operation",
+                new=AsyncMock(return_value=operation),
+            ) as create_operation,
+            patch.object(
+                prime_ai_control,
+                "attach_operation_message",
+                new=AsyncMock(),
+            ) as attach_message,
+            patch.object(ai, "record_audit", new=AsyncMock()),
+            patch.object(cog, "_register_persistent_view") as register_view,
+            patch(
+                "cogs.ai_tools.send_interaction_message",
+                new=AsyncMock(),
+            ) as send_interaction,
+        ):
+            await cog.review_moderation_finding(interaction, event_id=502)
+
+        validate.assert_awaited_once()
+        create_operation.assert_awaited_once()
+        self.assertEqual(
+            create_operation.await_args.kwargs["confirmation"],
+            "required",
+        )
+        self.assertEqual(update_action.await_count, 2)
+        self.assertEqual(update_action.await_args_list[0].args[2], "REVIEWING")
+        self.assertEqual(update_action.await_args_list[1].args[2], "ACTION_PENDING")
+        actor.send.assert_awaited_once()
+        attach_message.assert_awaited_once_with(
+            operation["operation_id"], 300000000000000905
+        )
+        register_view.assert_called_once()
+        send_interaction.assert_awaited_once()
+        self.assertIn("أرسلت طلب التأكيد الخاص", send_interaction.await_args.args[1])
+
     async def test_non_administrator_can_request_permitted_single_action(self):
         guild, actor, channel, bot, _channels, _members = self._runtime_context()
         actor.guild_permissions.administrator = False
