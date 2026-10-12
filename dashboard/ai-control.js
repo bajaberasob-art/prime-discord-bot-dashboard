@@ -69,6 +69,18 @@
       memoryExpiryOverridden: false,
       memoryEnabled: true,
       editingMemory: null,
+      knowledgeSources: [],
+      knowledgeLoading: true,
+      knowledgeError: "",
+      knowledgeTitle: "",
+      knowledgeUrl: "",
+      knowledgeContent: "",
+      knowledgeEnabled: true,
+      knowledgeSaving: false,
+      knowledgeSaveError: "",
+      editingKnowledgeId: null,
+      knowledgeDeleteConfirmId: null,
+      knowledgeDeletingId: null,
       selectedPersonaChannel: "",
       selectedOverrideRole: "",
       activeDestination: config.initialDestination || "overview",
@@ -2013,6 +2025,7 @@
             { id: "skills", label: "المهارات", description: "تفعيل المهارات وصلاحياتها." },
             { id: "modes", label: "الأنماط", description: "أنماط PRIME AI والتفعيل." },
             { id: "memory", label: "الذاكرة", description: "سياسة الذاكرة وملاحظات الخادم." },
+            { id: "knowledge", label: "قاعدة المعرفة", description: "مصادر الخادم التي يستخدمها PRIME مع الاستشهادات." },
           ],
         },
         {
@@ -2165,6 +2178,9 @@
           break;
         case "memory":
           content.append(renderControlCard("memory"), renderMemoriesCard());
+          break;
+        case "knowledge":
+          content.append(renderKnowledgeCard());
           break;
         case "skills":
           content.append(renderSkillCards());
@@ -2324,6 +2340,248 @@
           render();
         }
       }
+    }
+
+    async function loadKnowledge() {
+      state.knowledgeLoading = true;
+      state.knowledgeError = "";
+      render();
+      try {
+        const response = ensureOk(await request("GET", guildPath + "/knowledge"));
+        const data = await responseJson(response);
+        if (!Array.isArray(data.sources)) throw new Error("invalid_response");
+        if (state.disposed) return;
+        state.knowledgeSources = data.sources;
+      } catch (_) {
+        if (!state.disposed) state.knowledgeError = "تعذر تحميل مصادر قاعدة المعرفة. تحقق من الصلاحيات والاتصال.";
+      } finally {
+        if (!state.disposed) {
+          state.knowledgeLoading = false;
+          render();
+        }
+      }
+    }
+
+    async function loadKnowledgeSource(sourceId) {
+      state.knowledgeSaveError = "";
+      try {
+        const response = ensureOk(await request("GET", guildPath + "/knowledge/" + encodeURIComponent(String(sourceId))));
+        const data = await responseJson(response);
+        const source = data && data.source;
+        if (!source || !source.source_id) throw new Error("invalid_response");
+        if (state.disposed) return;
+        state.editingKnowledgeId = Number(source.source_id);
+        state.knowledgeTitle = String(source.title || "");
+        state.knowledgeUrl = String(source.source_url || "");
+        state.knowledgeContent = String(source.content || "");
+        state.knowledgeEnabled = source.enabled !== false && source.enabled !== 0;
+        state.knowledgeDeleteConfirmId = null;
+      } catch (_) {
+        state.knowledgeSaveError = "تعذر تحميل المصدر للتعديل.";
+      }
+      if (!state.disposed) render();
+    }
+
+    async function saveKnowledge() {
+      if (state.knowledgeSaving) return;
+      const title = String(state.knowledgeTitle || "").trim();
+      const content = String(state.knowledgeContent || "").trim();
+      if (!title || !content) {
+        state.knowledgeSaveError = "أدخل عنوان المصدر ومحتواه النصي.";
+        render();
+        return;
+      }
+      state.knowledgeSaving = true;
+      state.knowledgeSaveError = "";
+      render();
+      try {
+        const editingId = state.editingKnowledgeId;
+        const method = editingId ? "PUT" : "POST";
+        const path = editingId
+          ? guildPath + "/knowledge/" + encodeURIComponent(String(editingId))
+          : guildPath + "/knowledge";
+        const response = await request(method, path, {
+          title: title,
+          source_url: String(state.knowledgeUrl || "").trim(),
+          content: content,
+          enabled: Boolean(state.knowledgeEnabled),
+        });
+        const data = await responseJson(response);
+        if (!response || !response.ok || !data || data.ok !== true) {
+          const code = data && data.fields && data.fields._ ? String(data.fields._) : "";
+          const messages = {
+            knowledge_source_limit_reached: "وصلت قاعدة المعرفة إلى الحد الأقصى وهو 50 مصدراً.",
+            knowledge_content_too_long: "محتوى المصدر يتجاوز الحد الأقصى وهو 30,000 حرف.",
+            invalid_knowledge_source_url: "رابط المصدر يجب أن يكون رابط HTTP أو HTTPS صالحاً.",
+            knowledge_source_url_too_long: "رابط المصدر أطول من الحد المسموح.",
+          };
+          throw new Error(messages[code] || "تعذر حفظ المصدر. تأكد من صلاحياتك ومن صحة الرابط والمحتوى.");
+        }
+        state.knowledgeTitle = "";
+        state.knowledgeUrl = "";
+        state.knowledgeContent = "";
+        state.knowledgeEnabled = true;
+        state.editingKnowledgeId = null;
+        state.knowledgeDeleteConfirmId = null;
+        setToast("تم حفظ مصدر قاعدة المعرفة.", "success");
+      } catch (error) {
+        if (!state.disposed) state.knowledgeSaveError = error.message || "تعذر حفظ المصدر.";
+      } finally {
+        if (!state.disposed) state.knowledgeSaving = false;
+      }
+      if (!state.disposed) await loadKnowledge();
+    }
+
+    async function deleteKnowledge(sourceId) {
+      const id = String(sourceId || "");
+      if (!id || state.knowledgeDeletingId) return;
+      if (String(state.knowledgeDeleteConfirmId) !== id) {
+        state.knowledgeDeleteConfirmId = id;
+        render();
+        return;
+      }
+      state.knowledgeDeletingId = id;
+      state.knowledgeSaveError = "";
+      render();
+      try {
+        const response = await request("DELETE", guildPath + "/knowledge/" + encodeURIComponent(id));
+        const data = await responseJson(response);
+        if (!response || !response.ok || !data || data.ok !== true) {
+          throw new Error("تعذر حذف المصدر.");
+        }
+        if (String(state.editingKnowledgeId) === id) {
+          state.editingKnowledgeId = null;
+          state.knowledgeTitle = "";
+          state.knowledgeUrl = "";
+          state.knowledgeContent = "";
+          state.knowledgeEnabled = true;
+        }
+        state.knowledgeDeleteConfirmId = null;
+        setToast("تم حذف المصدر من قاعدة المعرفة.", "success");
+      } catch (error) {
+        state.knowledgeSaveError = error.message || "تعذر حذف المصدر.";
+      } finally {
+        state.knowledgeDeletingId = null;
+      }
+      if (!state.disposed) await loadKnowledge();
+    }
+
+    function renderKnowledgeCard() {
+      const card = el("section", "prime-ai-card");
+      card.setAttribute("aria-labelledby", "prime-ai-knowledge-title");
+      const heading = sectionHeader(
+        "قاعدة معرفة PRIME AI",
+        "أضف لوائح الخادم، الأسئلة الشائعة، الأدلة والسياسات. سيبحث PRIME في النصوص عند الإجابة ويعرض المصادر ذات الصلة.",
+        "prime-ai-knowledge-title",
+      );
+      heading.append(button(
+        state.knowledgeLoading ? "جارٍ التحديث..." : "تحديث المصادر",
+        "reload-knowledge",
+        "prime-ai-button prime-ai-button-secondary",
+        state.knowledgeLoading,
+      ));
+      card.append(heading);
+      card.append(el(
+        "p",
+        "prime-ai-help",
+        "أضف النص بنفسك، وضع رابط المرجع إن وجد. لا يجلب PRIME الروابط تلقائياً؛ النصوص المضافة تعامل كمحتوى غير موثوق ولا يمكنها تغيير صلاحيات البوت. الحد الأقصى 50 مصدراً، و30,000 حرف لكل مصدر.",
+      ));
+      if (state.knowledgeError) card.append(loadError(state.knowledgeError, "reload-knowledge"));
+      if (state.knowledgeSaveError) card.append(el("p", "prime-ai-inline-error", state.knowledgeSaveError));
+
+      const form = el("form", "prime-ai-memory-form");
+      form.dataset.form = "knowledge";
+      const title = el("input", "prime-ai-control-input");
+      title.type = "text";
+      title.required = true;
+      title.maxLength = 160;
+      title.placeholder = "مثال: سياسة التذاكر والدعم";
+      title.value = state.knowledgeTitle;
+      title.dataset.knowledgeField = "title";
+      title.disabled = state.knowledgeSaving;
+      form.append(controlField("عنوان المصدر", title, "اسم واضح يظهر في قائمة المصادر والإجابات."));
+      const sourceUrl = el("input", "prime-ai-control-input");
+      sourceUrl.type = "url";
+      sourceUrl.maxLength = 500;
+      sourceUrl.placeholder = "https://example.com/rules";
+      sourceUrl.value = state.knowledgeUrl;
+      sourceUrl.dataset.knowledgeField = "url";
+      sourceUrl.disabled = state.knowledgeSaving;
+      form.append(controlField("رابط المرجع (اختياري)", sourceUrl, "يظهر كرابط استشهاد فقط؛ لن يفتح الخادم الرابط أو يستورد محتواه تلقائياً."));
+      const body = el("textarea", "prime-ai-textarea");
+      body.required = true;
+      body.rows = 8;
+      body.maxLength = 30000;
+      body.placeholder = "الصق نص الدليل أو اللائحة هنا. استخدم عناوين وفقرات واضحة لتحسين العثور على المعلومة.";
+      body.value = state.knowledgeContent;
+      body.dataset.knowledgeField = "content";
+      body.disabled = state.knowledgeSaving;
+      form.append(controlField("محتوى المصدر", body, state.knowledgeContent.length.toLocaleString("ar") + " / 30,000 حرف"));
+      const enableLabel = el("label", "prime-ai-control-toggle");
+      const enableCopy = el("span", "prime-ai-control-toggle-copy");
+      enableCopy.append(el("strong", "", "استخدام المصدر في الإجابات"));
+      enableCopy.append(el("small", "prime-ai-help", "يمكنك إيقافه مؤقتاً دون حذف النص."));
+      const enabled = el("input");
+      enabled.type = "checkbox";
+      enabled.checked = state.knowledgeEnabled;
+      enabled.dataset.knowledgeField = "enabled";
+      enabled.disabled = state.knowledgeSaving;
+      enableLabel.append(enableCopy, enabled);
+      form.append(enableLabel);
+      const actions = el("div", "prime-ai-actions");
+      const submit = el("button", "prime-ai-button", state.knowledgeSaving ? "جارٍ الحفظ..." : state.editingKnowledgeId ? "حفظ التعديلات" : "إضافة المصدر");
+      submit.type = "submit";
+      submit.disabled = state.knowledgeSaving;
+      actions.append(submit);
+      if (state.editingKnowledgeId) {
+        actions.append(button("إلغاء التعديل", "cancel-knowledge-edit", "prime-ai-button prime-ai-button-secondary", state.knowledgeSaving));
+        actions.append(el("span", "prime-ai-help", "تعديل المصدر رقم " + state.editingKnowledgeId));
+      }
+      form.append(actions);
+      card.append(form);
+
+      const listHeading = el("div", "prime-ai-section-head");
+      const listTitle = el("div");
+      listTitle.append(el("h3", "", "المصادر المحفوظة (" + state.knowledgeSources.length + "/50)"));
+      listTitle.append(el("p", "", "يبحث PRIME في المصادر المفعّلة داخل هذا الخادم فقط."));
+      listHeading.append(listTitle);
+      card.append(listHeading);
+      if (state.knowledgeLoading && !state.knowledgeSources.length) {
+        card.append(loadingCard("جارٍ تحميل المصادر"));
+      } else if (!state.knowledgeSources.length) {
+        card.append(el("p", "prime-ai-empty", "لا توجد مصادر بعد. أضف أول لائحة أو دليل لتبدأ الإجابات المعتمدة على معرفة الخادم."));
+      } else {
+        const list = el("div", "prime-ai-memory-list");
+        state.knowledgeSources.forEach((source) => {
+          const item = el("article", "prime-ai-memory-item");
+          const itemHeading = el("div", "prime-ai-memory-item-head");
+          const titleNode = el("strong", "", source.title || ("المصدر " + source.source_id));
+          const status = el("span", source.enabled ? "prime-ai-status-badge is-enabled" : "prime-ai-status-badge is-disabled", source.enabled ? "مفعّل" : "متوقف");
+          itemHeading.append(titleNode, status);
+          item.append(itemHeading);
+          item.append(el("p", "prime-ai-help", Number(source.content_length || 0).toLocaleString("ar") + " حرف · تحديث " + readableDate(source.updated_at)));
+          if (source.excerpt) item.append(el("p", "prime-ai-memory-content", source.excerpt));
+          if (source.source_url) {
+            const link = el("a", "prime-ai-source-link", source.source_url);
+            link.href = source.source_url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            item.append(link);
+          }
+          const itemActions = el("div", "prime-ai-actions");
+          const edit = button("تعديل", "edit-knowledge", "prime-ai-button prime-ai-button-secondary", Boolean(state.knowledgeDeletingId));
+          edit.dataset.sourceId = String(source.source_id);
+          itemActions.append(edit);
+          const deleteLabel = String(state.knowledgeDeleteConfirmId) === String(source.source_id) ? "تأكيد الحذف" : "حذف";
+          const remove = button(deleteLabel, "delete-knowledge", "prime-ai-button prime-ai-button-danger", Boolean(state.knowledgeDeletingId));
+          remove.dataset.sourceId = String(source.source_id);
+          itemActions.append(remove);
+          item.append(itemActions);
+          list.append(item);
+        });
+        card.append(list);
+      }
+      return card;
     }
 
     async function loadOperations() {
@@ -2699,6 +2957,9 @@
       else if (dataset.field === "system-prompt") state.systemPrompt = target.value;
       else if (dataset.field === "memory-content") state.memoryContent = target.value;
       else if (dataset.field === "test-prompt") state.testPrompt = target.value;
+      else if (dataset.knowledgeField === "title") state.knowledgeTitle = target.value;
+      else if (dataset.knowledgeField === "url") state.knowledgeUrl = target.value;
+      else if (dataset.knowledgeField === "content") state.knowledgeContent = target.value;
       syncSaveDock();
     };
     const onChange = (event) => {
@@ -2750,6 +3011,10 @@
         state.memoryEnabled = Boolean(target.checked);
         return;
       }
+      if (dataset.knowledgeField === "enabled") {
+        state.knowledgeEnabled = Boolean(target.checked);
+        return;
+      }
       const field = dataset.field || "";
       if (field === "enabled") {
         state.enabled = target.checked;
@@ -2778,6 +3043,18 @@
           heading.focus({ preventScroll: true });
         }
       } else if (action === "save-settings") saveSettings();
+      else if (action === "reload-knowledge") loadKnowledge();
+      else if (action === "edit-knowledge") loadKnowledgeSource(target.dataset.sourceId);
+      else if (action === "delete-knowledge") deleteKnowledge(target.dataset.sourceId);
+      else if (action === "cancel-knowledge-edit") {
+        state.editingKnowledgeId = null;
+        state.knowledgeTitle = "";
+        state.knowledgeUrl = "";
+        state.knowledgeContent = "";
+        state.knowledgeEnabled = true;
+        state.knowledgeSaveError = "";
+        render();
+      }
       else if (action === "reload-settings") loadSettings();
       else if (action === "reload-audit") loadAudit();
       else if (action === "delete-memory") deleteMemory(target.dataset.memoryId);
@@ -2855,6 +3132,7 @@
       if (!form || !container.contains(form)) return;
       event.preventDefault();
       if (form.dataset.form === "memory") addMemory();
+      else if (form.dataset.form === "knowledge") saveKnowledge();
       else if (form.dataset.form === "test") runTest();
       else if (form.dataset.form === "sandbox") runSandbox();
     };
@@ -2867,6 +3145,7 @@
     loadIslandScript();
     loadSettings();
     loadControl();
+    loadKnowledge();
     loadAudit();
 
     return function cleanup() {

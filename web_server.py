@@ -21,6 +21,7 @@ from aiohttp import web
 import subscription_service
 import prime_ai_service
 import prime_ai_control
+import prime_ai_knowledge
 import prime_ai_runtime
 import guild_backup
 from database import (
@@ -913,7 +914,7 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v36";
+    return """const CACHE = "prime-dashboard-shell-v37";
 const STATIC = [
   "./",
   "./static/app.css?v=prime-guild-backup-1",
@@ -925,8 +926,8 @@ const STATIC = [
   "./static/temp-voice.css?v=temp-voice-5",
   "./static/temp-voice.js?v=temp-voice-5",
   "./static/leveling-card-assets.css?v=phase7",
-  "./static/ai-control.js?v=prime-ai-model-controls-7",
-  "./static/ai-magic-island.js?v=prime-ai-model-controls-7",
+  "./static/ai-control.js?v=prime-ai-knowledge-1",
+  "./static/ai-magic-island.js?v=prime-ai-knowledge-1",
   "./static/app.js?v=prime-level-save-errors-2",
   "./manifest.json",
   "./icon.svg",
@@ -5261,6 +5262,135 @@ async def api_save_prime_ai_control(req):
         logger.exception("Failed to save PRIME AI control settings for guild %s", guild.id)
         return json_error(503, "ai_storage_unavailable")
     return web.json_response({"ok": True, "control": saved})
+
+
+
+@routes.get('/api/guild/{guild_id}/ai/knowledge')
+async def api_get_prime_ai_knowledge(req):
+    _, guild = await authorize(req)
+    try:
+        sources = await prime_ai_knowledge.list_sources(guild.id)
+    except Exception:
+        logger.exception("Failed to list PRIME AI knowledge sources for guild %s", guild.id)
+        return json_error(503, "ai_storage_unavailable")
+    return web.json_response({
+        "sources": sources,
+        "max_sources": prime_ai_knowledge.MAX_SOURCES_PER_GUILD,
+        "max_content_chars": prime_ai_knowledge.MAX_CONTENT_CHARS,
+    })
+
+
+@routes.get('/api/guild/{guild_id}/ai/knowledge/{source_id}')
+async def api_get_prime_ai_knowledge_source(req):
+    _, guild = await authorize(req)
+    raw_id = str(req.match_info.get("source_id", ""))
+    if not raw_id.isascii() or not raw_id.isdigit():
+        return json_error(404, "not_found")
+    try:
+        source = await prime_ai_knowledge.get_source(guild.id, int(raw_id))
+    except Exception:
+        logger.exception("Failed to read PRIME AI knowledge source for guild %s", guild.id)
+        return json_error(503, "ai_storage_unavailable")
+    if not source:
+        return json_error(404, "not_found")
+    return web.json_response({"source": source})
+
+
+@routes.post('/api/guild/{guild_id}/ai/knowledge')
+async def api_create_prime_ai_knowledge_source(req):
+    session, guild = await authorize(req, write=True)
+    try:
+        body = await read_json_body(req)
+    except (ValueError, UnicodeDecodeError):
+        return json_error(400, "invalid_json")
+    if not isinstance(body, dict):
+        return json_error(400, "validation", fields={"_": "بيانات المصدر غير صالحة."})
+    try:
+        source = await prime_ai_knowledge.create_source(
+            guild.id,
+            int(session["id"]),
+            body.get("title"),
+            body.get("content"),
+            body.get("source_url", ""),
+            enabled=body.get("enabled", True),
+        )
+    except prime_ai_knowledge.KnowledgeBaseError as error:
+        return json_error(400, "validation", fields={"_": str(error)})
+    except Exception:
+        logger.exception("Failed to add PRIME AI knowledge source for guild %s", guild.id)
+        return json_error(503, "ai_storage_unavailable")
+    try:
+        await prime_ai_service.record_audit(
+            guild.id, int(session["id"]), "قاعدة معرفة PRIME AI",
+            "أُضيف مصدر", f"source_id={source['source_id']} · title={source['title'][:100]}",
+        )
+    except Exception:
+        logger.exception("Could not record PRIME AI knowledge-source audit for guild %s", guild.id)
+    return web.json_response({"ok": True, "source": source}, status=201)
+
+
+@routes.put('/api/guild/{guild_id}/ai/knowledge/{source_id}')
+async def api_update_prime_ai_knowledge_source(req):
+    session, guild = await authorize(req, write=True)
+    raw_id = str(req.match_info.get("source_id", ""))
+    if not raw_id.isascii() or not raw_id.isdigit():
+        return json_error(404, "not_found")
+    try:
+        body = await read_json_body(req)
+    except (ValueError, UnicodeDecodeError):
+        return json_error(400, "invalid_json")
+    if not isinstance(body, dict):
+        return json_error(400, "validation", fields={"_": "بيانات المصدر غير صالحة."})
+    try:
+        source = await prime_ai_knowledge.update_source(
+            guild.id,
+            int(raw_id),
+            body.get("title"),
+            body.get("content"),
+            body.get("source_url", ""),
+            enabled=body.get("enabled", True),
+        )
+    except prime_ai_knowledge.KnowledgeBaseError as error:
+        return json_error(400, "validation", fields={"_": str(error)})
+    except Exception:
+        logger.exception("Failed to update PRIME AI knowledge source for guild %s", guild.id)
+        return json_error(503, "ai_storage_unavailable")
+    if not source:
+        return json_error(404, "not_found")
+    try:
+        await prime_ai_service.record_audit(
+            guild.id, int(session["id"]), "قاعدة معرفة PRIME AI",
+            "عُدّل مصدر", f"source_id={source['source_id']} · title={source['title'][:100]}",
+        )
+    except Exception:
+        logger.exception("Could not record PRIME AI knowledge-source audit for guild %s", guild.id)
+    return web.json_response({"ok": True, "source": source})
+
+
+@routes.delete('/api/guild/{guild_id}/ai/knowledge/{source_id}')
+async def api_delete_prime_ai_knowledge_source(req):
+    session, guild = await authorize(req, write=True)
+    raw_id = str(req.match_info.get("source_id", ""))
+    if not raw_id.isascii() or not raw_id.isdigit():
+        return json_error(404, "not_found")
+    try:
+        source = await prime_ai_knowledge.get_source(guild.id, int(raw_id))
+        if not source:
+            return json_error(404, "not_found")
+        deleted = await prime_ai_knowledge.delete_source(guild.id, int(raw_id))
+    except Exception:
+        logger.exception("Failed to delete PRIME AI knowledge source for guild %s", guild.id)
+        return json_error(503, "ai_storage_unavailable")
+    if not deleted:
+        return json_error(404, "not_found")
+    try:
+        await prime_ai_service.record_audit(
+            guild.id, int(session["id"]), "قاعدة معرفة PRIME AI",
+            "حُذف مصدر", f"source_id={int(raw_id)} · title={source['title'][:100]}",
+        )
+    except Exception:
+        logger.exception("Could not record PRIME AI knowledge-source audit for guild %s", guild.id)
+    return web.json_response({"ok": True})
 
 
 @routes.post('/api/guild/{guild_id}/ai/skills/{skill_key}')
