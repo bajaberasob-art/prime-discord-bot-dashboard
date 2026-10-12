@@ -22,7 +22,6 @@ DEFAULTS = {
     "spike_window_minutes": 15,
     "failure_count": 5,
     "failure_window_minutes": 10,
-    "alert_channel_id": "",
 }
 MAX_LIMIT = 100_000_000
 
@@ -92,10 +91,6 @@ def normalize_settings(value: Any) -> dict:
         if number < 0 or number > 1_000_000_000:
             raise ValueError("invalid_" + key)
         out[key] = round(number, 8)
-    channel = str(out.get("alert_channel_id") or "")
-    if channel and (not channel.isdigit() or not 15 <= len(channel) <= 22):
-        raise ValueError("invalid_alert_channel_id")
-    out["alert_channel_id"] = channel
     return out
 
 
@@ -134,6 +129,13 @@ async def record_request(guild_id: int, user_id: int | None, channel_id: int | N
             (int(guild_id), int(user_id) if user_id is not None else None, int(channel_id) if channel_id is not None else None, str(skill)[:80], str(mode)[:20], str(result)[:30], max(0, min(int(latency_ms), 3_600_000)), max(0, int(tokens_used)) if tokens_used is not None else None, control.timestamp(), str(provider)[:80], str(failure_reason)[:180]),
         )
         await db.commit()
+    # Evaluate thresholds immediately after a request so alerts do not depend
+    # on an administrator opening the dashboard first.
+    try:
+        await get_analytics(guild_id)
+    except Exception:
+        # Metrics/alert evaluation must never mask the provider's actual result.
+        pass
 
 
 async def _insert_alert(db, guild_id: int, key: str, severity: str, title: str, detail: str) -> None:
