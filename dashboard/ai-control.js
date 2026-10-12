@@ -60,6 +60,8 @@
       analytics: null,
       analyticsLoading: true,
       analyticsError: "",
+      reliabilitySaving: false,
+      reliabilitySaveError: "",
       isBotOwner: false,
       roles: [],
       providerStatus: "unknown",
@@ -1578,6 +1580,24 @@
         statGrid.append(item);
       });
       stats.append(statGrid);
+      const budgetSettings = (state.analytics && state.analytics.budget_settings) || {};
+      const budgetForm = el("form", "prime-ai-memory-form");
+      budgetForm.dataset.form = "reliability";
+      const fields = [["monthly_request_limit","حد الطلبات الشهري",0],["monthly_token_limit","حد الرموز الشهري",0],["monthly_cost_limit_usd","الميزانية الشهرية USD",0],["usd_per_million_tokens","سعر المليون رمز USD",0],["spike_requests","تنبيه عدد الطلبات",30],["spike_window_minutes","نافذة الزيادة بالدقائق",15],["failure_count","عدد الإخفاقات للتنبيه",5],["failure_window_minutes","نافذة الإخفاقات بالدقائق",10]];
+      fields.forEach(([key,label,defaultValue]) => { const input = el("input","prime-ai-control-input"); input.type="number"; input.min="0"; input.step="0.01"; input.required=true; input.value=String(budgetSettings[key] === undefined ? defaultValue : budgetSettings[key]); input.dataset.reliabilityField=key; budgetForm.append(controlField(label,input)); });
+      const saveBudget = el("button","prime-ai-button",state.reliabilitySaving ? "جارٍ الحفظ..." : "حفظ الحدود والتنبيهات"); saveBudget.type="submit"; saveBudget.disabled=state.reliabilitySaving; budgetForm.append(saveBudget);
+      stats.append(el("h3","prime-ai-analytics-breakdown-title","الميزانية وحدود الاعتمادية"));
+      stats.append(el("p","prime-ai-help","التكلفة تقديرية حسب سعر المليون رمز الذي تضبطه؛ الصفر يعني أن التكلفة غير مهيّأة."));
+      if (state.reliabilitySaveError) stats.append(el("p","prime-ai-inline-error",state.reliabilitySaveError));
+      stats.append(budgetForm);
+      const quotas=(state.analytics && state.analytics.quotas)||{};
+      [["الطلبات",quotas.requests],["الرموز",quotas.tokens],["التكلفة",quotas.cost_usd]].forEach(([label,q])=>{if(!q)return; const item=el("div","prime-ai-stat"); item.append(el("span","",label),el("strong","",q.limit ? String(q.used)+" / "+String(q.limit)+" ("+String(q.percent||0)+"%)" : String(q.used)+" / بلا حد")); stats.append(item);});
+      const alerts=(state.analytics && state.analytics.alerts)||[]; const alertSection=el("div","prime-ai-analytics-breakdown"); alertSection.append(el("h3","","تنبيهات الاعتمادية والميزانية"));
+      if(!alerts.length) alertSection.append(el("p","prime-ai-help","لا توجد تنبيهات مسجلة حالياً."));
+      alerts.slice(0,10).forEach(a=>{const row=el("div","prime-ai-reliability-alert"+(a.severity==="critical"?" is-critical":"")); row.append(el("strong","",a.title||"تنبيه PRIME AI"),el("p","",a.detail||""),el("small","prime-ai-help",a.created_at||"")); alertSection.append(row);});
+      const reliability=(state.analytics && state.analytics.reliability)||{};
+      if(Array.isArray(reliability.failure_reasons)&&reliability.failure_reasons.length){alertSection.append(el("h3","","أسباب إخفاقات المزوّد")); reliability.failure_reasons.forEach(f=>{const row=el("div","prime-ai-analytics-row"); row.append(el("span","",f.provider||"المزوّد"),el("span","",f.failure_reason||"سبب غير مسجل"),el("strong","",f.count||0)); alertSection.append(row);});}
+      stats.append(alertSection);
       if (!state.analyticsLoading && !state.analyticsError && !totals.requests) {
         const idle = el("div", "prime-ai-empty");
         idle.append(el("strong", "", "لا توجد بيانات استخدام بعد"), el("span", "", "ستتشكل المؤشرات والتوزيعات عند أول طلب إلى PRIME AI."));
@@ -2603,6 +2623,16 @@
       }
     }
 
+    async function saveReliability() {
+      if (state.reliabilitySaving) return;
+      const form=container.querySelector('form[data-form="reliability"]'); if(!form)return;
+      const settings={}; form.querySelectorAll("[data-reliability-field]").forEach(input=>{settings[input.dataset.reliabilityField]=Number(input.value);});
+      state.reliabilitySaving=true; state.reliabilitySaveError=""; render();
+      try { const response=ensureOk(await request("POST",guildPath+"/reliability",{settings})); const data=await responseJson(response); if(!data.ok)throw new Error("save_failed"); if(!state.disposed)await loadAnalytics(); }
+      catch(_) {if(!state.disposed)state.reliabilitySaveError=errorText();}
+      finally {if(!state.disposed){state.reliabilitySaving=false;render();}}
+    }
+
     async function loadAnalytics() {
       state.analyticsLoading = true;
       state.analyticsError = "";
@@ -3135,6 +3165,7 @@
       else if (form.dataset.form === "knowledge") saveKnowledge();
       else if (form.dataset.form === "test") runTest();
       else if (form.dataset.form === "sandbox") runSandbox();
+      else if (form.dataset.form === "reliability") saveReliability();
     };
 
     container.addEventListener("input", onInput);
