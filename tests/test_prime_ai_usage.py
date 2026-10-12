@@ -81,7 +81,7 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(bool(item["allowed"]) for item in (first, second)), 1)
         accepted = first if first["allowed"] else second
         self.assertEqual(accepted["reserved_cost_usd"], 0.0)
-        self.assertGreater(accepted["remaining_usd"], 0)
+        self.assertAlmostEqual(accepted["remaining_usd"], 0.4, places=5)
         # Settling the accepted request atomically releases the reservation and
         # records only the usage reported by the provider.
         await prime_ai_control.record_request(

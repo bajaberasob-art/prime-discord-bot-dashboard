@@ -2498,7 +2498,7 @@ async def reserve_usage_budget(
         "reserved_cost_usd": round(pending_cost, 6),
         "projected_cost_usd": round(projected_cost, 6),
         "monthly_limit_usd": limit,
-        "remaining_usd": round(max(0.0, limit - used_cost - pending_cost), 6),
+        "remaining_usd": round(max(0.0, limit - projected_cost), 6),
         "monthly_request_limit": request_limit,
         "monthly_requests": used_requests,
         "reserved_requests": pending_requests,
