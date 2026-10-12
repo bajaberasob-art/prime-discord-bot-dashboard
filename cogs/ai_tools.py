@@ -3256,7 +3256,7 @@ class AITools(commands.Cog):
             if quota_reason:
                 try:
                     await prime_ai_control.record_request(
-                        limit_guild, int(itx.user.id), int(itx.channel_id or 0),
+                        limit_guild, int(itx.user.id), int(getattr(itx, "channel_id", 0) or 0),
                         skill="image_generation_blocked", mode="IMAGE", result="limited",
                         latency_ms=0, failure_reason=quota_reason,
                     )
@@ -3300,7 +3300,7 @@ class AITools(commands.Cog):
                     return
                 try:
                     await prime_ai_control.record_request(
-                        limit_guild, int(itx.user.id), int(itx.channel_id or 0),
+                        limit_guild, int(itx.user.id), int(getattr(itx, "channel_id", 0) or 0),
                         skill="image_generation", mode="IMAGE", result=result,
                         latency_ms=max(0, int((loop.time() - started_at) * 1000)),
                         failure_reason=str(failure_reason or "")[:500],
@@ -3313,7 +3313,7 @@ class AITools(commands.Cog):
                     if per_image_quota:
                         try:
                             await prime_ai_control.record_request(
-                                limit_guild, int(itx.user.id), int(itx.channel_id or 0),
+                                limit_guild, int(itx.user.id), int(getattr(itx, "channel_id", 0) or 0),
                                 skill="image_generation_blocked", mode="IMAGE", result="limited",
                                 latency_ms=0, failure_reason=per_image_quota,
                             )
