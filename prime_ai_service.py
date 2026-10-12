@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+import secrets
 import time
 from datetime import datetime, timezone
 import aiohttp
@@ -1671,6 +1672,9 @@ async def generate_response(
         "stream": bool(config.get("response", {}).get("streaming", False)),
     }
 
+    usage_reservation_id = None
+    request_correlation_id = secrets.token_hex(10)
+
     async def record_outcome(result: str, details: str, tokens_used=None):
         if guild_id is None:
             return
@@ -1689,17 +1693,43 @@ async def generate_response(
                 guild_id, actor_id, channel_id, skill=skill, mode=mode,
                 result=result, latency_ms=int((time.monotonic() - started) * 1000),
                 tokens_used=tokens_used, error_reason=error_reason,
+                provider=PROVIDER_NAME, model=str(payload.get("model") or PROVIDER_MODEL),
+                correlation_id=request_correlation_id,
+                reservation_id=usage_reservation_id,
             )
         except Exception:
             LOGGER.debug("Failed to record PRIME AI request metrics.", exc_info=True)
 
     if guild_id is not None:
+        text_chars = sum(
+            len(str(item.get("content") or ""))
+            for item in messages if isinstance(item, dict)
+        )
+        media_parts_count = sum(
+            1
+            for item in messages if isinstance(item, dict)
+            for part in (item.get("media_parts") or [])
+            if isinstance(part, dict) and part.get("type") != "text"
+        )
+        estimated_input_tokens = (text_chars + 3) // 4 + media_parts_count * 2048
+        estimated_tokens = estimated_input_tokens + max(1, int(payload.get("max_tokens") or 1200))
         try:
-            budget_status = await prime_ai_control.check_usage_budget(guild_id)
-        except Exception:
-            LOGGER.warning("Could not check PRIME AI monthly budget; allowing request.", exc_info=True)
-            budget_status = {"exceeded": False}
-        if budget_status.get("exceeded"):
+            budget_status = await prime_ai_control.reserve_usage_budget(
+                guild_id, estimated_tokens,
+            )
+        except Exception as error:
+            LOGGER.error(
+                "Could not reserve PRIME AI usage budget; refusing request safely (%s).",
+                type(error).__name__,
+                exc_info=True,
+            )
+            await record_outcome(
+                "failed",
+                "provider=PRIME AI · reason=usage_budget_unavailable",
+            )
+            raise AIProviderUnavailable("usage_budget_unavailable", status_code=503) from error
+        usage_reservation_id = budget_status.get("reservation_id")
+        if not budget_status.get("allowed"):
             await record_outcome(
                 "failed",
                 "provider=PRIME AI · reason=monthly_budget_exceeded",

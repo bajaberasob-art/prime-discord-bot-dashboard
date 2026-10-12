@@ -1569,6 +1569,9 @@
         ["الناجحة", totals.successful || 0],
         ["الفاشلة", totals.failed || 0],
         ["متوسط التأخير", `${totals.avg_latency_ms || 0} ms`],
+        ["مئين 95 للتأخير", `${totals.p95_latency_ms || 0} ms`],
+        ["معدل النجاح", `${totals.success_rate || 0}%`],
+        ["معدل الفشل", `${totals.failure_rate || 0}%`],
         ["الرموز", totals.tokens || 0],
         ["طلبات الإجراءات", state.analytics && state.analytics.actions || 0],
         ["أحداث الإشراف", state.analytics && state.analytics.moderation_events || 0],
@@ -1588,7 +1591,8 @@
       );
       const budgetNumbers = el("div", "prime-ai-budget-summary");
       [
-        ["استهلاك الشهر", `${Number(budget.estimated_cost_usd || 0).toFixed(4)} USD`],
+        ["استهلاك مسجّل", `${Number(budget.estimated_cost_usd || 0).toFixed(4)} USD`],
+        ["محجوز للطلبات الجارية", `${Number(budget.reserved_cost_usd || 0).toFixed(4)} USD`],
         ["الحد الشهري", `${Number(budget.monthly_limit_usd ?? 25).toFixed(2)} USD`],
         ["الطلبات هذا الشهر", Number(budget.monthly_requests || 0).toLocaleString()],
         ["الرموز هذا الشهر", Number(budget.monthly_tokens || 0).toLocaleString()],
@@ -1688,6 +1692,47 @@
         actionPanel.append(row);
       });
       stats.append(actionPanel);
+
+      const providerRows = Array.isArray(state.analytics && state.analytics.providers) ? state.analytics.providers : [];
+      const modelRows = Array.isArray(state.analytics && state.analytics.models) ? state.analytics.models : [];
+      [
+        ["الاستهلاك حسب المزوّد", providerRows, (item) => item.provider || "غير معروف"],
+        ["الاستهلاك حسب النموذج", modelRows, (item) => `${item.provider || 'غير معروف} / `${item.model || 'غير معروف}`],
+      ].forEach(([title, rows, labelFor]) => {
+        if (!rows.length) return;
+        const panel = el("div", "prime-ai-analytics-breakdown");
+        panel.append(el("h3", "", title));
+        const peak = Math.max(1, ...rows.map((item) => Number(item.requests) || 0));
+        rows.forEach((item) => {
+          const row = el("div", "prime-ai-analytics-row");
+          row.append(el("span", "", labelFor(item)));
+          const bar = el("span", "prime-ai-bar");
+          bar.setAttribute("aria-hidden", "true");
+          bar.style.setProperty("--share", `${Math.round((Number(item.requests || 0) / peak) * 100)}%`);
+          row.append(bar);
+          row.append(el("strong", "", `${Number(item.requests || 0).toLocaleString()} طلب · `${Number(item.tokens || 0).toLocaleString()} رمز`));
+          panel.append(row);
+        });
+        stats.append(panel);
+      });
+
+      const dailyRows = Array.isArray(state.analytics && state.analytics.daily) ? state.analytics.daily.slice(-14) : [];
+      if (dailyRows.length) {
+        const trend = el("div", "prime-ai-analytics-breakdown");
+        trend.append(el("h3", "", "اتجاه الاستخدام اليومي — آخر 14 يوماً"));
+        const peak = Math.max(1, ...dailyRows.map((item) => Number(item.requests) || 0));
+        dailyRows.forEach((item) => {
+          const row = el("div", "prime-ai-analytics-row");
+          row.append(el("span", "", item.day || "—"));
+          const bar = el("span", "prime-ai-bar");
+          bar.setAttribute("aria-hidden", "true");
+          bar.style.setProperty("--share", `${Math.round((Number(item.requests || 0) / peak) * 100)}%`);
+          row.append(bar);
+          row.append(el("strong", "", `${Number(item.requests || 0)} طلب · `${Number(item.successful || 0)} ناجح · `${Number(item.failed || 0)} فاشل`));
+          trend.append(row);
+        });
+        stats.append(trend);
+      }
 
       if (!state.analyticsLoading && !state.analyticsError && !totals.requests) {
         const idle = el("div", "prime-ai-empty");
