@@ -60,6 +60,8 @@ def estimate_cost(
     text_count = max(0, int(text_requests or 0))
     if token_rate <= 0 and image_rate <= 0:
         return None
+    if token_rate > 0 and tokens is None:
+        return None
     if text_count and (token_rate <= 0 or tokens is None):
         return None
     if token_count and token_rate <= 0:
