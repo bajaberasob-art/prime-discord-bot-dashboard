@@ -1697,7 +1697,7 @@
       const modelRows = Array.isArray(state.analytics && state.analytics.models) ? state.analytics.models : [];
       [
         ["الاستهلاك حسب المزوّد", providerRows, (item) => item.provider || "غير معروف"],
-        ["الاستهلاك حسب النموذج", modelRows, (item) => `${item.provider || 'غير معروف} / `${item.model || 'غير معروف}`],
+        ["الاستهلاك حسب النموذج", modelRows, (item) => `${item.provider || "غير معروف"} / ${item.model || "غير معروف"}`],
       ].forEach(([title, rows, labelFor]) => {
         if (!rows.length) return;
         const panel = el("div", "prime-ai-analytics-breakdown");
@@ -1710,7 +1710,7 @@
           bar.setAttribute("aria-hidden", "true");
           bar.style.setProperty("--share", `${Math.round((Number(item.requests || 0) / peak) * 100)}%`);
           row.append(bar);
-          row.append(el("strong", "", `${Number(item.requests || 0).toLocaleString()} طلب · `${Number(item.tokens || 0).toLocaleString()} رمز`));
+          row.append(el("strong", "", `${Number(item.requests || 0).toLocaleString()} طلب · ${Number(item.tokens || 0).toLocaleString()} رمز`));
           panel.append(row);
         });
         stats.append(panel);
