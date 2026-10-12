@@ -2138,6 +2138,7 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
     fail_window = max(1, min(int(settings["failure_window_minutes"]), 1440))
     async with db.execute(
         "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
+        "AND NOT (skill='actions' AND mode='ACTION') "
         "AND julianday(created_at) >= julianday('now', ?)",
         (int(guild_id), f"-{spike_window} minutes"),
     ) as cur:
@@ -2195,7 +2196,7 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
     if request_limit > 0:
         async with db.execute(
             "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
-            "AND created_at >= ?",
+            "AND created_at >= ? AND NOT (skill='actions' AND mode='ACTION')",
             (int(guild_id), month_start),
         ) as cur:
             monthly_requests = int((await cur.fetchone())[0] or 0)
@@ -2338,7 +2339,8 @@ async def reserve_usage_budget(
                 pending_tokens = int((await cur.fetchone())[0] or 0)
             async with db.execute(
                 "SELECT COUNT(*) FROM prime_ai_request_events "
-                "WHERE guild_id=? AND julianday(created_at)>=julianday(?)",
+                "WHERE guild_id=? AND julianday(created_at)>=julianday(?) "
+                "AND NOT (skill='actions' AND mode='ACTION')",
                 (int(guild_id), month_start),
             ) as cur:
                 used_requests = int((await cur.fetchone())[0] or 0)
@@ -2432,7 +2434,8 @@ async def check_usage_budget(guild_id: int) -> dict:
             tokens = int((await cur.fetchone())[0] or 0)
         cost = tokens * float(settings["cost_per_million_tokens"]) / 1_000_000
         async with db.execute(
-            "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? AND created_at >= ?",
+            "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? AND created_at >= ? "
+            "AND NOT (skill='actions' AND mode='ACTION')",
             (int(guild_id), month_start),
         ) as cur:
             monthly_requests = int((await cur.fetchone())[0] or 0)
@@ -2606,13 +2609,15 @@ async def get_analytics(guild_id: int) -> dict:
             "SUM(CASE WHEN result='success' THEN 1 ELSE 0 END) AS successful, "
             "SUM(CASE WHEN result!='success' THEN 1 ELSE 0 END) AS failed, "
             "AVG(latency_ms) AS avg_latency_ms, SUM(COALESCE(tokens_used,0)) AS tokens "
-            "FROM prime_ai_request_events WHERE guild_id=? AND created_at >= datetime('now','-30 days')",
+            "FROM prime_ai_request_events WHERE guild_id=? AND created_at >= datetime('now','-30 days') "
+            "AND NOT (skill='actions' AND mode='ACTION')",
             (int(guild_id),),
         ) as cur:
             totals = dict(await cur.fetchone())
         async with db.execute(
             "SELECT latency_ms FROM prime_ai_request_events "
-            "WHERE guild_id=? AND julianday(created_at)>=julianday('now','-30 days') "
+            "WHERE guild_id=? AND NOT (skill='actions' AND mode='ACTION') "
+            "AND julianday(created_at)>=julianday('now','-30 days') "
             "ORDER BY created_at DESC LIMIT 50000",
             (int(guild_id),),
         ) as cur:
@@ -2629,6 +2634,7 @@ async def get_analytics(guild_id: int) -> dict:
             "AVG(latency_ms) AS avg_latency_ms, SUM(COALESCE(tokens_used,0)) AS tokens, "
             "SUM(CASE WHEN tokens_used IS NULL THEN 1 ELSE 0 END) AS unknown_cost_requests "
             "FROM prime_ai_request_events WHERE guild_id=? "
+            "AND NOT (skill='actions' AND mode='ACTION') "
             "AND julianday(created_at)>=julianday('now','-30 days') "
             "GROUP BY COALESCE(NULLIF(provider,''),'unknown') ORDER BY requests DESC LIMIT 12",
             (int(guild_id),),
@@ -2693,8 +2699,10 @@ async def get_analytics(guild_id: int) -> dict:
         now = now_utc()
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
         async with db.execute(
-            "SELECT COUNT(*) AS requests, COALESCE(SUM(tokens_used),0) AS tokens, "
-            "SUM(CASE WHEN tokens_used IS NULL THEN 1 ELSE 0 END) AS unknown_cost_requests "
+            "SELECT SUM(CASE WHEN NOT (skill='actions' AND mode='ACTION') THEN 1 ELSE 0 END) AS requests, "
+            "COALESCE(SUM(tokens_used),0) AS tokens, "
+            "SUM(CASE WHEN tokens_used IS NULL AND NOT (skill='actions' AND mode='ACTION') "
+            "THEN 1 ELSE 0 END) AS unknown_cost_requests "
             "FROM prime_ai_request_events WHERE guild_id=? AND created_at >= ?",
             (int(guild_id), month_start),
         ) as cur:
@@ -2702,6 +2710,7 @@ async def get_analytics(guild_id: int) -> dict:
         async with db.execute(
             "SELECT error_reason, COUNT(*) AS requests FROM prime_ai_request_events "
             "WHERE guild_id=? AND result!='success' AND error_reason!='' "
+            "AND NOT (skill='actions' AND mode='ACTION') "
             "AND created_at >= datetime('now','-30 days') "
             "GROUP BY error_reason ORDER BY requests DESC LIMIT 8",
             (int(guild_id),),
@@ -2712,6 +2721,7 @@ async def get_analytics(guild_id: int) -> dict:
             "COALESCE(NULLIF(model,''),'unknown') AS model, mode, error_reason, "
             "correlation_id, latency_ms FROM prime_ai_request_events "
             "WHERE guild_id=? AND result!='success' "
+            "AND NOT (skill='actions' AND mode='ACTION') "
             "ORDER BY created_at DESC LIMIT 12",
             (int(guild_id),),
         ) as cur:

@@ -181,6 +181,27 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(analytics["budget"]["settings"]["budget_warning_percent"], 70)
         self.assertEqual(analytics["budget"]["settings"]["budget_critical_percent"], 90)
 
+    async def test_action_result_event_does_not_consume_provider_quota(self):
+        guild_id = 123456789012354
+        await prime_ai_control.save_usage_settings(
+            guild_id, monthly_limit_usd=0.0,
+            cost_per_million_tokens=1.0, request_spike_count=100,
+            request_spike_window_minutes=10, provider_failure_count=5,
+            failure_window_minutes=10, alerts_enabled=True,
+            monthly_request_limit=1,
+        )
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="actions", mode="ACTION", result="success",
+            latency_ms=0, tokens_used=None,
+        )
+        reserved = await prime_ai_control.reserve_usage_budget(guild_id, 0)
+        self.assertTrue(reserved["allowed"])
+        analytics = await prime_ai_control.get_analytics(guild_id)
+        self.assertEqual(analytics["budget"]["monthly_requests"], 0)
+        self.assertEqual(analytics["totals"]["requests"], 0)
+        self.assertEqual(analytics["budget"]["reserved_requests"], 1)
+
     async def test_usage_isolated_by_guild(self):
         await prime_ai_control.record_request(
             123456789012347, 111111111111111, None,
