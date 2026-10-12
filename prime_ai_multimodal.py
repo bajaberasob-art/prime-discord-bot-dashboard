@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
 import aiohttp
+from PIL import Image, UnidentifiedImageError
 
 MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024
 MAX_TOTAL_BYTES = 8 * 1024 * 1024
@@ -96,6 +97,8 @@ def _mime_for(name: str, declared_type: str | None = None) -> str | None:
     suffix = PurePosixPath(name.lower()).suffix
     if suffix in _IMAGE_TYPES:
         return _IMAGE_TYPES[suffix]
+    if suffix in {".gif", ".apng"}:
+        return "image/gif" if suffix == ".gif" else "image/apng"
     if suffix in _AUDIO_TYPES:
         return _AUDIO_TYPES[suffix]
     if suffix == ".pdf":
@@ -249,15 +252,33 @@ async def _download_discord_image(session, url: str, *, limit: int) -> tuple[byt
             if not data or len(data) > limit:
                 return None
             mime = str(response.headers.get("Content-Type", "")).split(";", 1)[0].lower()
-            if mime not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+            if mime not in {"image/png", "image/jpeg", "image/webp", "image/gif", "image/apng"}:
                 suffix = PurePosixPath(parsed.path.lower()).suffix
                 mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                        ".webp": "image/webp", ".gif": "image/gif"}.get(suffix, "")
-            if mime not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+                        ".webp": "image/webp", ".gif": "image/gif", ".apng": "image/apng"}.get(suffix, "")
+            if mime not in {"image/png", "image/jpeg", "image/webp", "image/gif", "image/apng"}:
                 return None
             return data, mime
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, TypeError, AttributeError):
         return None
+
+
+def _normalize_image_for_gemini(data: bytes, mime_type: str) -> tuple[bytes, str]:
+    """Convert an animated image to a PNG first frame supported by Gemini."""
+    if mime_type not in {"image/gif", "image/apng"}:
+        return data, mime_type
+    try:
+        with Image.open(io.BytesIO(data)) as source:
+            source.seek(0)
+            frame = source.convert("RGBA" if "A" in source.getbands() else "RGB")
+            output = io.BytesIO()
+            frame.save(output, format="PNG", optimize=True)
+            converted = output.getvalue()
+    except (OSError, ValueError, UnidentifiedImageError) as error:
+        raise ValueError("animated_image_decode_failed") from error
+    if not converted or len(converted) > MAX_ATTACHMENT_BYTES:
+        raise ValueError("normalized_image_too_large")
+    return converted, "image/png"
 
 
 def _image_part(data: bytes, mime_type: str) -> dict:
@@ -306,6 +327,15 @@ async def prepare_inputs(
             continue
 
         suffix = PurePosixPath(name.lower()).suffix
+        if mime in {"image/gif", "image/apng"}:
+            try:
+                data, mime = _normalize_image_for_gemini(data, mime)
+            except ValueError:
+                result.warnings.append(f"تعذّر تحويل صورة {name} إلى تنسيق مدعوم.")
+                continue
+            if total_bytes + len(data) > MAX_TOTAL_BYTES:
+                result.warnings.append(f"تم تجاوز {name} بعد تحويل الصورة بسبب حد الحجم الإجمالي.")
+                continue
         if mime == "text/document":
             try:
                 extracted = _extract_text(name, data)
@@ -377,6 +407,11 @@ async def prepare_inputs(
             result.media_count += 1
             continue
         data, mime = downloaded
+        try:
+            data, mime = _normalize_image_for_gemini(data, mime)
+        except ValueError:
+            result.warnings.append(f"تعذّر تحويل صورة الملصق «{name}» إلى تنسيق مدعوم.")
+            continue
         if total_bytes + len(data) > MAX_TOTAL_BYTES:
             result.warnings.append("تم تجاوز الملصق بسبب حد الحجم الإجمالي.")
             continue
@@ -422,6 +457,10 @@ async def prepare_inputs(
         if not downloaded:
             continue
         data, mime = downloaded
+        try:
+            data, mime = _normalize_image_for_gemini(data, mime)
+        except ValueError:
+            continue
         if total_bytes + len(data) > MAX_TOTAL_BYTES:
             continue
         result.parts.append(_image_part(data, mime))

@@ -238,7 +238,21 @@ class GeminiProvider:
                 continue
             gemini_role = "model" if role == "assistant" else "user"
             if contents and contents[-1]["role"] == gemini_role:
-                contents[-1]["parts"].extend(parts)
+                # Coalesce adjacent text parts to preserve the previous text-only
+                # payload shape. Binary media parts keep their order and identity.
+                combined = []
+                for part in contents[-1]["parts"] + parts:
+                    if (
+                        isinstance(part, dict)
+                        and set(part) == {"text"}
+                        and combined
+                        and isinstance(combined[-1], dict)
+                        and set(combined[-1]) == {"text"}
+                    ):
+                        combined[-1]["text"] += "\n" + part["text"]
+                    else:
+                        combined.append(part)
+                contents[-1]["parts"] = combined
             else:
                 contents.append({"role": gemini_role, "parts": parts})
         body = {
