@@ -1592,6 +1592,8 @@
       stats.append(budgetForm);
       const quotas=(state.analytics && state.analytics.quotas)||{};
       [["الطلبات",quotas.requests],["الرموز",quotas.tokens],["التكلفة",quotas.cost_usd]].forEach(([label,q])=>{if(!q)return; const item=el("div","prime-ai-stat"); item.append(el("span","",label),el("strong","",q.limit ? String(q.used)+" / "+String(q.limit)+" ("+String(q.percent||0)+"%)" : String(q.used)+" / بلا حد")); stats.append(item);});
+      const estimate=Number(state.analytics && state.analytics.estimated_cost_usd || 0);
+      stats.append(el("p","prime-ai-help",state.analytics && state.analytics.cost_estimate_configured ? "التكلفة المقدّرة منذ بداية الشهر: $"+estimate.toFixed(6)+" USD" : "التكلفة المقدّرة غير مهيّأة؛ اضبط سعر المليون رمز أولاً."));
       const alerts=(state.analytics && state.analytics.alerts)||[]; const alertSection=el("div","prime-ai-analytics-breakdown"); alertSection.append(el("h3","","تنبيهات الاعتمادية والميزانية"));
       if(!alerts.length) alertSection.append(el("p","prime-ai-help","لا توجد تنبيهات مسجلة حالياً."));
       alerts.slice(0,10).forEach(a=>{const row=el("div","prime-ai-reliability-alert"+(a.severity==="critical"?" is-critical":"")); row.append(el("strong","",a.title||"تنبيه PRIME AI"),el("p","",a.detail||""),el("small","prime-ai-help",a.created_at||"")); alertSection.append(row);});
