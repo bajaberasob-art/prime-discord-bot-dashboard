@@ -184,6 +184,13 @@ async def get_analytics(guild_id: int) -> dict:
         ) as cur:
             skills = [dict(item) for item in await cur.fetchall()]
         async with db.execute(
+            "SELECT operation_id, skill, request, error, execution_result, status, updated_at "
+            "FROM prime_ai_operations WHERE guild_id=? AND status IN ('FAILED','PARTIAL','ERROR') "
+            "AND updated_at>=? ORDER BY updated_at DESC LIMIT 8",
+            (int(guild_id), _stamp(now - timedelta(days=30))),
+        ) as cur:
+            failed_actions = [dict(item) for item in await cur.fetchall()]
+        async with db.execute(
             "SELECT alert_id, severity, title, detail, created_at, acknowledged_at FROM prime_ai_reliability_alerts WHERE guild_id=? ORDER BY alert_id DESC LIMIT 20",
             (int(guild_id),),
         ) as cur:
@@ -227,6 +234,7 @@ async def get_analytics(guild_id: int) -> dict:
         "spike": {"count": spike_count, "window_minutes": settings["spike_window_minutes"], "threshold": settings["spike_requests"]},
         "reliability": {"recent_failures": recent_failures, "window_minutes": settings["failure_window_minutes"], "threshold": settings["failure_count"], "failure_reasons": failure_reasons},
         "skills": skills,
+        "failed_actions": failed_actions,
         "alerts": alerts,
     }
 
