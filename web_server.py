@@ -5630,7 +5630,18 @@ async def api_prime_ai_moderation(req):
 @routes.get('/api/guild/{guild_id}/ai/analytics')
 async def api_prime_ai_analytics(req):
     _, guild = await authorize(req)
-    return web.json_response(await prime_ai_control.get_analytics(guild.id))
+    try:
+        days = int(req.query.get("days", "30"))
+    except (TypeError, ValueError):
+        return json_error(400, "validation", message="فترة التحليل غير صالحة.")
+    if days not in {7, 30, 90}:
+        return json_error(400, "validation", message="اختر 7 أو 30 أو 90 يوماً.")
+    provider = str(req.query.get("provider", "") or "").strip()
+    if len(provider) > 80:
+        return json_error(400, "validation", message="اسم المزوّد أطول من المسموح.")
+    return web.json_response(
+        await prime_ai_control.get_analytics(guild.id, days=days, provider=provider or None)
+    )
 
 
 @routes.post('/api/guild/{guild_id}/ai/analytics/budget')

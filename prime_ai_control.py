@@ -2686,7 +2686,14 @@ async def update_moderation_action(
     return cursor.rowcount == 1
 
 
-async def get_analytics(guild_id: int) -> dict:
+async def get_analytics(
+    guild_id: int, *, days: int = 30, provider: str | None = None,
+) -> dict:
+    days = max(1, min(int(days), 90))
+    period_modifier = f"-{days} days"
+    provider = str(provider or "").strip()[:80] or None
+    provider_filter = " AND COALESCE(NULLIF(provider,''),'unknown')=?" if provider else ""
+    provider_params = (provider,) if provider else ()
     async with database.connect(aiosqlite.Row) as db:
         await _ensure_usage_schema(db)
         settings = await _usage_settings(db, guild_id)
@@ -2696,17 +2703,18 @@ async def get_analytics(guild_id: int) -> dict:
             "SUM(CASE WHEN result='success' THEN 1 ELSE 0 END) AS successful, "
             "SUM(CASE WHEN result!='success' THEN 1 ELSE 0 END) AS failed, "
             "AVG(latency_ms) AS avg_latency_ms, SUM(COALESCE(tokens_used,0)) AS tokens "
-            "FROM prime_ai_request_events WHERE guild_id=? AND created_at >= datetime('now','-30 days') "
-            "AND NOT (skill='actions' AND mode='ACTION')",
-            (int(guild_id),),
+            "FROM prime_ai_request_events WHERE guild_id=? "
+            "AND julianday(created_at)>=julianday('now', ?) "
+            "AND NOT (skill='actions' AND mode='ACTION')" + provider_filter,
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             totals = dict(await cur.fetchone())
         async with db.execute(
             "SELECT latency_ms FROM prime_ai_request_events "
             "WHERE guild_id=? AND NOT (skill='actions' AND mode='ACTION') "
-            "AND julianday(created_at)>=julianday('now','-30 days') "
-            "ORDER BY created_at DESC LIMIT 50000",
-            (int(guild_id),),
+            "AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " ORDER BY created_at DESC LIMIT 50000",
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             latency_sample = [max(0, int(row[0] or 0)) for row in await cur.fetchall()]
         latency_sample.sort()
@@ -2715,6 +2723,15 @@ async def get_analytics(guild_id: int) -> dict:
             if latency_sample else 0
         )
         async with db.execute(
+            "SELECT DISTINCT COALESCE(NULLIF(provider,''),'unknown') AS provider "
+            "FROM prime_ai_request_events WHERE guild_id=? "
+            "AND NOT (skill='actions' AND mode='ACTION') "
+            "AND julianday(created_at)>=julianday('now', ?) "
+            "ORDER BY provider LIMIT 40",
+            (int(guild_id), period_modifier),
+        ) as cur:
+            available_providers = [row[0] for row in await cur.fetchall()]
+        async with db.execute(
             "SELECT COALESCE(NULLIF(provider,''),'unknown') AS provider, COUNT(*) AS requests, "
             "SUM(CASE WHEN result='success' THEN 1 ELSE 0 END) AS successful, "
             "SUM(CASE WHEN result!='success' THEN 1 ELSE 0 END) AS failed, "
@@ -2722,9 +2739,9 @@ async def get_analytics(guild_id: int) -> dict:
             "SUM(CASE WHEN tokens_used IS NULL THEN 1 ELSE 0 END) AS unknown_cost_requests "
             "FROM prime_ai_request_events WHERE guild_id=? "
             "AND NOT (skill='actions' AND mode='ACTION') "
-            "AND julianday(created_at)>=julianday('now','-30 days') "
-            "GROUP BY COALESCE(NULLIF(provider,''),'unknown') ORDER BY requests DESC LIMIT 12",
-            (int(guild_id),),
+            "AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " GROUP BY COALESCE(NULLIF(provider,''),'unknown') ORDER BY requests DESC LIMIT 12",
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             providers = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
@@ -2736,10 +2753,10 @@ async def get_analytics(guild_id: int) -> dict:
             "SUM(CASE WHEN tokens_used IS NULL THEN 1 ELSE 0 END) AS unknown_cost_requests "
             "FROM prime_ai_request_events WHERE guild_id=? "
             "AND NOT (skill='actions' AND mode='ACTION') "
-            "AND julianday(created_at)>=julianday('now','-30 days') "
-            "GROUP BY COALESCE(NULLIF(provider,''),'unknown'), COALESCE(NULLIF(model,''),'unknown') "
+            "AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " GROUP BY COALESCE(NULLIF(provider,''),'unknown'), COALESCE(NULLIF(model,''),'unknown') "
             "ORDER BY requests DESC LIMIT 12",
-            (int(guild_id),),
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             models = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
@@ -2749,30 +2766,30 @@ async def get_analytics(guild_id: int) -> dict:
             "SUM(COALESCE(tokens_used,0)) AS tokens, AVG(latency_ms) AS avg_latency_ms "
             "FROM prime_ai_request_events WHERE guild_id=? "
             "AND NOT (skill='actions' AND mode='ACTION') "
-            "AND julianday(created_at)>=julianday('now','-30 days') "
-            "GROUP BY substr(created_at,1,10) ORDER BY day",
-            (int(guild_id),),
+            "AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " GROUP BY substr(created_at,1,10) ORDER BY day",
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             daily = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
             "SELECT skill, COUNT(*) AS requests FROM prime_ai_request_events "
-            "WHERE guild_id=? AND created_at >= datetime('now','-30 days') "
-            "GROUP BY skill ORDER BY requests DESC LIMIT 10",
-            (int(guild_id),),
+            "WHERE guild_id=? AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " GROUP BY skill ORDER BY requests DESC LIMIT 10",
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             skills = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
             "SELECT channel_id, COUNT(*) AS requests FROM prime_ai_request_events "
-            "WHERE guild_id=? AND channel_id IS NOT NULL AND created_at >= datetime('now','-30 days') "
-            "GROUP BY channel_id ORDER BY requests DESC LIMIT 10",
-            (int(guild_id),),
+            "WHERE guild_id=? AND channel_id IS NOT NULL AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " GROUP BY channel_id ORDER BY requests DESC LIMIT 10",
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             channels = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
             "SELECT user_id, COUNT(*) AS requests FROM prime_ai_request_events "
-            "WHERE guild_id=? AND user_id IS NOT NULL AND created_at >= datetime('now','-30 days') "
-            "GROUP BY user_id ORDER BY requests DESC LIMIT 10",
-            (int(guild_id),),
+            "WHERE guild_id=? AND user_id IS NOT NULL AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " GROUP BY user_id ORDER BY requests DESC LIMIT 10",
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             users = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
@@ -2800,9 +2817,9 @@ async def get_analytics(guild_id: int) -> dict:
             "SELECT error_reason, COUNT(*) AS requests FROM prime_ai_request_events "
             "WHERE guild_id=? AND result!='success' AND error_reason!='' "
             "AND NOT (skill='actions' AND mode='ACTION') "
-            "AND created_at >= datetime('now','-30 days') "
-            "GROUP BY error_reason ORDER BY requests DESC LIMIT 8",
-            (int(guild_id),),
+            "AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " GROUP BY error_reason ORDER BY requests DESC LIMIT 8",
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             failure_reasons = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
@@ -2811,8 +2828,9 @@ async def get_analytics(guild_id: int) -> dict:
             "correlation_id, latency_ms FROM prime_ai_request_events "
             "WHERE guild_id=? AND result!='success' "
             "AND NOT (skill='actions' AND mode='ACTION') "
-            "ORDER BY created_at DESC LIMIT 12",
-            (int(guild_id),),
+            "AND julianday(created_at)>=julianday('now', ?) " + provider_filter +
+            " ORDER BY created_at DESC LIMIT 12",
+            (int(guild_id), period_modifier, *provider_params),
         ) as cur:
             recent_failures = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
@@ -2873,6 +2891,9 @@ async def get_analytics(guild_id: int) -> dict:
         "channels": channels,
         "users": users,
         "providers": providers,
+        "available_providers": available_providers,
+        "selected_provider": provider,
+        "period_days": days,
         "models": models,
         "daily": daily,
         "budget": {
