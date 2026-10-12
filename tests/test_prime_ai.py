@@ -782,23 +782,41 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("نقطتين رئيسيتين", embed.description)
         self.assertIn("20", embed.fields[0].value)
 
-    async def test_imagine_uses_shared_pollinations_image_adapter(self):
-        user = SimpleNamespace(display_name="PRIME member")
+    async def test_imagine_uses_gemini_native_image_generator(self):
+        user = SimpleNamespace(id=9988776655, display_name="PRIME member")
         interaction = SimpleNamespace(
             user=user,
+            guild_id=12345,
             response=SimpleNamespace(defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
         )
         cog = AITools(SimpleNamespace(session=FakeProviderSession()))
 
-        await AITools.imagine.callback(cog, interaction, "blue moon / city")
+        with patch(
+            "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+            return_value=(b"generated-png-bytes", "image/png"),
+        ) as generate:
+            await AITools.imagine.callback(cog, interaction, "blue moon / city")
 
         interaction.response.defer.assert_awaited_once()
-        embed = interaction.followup.send.await_args.kwargs["embed"]
-        self.assertEqual(
-            embed.image.url,
-            ai.POLLINATIONS_PROVIDER.image_url("blue moon / city"),
+        generate.assert_awaited_once_with(
+            cog._current_http_session(),
+            "blue moon / city",
+            reference_image=None,
+            timeout_seconds=120,
+            aspect_ratio="1:1",
         )
+        kwargs = interaction.followup.send.await_args.kwargs
+        self.assertIn("Gemini", kwargs["content"])
+        self.assertEqual(len(kwargs["embeds"]), 1)
+        self.assertEqual(len(kwargs["files"]), 1)
+        self.assertEqual(kwargs["files"][0].filename, "prime-imagine-1.png")
+        self.assertEqual(
+            kwargs["embeds"][0].image.url,
+            "attachment://prime-imagine-1.png",
+        )
+        self.assertNotIn("embed", kwargs)
 
 
 class PrimeAIPromptTests(unittest.TestCase):

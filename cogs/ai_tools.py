@@ -4,6 +4,7 @@ import math
 import logging
 import asyncio
 import re
+from pathlib import PurePosixPath
 from datetime import datetime, timezone
 
 import aiohttp
@@ -12,6 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import prime_ai_service
+import prime_ai_multimodal
 import prime_ai_control
 import prime_ai_runtime
 import prime_ai_intelligence
@@ -696,6 +698,7 @@ class AITools(commands.Cog):
     @app_commands.describe(
         question="اكتب سؤالك التقني أو العام هنا",
         mode="اختر المحادثة أو مساعد القراءة أو تنفيذ إجراء محمي.",
+        attachment="أرفق صورة أو مستنداً أو ملفاً صوتياً لتحليله.",
     )
     @app_commands.choices(
         mode=[
@@ -709,8 +712,9 @@ class AITools(commands.Cog):
         itx: discord.Interaction,
         question: str,
         mode: str | None = None,
+        attachment: discord.Attachment | None = None,
     ):
-        await self.answer_ai(itx, question, mode)
+        await self.answer_ai(itx, question, mode, attachment=attachment)
 
     async def _take_runtime_limits(self, guild, member, channel, config, mode):
         limits = config.get("rate_limits", {})
@@ -978,6 +982,7 @@ class AITools(commands.Cog):
         reference_message_id: int | None = None,
         mentioned_user_ids: list[int] | None = None,
         thread_id: int | None = None,
+        media_parts: list[dict] | None = None,
     ) -> str:
         """Generate a response with isolated, expiring durable conversation context."""
         return await dialogue.generate_user_response(
@@ -987,6 +992,7 @@ class AITools(commands.Cog):
             turn_key=turn_key, user_message_id=user_message_id,
             reference_message_id=reference_message_id,
             mentioned_user_ids=mentioned_user_ids, thread_id=thread_id,
+            media_parts=media_parts,
         )
 
     async def _record_message_turn(
@@ -1331,8 +1337,17 @@ class AITools(commands.Cog):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-    async def answer_ai(self, itx: discord.Interaction, question: str, mode: str | None = None):
-        question = str(question).strip()[:prime_ai_service.MAX_CHAT_PROMPT]
+    async def answer_ai(
+        self,
+        itx: discord.Interaction,
+        question: str,
+        mode: str | None = None,
+        *,
+        attachment: discord.Attachment | None = None,
+    ):
+        question = str(question or "").strip()[:prime_ai_service.MAX_CHAT_PROMPT]
+        if not question and attachment:
+            question = "حلل المرفق، ولخّص محتواه، واذكر بوضوح أي تفاصيل غير مقروءة أو غير مؤكدة."
         if not question:
             return await itx.response.send_message(
                 "اكتب سؤالاً قبل إرسال الطلب.",
@@ -1363,6 +1378,11 @@ class AITools(commands.Cog):
                 ephemeral=True,
             )
         selected_mode = requested_mode
+        if attachment and selected_mode == "ACTION":
+            return await itx.response.send_message(
+                "تحليل المرفقات متاح في نمطي المحادثة ومساعد القراءة فقط؛ لم يُنفّذ أي إجراء.",
+                ephemeral=True,
+            )
         if guild and settings and not settings["enabled"]:
             return await itx.response.send_message(
                 "أوقف مشرفو هذا الخادم PRIME AI حالياً.",
@@ -1439,7 +1459,39 @@ class AITools(commands.Cog):
 
         await itx.response.defer(thinking=True)
 
+        media_parts = []
+        media_warnings = []
         try:
+            if attachment:
+                detected = prime_ai_runtime.detect_skill_request(question)
+                if detected and detected.get("intent") == "SERVER_ACTION":
+                    return await itx.followup.send(
+                        "لا أدمج المرفق مع طلب تنفيذ إجراء إداري. أعد إرسال الإجراء بدون مرفق، أو أرسل المرفق كسؤال في نمط المحادثة.",
+                        ephemeral=True,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                if (
+                    prime_ai_service.extract_explicit_memory_request(question)
+                    or _parse_private_memory_command(question) is not None
+                ):
+                    return await itx.followup.send(
+                        "افصل طلب إدارة الذاكرة عن تحليل المرفقات حتى لا يُحفظ محتوى غير مقصود.",
+                        ephemeral=True,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                prepared = await prime_ai_multimodal.prepare_inputs(
+                    attachments=[attachment],
+                    session=self._current_http_session(),
+                )
+                media_parts = prepared.parts
+                media_warnings = prepared.warnings
+                if not media_parts:
+                    details = prepared.warning_text or "نوع الملف غير مدعوم."
+                    return await itx.followup.send(
+                        f"لم أستطع قراءة المرفق. {details}\nالأنواع المدعومة: PNG/JPEG/WEBP، PDF، DOCX/PPTX/XLSX، ملفات النص، MP3/WAV/M4A/OGG/FLAC/WEBM.",
+                        ephemeral=True,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
             if (
                 guild is not None
                 and selected_mode in {"CHAT", "ASSISTANT"}
@@ -1449,6 +1501,12 @@ class AITools(commands.Cog):
             ):
                 return
             blocked_request = prime_ai_runtime.detect_skill_request(question)
+            if attachment and blocked_request and blocked_request.get("intent") == "SERVER_ACTION":
+                return await itx.followup.send(
+                    "لا أستخدم المرفق لتنفيذ إجراء إداري؛ أرسل طلب التنفيذ منفصلاً.",
+                    ephemeral=True,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
             if blocked_request and blocked_request.get("intent") == "SERVER_ACTION":
                 if guild is None:
                     return await itx.followup.send(
@@ -1548,7 +1606,10 @@ class AITools(commands.Cog):
                 reference_message_id=getattr(
                     getattr(itx, "message", None), "id", None
                 ),
+                media_parts=media_parts,
             )
+            if media_warnings:
+                answer += "\n\nملاحظة بشأن المرفق: " + " ".join(media_warnings[:3])
             embed = discord.Embed(
                 title="المساعد الذكي",
                 description=answer,
@@ -2565,9 +2626,19 @@ class AITools(commands.Cog):
             config, message.channel.id
         )
         is_triggered = is_mention or replied_to_bot or wake_triggered or is_talk_auto
+        attached_media = bool(
+            getattr(message, "attachments", None) or getattr(message, "stickers", None)
+        )
         pending_action = await prime_ai_control.get_pending_action_context(
             message.guild.id, message.channel.id, message.author.id
         )
+        if pending_action and attached_media:
+            await message.reply(
+                "أكمل أو ألغِ طلب الإجراء المعلّق أولاً، ثم أرسل المرفق للتحليل منفصلاً. لم يتم تنفيذ أي إجراء.",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
         if not is_triggered and not pending_action:
             return
         if (
@@ -2582,7 +2653,9 @@ class AITools(commands.Cog):
         prompt = (
             wake_prompt if wake_triggered else content_without_mention
         ).strip()
-        if is_talk_auto and not prompt:
+        if is_talk_auto and not prompt and not (
+            getattr(message, "attachments", None) or getattr(message, "stickers", None)
+        ):
             return
         if (
             not prompt
@@ -2596,8 +2669,21 @@ class AITools(commands.Cog):
             if pending_action:
                 return
             if not wake_presence:
-                prompt = "ساعدني في سؤالي."
+                prompt = (
+                    "حلل المرفقات أو الملصقات في رسالتي واشرح ما يظهر فيها."
+                    if getattr(message, "attachments", None) or getattr(message, "stickers", None)
+                    else "ساعدني في سؤالي."
+                )
         prompt = prompt[:prime_ai_service.MAX_CHAT_PROMPT]
+
+        attachment_action = prime_ai_runtime.detect_skill_request(prompt)
+        if attached_media and attachment_action and attachment_action.get("intent") == "SERVER_ACTION":
+            await message.reply(
+                "أرسل طلب تنفيذ الإجراء بدون مرفق، أو أرسل المرفق كسؤال مستقل للتحليل. لم يتم تنفيذ أي إجراء.",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
 
         # Resolve explicit, configured command aliases/shortcuts locally before
         # spending AI rate limits or asking a model to reinterpret the request.
@@ -2605,7 +2691,7 @@ class AITools(commands.Cog):
         get_cog = getattr(self.bot, "get_cog", None)
         utilities_cog = get_cog("Utilities") if callable(get_cog) else None
         assistant_dispatch = getattr(utilities_cog, "dispatch_assistant_prompt", None)
-        if callable(assistant_dispatch):
+        if callable(assistant_dispatch) and not attached_media:
             try:
                 if await assistant_dispatch(message, prompt):
                     return
@@ -2822,6 +2908,14 @@ class AITools(commands.Cog):
                 prompt = (
                     f"{pending_action}\nتوضيح من صاحب الطلب: {prompt}"
                 )[:prime_ai_service.MAX_CHAT_PROMPT]
+        if current_is_action and attached_media:
+            await message.reply(
+                "لا أستخدم المرفقات ضمن طلبات تنفيذ إجراءات إدارية. أرسل الإجراء بدون مرفق، أو أرسل المرفق كسؤال منفصل للتحليل؛ لم يتم تنفيذ أي إجراء.",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+
         if current_is_action or pending_action:
             response_config = config.get("response", {})
             try:
@@ -2892,6 +2986,26 @@ class AITools(commands.Cog):
                 except discord.HTTPException:
                     LOGGER.exception("[AI] Could not deliver natural action failure.")
             return
+
+        try:
+            prepared_media = await prime_ai_multimodal.prepare_inputs(
+                attachments=getattr(message, "attachments", ()),
+                stickers=getattr(message, "stickers", ()),
+                message_content=str(getattr(message, "content", "") or ""),
+                session=self._current_http_session(),
+            )
+            media_parts = prepared_media.parts
+            media_warnings = prepared_media.warnings
+        except Exception:
+            LOGGER.exception("[AI] Failed to prepare a bounded multimodal Discord input.")
+            media_parts = []
+            media_warnings = ["تعذر تحليل أحد المرفقات؛ أعد إرساله بصيغة مدعومة."]
+        if media_warnings:
+            # The model receives only accepted media parts; the user is told what was skipped.
+            LOGGER.info(
+                "[AI] Multimodal input skipped %s item(s) in guild %s.",
+                len(media_warnings), message.guild.id,
+            )
 
         referenced_author = getattr(referenced, "author", None)
         safe_reply_context = (
@@ -2974,6 +3088,7 @@ class AITools(commands.Cog):
                             if isinstance(message.channel, discord.Thread)
                             else None
                         ),
+                        media_parts=media_parts,
                     )
             else:
                 answer = await self._generate_user_response(
@@ -2996,7 +3111,10 @@ class AITools(commands.Cog):
                         if isinstance(message.channel, discord.Thread)
                         else None
                     ),
+                    media_parts=media_parts,
                 )
+            if media_warnings:
+                answer += "\n\nملاحظة بشأن المرفقات: " + " ".join(media_warnings[:3])
             allowed_mentions = discord.AllowedMentions.none()
             if not response_config.get("markdown", True):
                 answer = discord.utils.escape_markdown(str(answer), as_needed=False)
@@ -3071,29 +3189,164 @@ class AITools(commands.Cog):
 
     @app_commands.command(
         name="imagine",
-        description="توليد صورة فنية رقمية بالذكاء الاصطناعي",
+        description="توليد صور فعلية باستخدام نموذج Gemini",
     )
     @app_commands.describe(
-        prompt="وصف الصورة باللغة الإنجليزية لأفضل نتيجة",
+        prompt="وصف الصورة أو التعديل المطلوب",
+        reference_image="صورة اختيارية تريد تعديلها أو استخدامها كمرجع",
+        count="عدد النتائج (1 أو 2)",
+        aspect_ratio="نسبة أبعاد الصورة",
+    )
+    @app_commands.choices(
+        aspect_ratio=[
+            app_commands.Choice(name="مربع 1:1", value="1:1"),
+            app_commands.Choice(name="أفقي 16:9", value="16:9"),
+            app_commands.Choice(name="عمودي 9:16", value="9:16"),
+            app_commands.Choice(name="أفقي 3:2", value="3:2"),
+            app_commands.Choice(name="عمودي 2:3", value="2:3"),
+        ]
     )
     async def imagine(
         self,
         itx: discord.Interaction,
         prompt: str,
+        reference_image: discord.Attachment | None = None,
+        count: app_commands.Range[int, 1, 2] = 1,
+        aspect_ratio: str = "1:1",
     ):
-        await itx.response.defer()
-        image_url = prime_ai_service.POLLINATIONS_PROVIDER.image_url(prompt)
+        prompt = str(prompt or "").strip()
+        if not prompt or len(prompt) > 1800:
+            return await itx.response.send_message(
+                "اكتب وصفاً واضحاً للصورة لا يتجاوز 1800 حرف.",
+                ephemeral=True,
+            )
+        if reference_image and (
+            PurePosixPath(str(reference_image.filename).lower()).suffix
+            not in {".png", ".jpg", ".jpeg", ".webp"}
+        ):
+            return await itx.response.send_message(
+                "الصورة المرجعية يجب أن تكون PNG أو JPEG أو WEBP.",
+                ephemeral=True,
+            )
 
-        embed = discord.Embed(
-            title="🎨 توليد الصور بالذكاء الاصطناعي",
-            description=f"**الوصف:** {prompt}",
-            color=0x9B59B6,
+        limit_guild = int(getattr(itx, "guild_id", 0) or 0)
+        wait = prime_ai_service.allow_request(
+            limit_guild,
+            int(itx.user.id),
+            action="imagine",
+            limit=2,
+            window_seconds=600,
         )
-        embed.set_image(url=image_url)
-        embed.set_footer(
-            text=f"طلب بواسطة: {itx.user.display_name}",
-        )
-        await itx.followup.send(embed=embed)
+        if wait:
+            return await itx.response.send_message(
+                f"بلغت حد توليد الصور مؤقتاً؛ أعد المحاولة بعد {max(1, int(wait) + 1)} ثانية.",
+                ephemeral=True,
+            )
+
+        await itx.response.defer(thinking=True)
+        session = self._current_http_session()
+        reference_data = None
+        try:
+            if reference_image:
+                prepared = await prime_ai_multimodal.prepare_inputs(
+                    attachments=[reference_image],
+                    session=session,
+                )
+                reference_data = next(
+                    (
+                        item for item in prepared.parts
+                        if item.get("type") == "image" and item.get("mime_type") in {
+                            "image/png", "image/jpeg", "image/webp"
+                        }
+                    ),
+                    None,
+                )
+                if not reference_data:
+                    return await itx.followup.send(
+                        "تعذّر قراءة الصورة المرجعية. أرسل صورة PNG أو JPEG أو WEBP أصغر من 6 ميغابايت.",
+                        ephemeral=True,
+                    )
+
+            files = []
+            embeds = []
+            failures = []
+            for index in range(int(count)):
+                if index:
+                    wait = prime_ai_service.allow_request(
+                        limit_guild,
+                        int(itx.user.id),
+                        action="imagine",
+                        limit=2,
+                        window_seconds=600,
+                    )
+                    if wait:
+                        failures.append("وصلت إلى حد الاستخدام؛ أنشأت بعض النتائج فقط.")
+                        break
+                try:
+                    image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
+                        session,
+                        prompt,
+                        reference_image=reference_data,
+                        timeout_seconds=120,
+                        aspect_ratio=aspect_ratio,
+                    )
+                except prime_ai_service.AIProviderUnavailable as error:
+                    LOGGER.warning("[AI] Gemini image generation failed (%s).", str(error)[:100])
+                    failures.append(_provider_failure_message(error))
+                    break
+                except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
+                    LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
+                    failures.append("تعذر توليد إحدى الصور. تحقق من توفر Gemini وحاول مرة أخرى.")
+                    break
+
+                extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
+                filename = f"prime-imagine-{index + 1}.{extension}"
+                files.append(discord.File(io.BytesIO(image_bytes), filename=filename))
+                embed = discord.Embed(
+                    title=f"🎨 PRIME AI · النتيجة {index + 1}",
+                    description=prompt[:900],
+                    color=0x9B59B6,
+                )
+                embed.set_image(url=f"attachment://{filename}")
+                embed.set_footer(
+                    text=f"توليد Gemini الفعلي · طلب بواسطة {itx.user.display_name}",
+                )
+                embeds.append(embed)
+
+            if not files:
+                return await itx.followup.send(
+                    failures[0] if failures else "لم يعُد نموذج الصور ملفاً صالحاً.",
+                    allowed_mentions=discord.AllowedMentions.none(),
+                    ephemeral=True,
+                )
+            note = (
+                "تم توليد الصورة عبر Gemini، وليست صورة خارجية معروضة من رابط بحث."
+                if len(files) == 1
+                else f"تم توليد {len(files)} نتائج فعلية عبر Gemini."
+            )
+            if failures:
+                note += "\n\n" + failures[0]
+            await itx.followup.send(
+                content=note,
+                embeds=embeds,
+                files=files,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException:
+            LOGGER.exception("[AI] Discord could not deliver generated image.")
+            if not itx.is_expired():
+                await itx.followup.send(
+                    "تمت محاولة التوليد، لكن Discord لم يقبل الملف الناتج.",
+                    ephemeral=True,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+        except Exception:
+            LOGGER.exception("[AI] Unexpected image generation failure.")
+            await itx.followup.send(
+                "تعذر إكمال توليد الصورة. لم يتم إرسال رابط وهمي؛ تحقق من السجلات وإعداد Gemini.",
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
 
     @app_commands.command(
         name="summarize",
