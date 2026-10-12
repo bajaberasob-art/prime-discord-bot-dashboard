@@ -77,7 +77,7 @@ async def generate_user_response(
     session, guild, actor, channel, question: str, *, store,
     config: dict, context: dict, mode: str, audit_action: str,
     turn_key=None, user_message_id=None, reference_message_id=None,
-    mentioned_user_ids=None, thread_id=None,
+    mentioned_user_ids=None, thread_id=None, media_parts: list[dict] | None = None,
 ) -> str:
     channel_id = getattr(channel, "id", None)
     key = (guild.id, channel_id, actor.id) if guild is not None and channel_id is not None else None
@@ -103,6 +103,7 @@ async def generate_user_response(
             channel_id, request_text, audit_action=audit_action,
             conversation=conversation, context=context,
             role_ids=[role.id for role in getattr(actor, "roles", ())], mode=mode,
+            media_parts=media_parts,
         )
 
     if key is None:

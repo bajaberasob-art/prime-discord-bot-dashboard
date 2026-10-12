@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import os
 import re
@@ -41,6 +43,147 @@ class PollinationsProvider:
         )
 
 
+class GeminiImageProvider:
+    """Generate real image bytes with Gemini's native image-generation model."""
+
+    api_endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
+    default_model = "gemini-3.1-flash-image"
+
+    @staticmethod
+    def _image_output(data: dict) -> tuple[bytes, str]:
+        if not isinstance(data, dict):
+            raise AIProviderUnavailable("gemini_image_invalid_response")
+        direct = data.get("output_image")
+        if isinstance(direct, dict) and isinstance(direct.get("data"), str):
+            candidates = [direct]
+        else:
+            candidates = []
+
+            def walk(node):
+                if isinstance(node, dict):
+                    if (
+                        isinstance(node.get("data"), str)
+                        and (
+                            str(node.get("type", "")).lower() in {"image", "image_output", "output_image"}
+                            or str(node.get("mime_type", "")).lower().startswith("image/")
+                        )
+                    ):
+                        candidates.append(node)
+                    # Walk output steps; request echoes / user input are not model results.
+                    for key in ("output", "steps", "content", "parts", "model_output"):
+                        if key in node:
+                            walk(node[key])
+                elif isinstance(node, list):
+                    for item in node:
+                        walk(item)
+
+            walk(data.get("output", []))
+            walk(data.get("steps", []))
+        for item in reversed(candidates):
+            encoded = item.get("data")
+            mime = str(item.get("mime_type") or item.get("mimeType") or "image/png").lower()
+            if mime not in {"image/png", "image/jpeg", "image/webp"}:
+                continue
+            try:
+                image_bytes = base64.b64decode(encoded, validate=True)
+            except (ValueError, TypeError, binascii.Error):
+                continue
+            if image_bytes and len(image_bytes) <= 8 * 1024 * 1024:
+                return image_bytes, mime
+        raise AIProviderUnavailable("gemini_image_missing_output")
+
+    async def generate(
+        self,
+        session: aiohttp.ClientSession,
+        prompt: str,
+        *,
+        reference_image: dict | None = None,
+        timeout_seconds: int = 120,
+        aspect_ratio: str = "1:1",
+    ) -> tuple[bytes, str]:
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            raise AIProviderUnavailable("gemini_api_key_missing")
+        value = str(prompt or "").strip()
+        if not value or len(value) > 1800:
+            raise ValueError("invalid_image_prompt")
+        if session is None or getattr(session, "closed", False):
+            raise AIProviderUnavailable("shared_http_session_unavailable")
+        ratios = {"1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"}
+        if aspect_ratio not in ratios:
+            raise ValueError("invalid_image_aspect_ratio")
+
+        input_parts = [{"type": "text", "text": value}]
+        if reference_image is not None:
+            if not isinstance(reference_image, dict):
+                raise ValueError("invalid_image_reference")
+            mime = str(reference_image.get("mime_type") or "").lower()
+            encoded = reference_image.get("data")
+            if mime not in {"image/png", "image/jpeg", "image/webp"} or not isinstance(encoded, str):
+                raise ValueError("invalid_image_reference")
+            if len(encoded) > 8 * 1024 * 1024:
+                raise ValueError("image_reference_too_large")
+            try:
+                raw = base64.b64decode(encoded, validate=True)
+            except (ValueError, TypeError, binascii.Error):
+                raise ValueError("invalid_image_reference") from None
+            if not raw or len(raw) > 6 * 1024 * 1024:
+                raise ValueError("image_reference_too_large")
+            input_parts.append({
+                "type": "image",
+                "mime_type": mime,
+                "data": encoded,
+            })
+
+        model = os.getenv("PRIME_IMAGE_MODEL", self.default_model).strip()
+        if not model or len(model) > 100:
+            raise AIProviderUnavailable("gemini_image_model_invalid")
+        body = {
+            "model": model,
+            "input": input_parts,
+            "store": False,
+            "response_format": {
+                "type": "image",
+                "mime_type": "image/png",
+                "aspect_ratio": aspect_ratio,
+                "image_size": "1K",
+            },
+        }
+        async with session.post(
+            self.api_endpoint,
+            json=body,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
+            timeout=aiohttp.ClientTimeout(
+                total=max(10, min(int(timeout_seconds), 180)),
+                connect=8,
+            ),
+        ) as response:
+            if response.status != 200:
+                reason_code = ""
+                try:
+                    payload = await response.json(content_type=None)
+                    err = payload.get("error", {}) if isinstance(payload, dict) else {}
+                    status = str(err.get("status", "")).upper() if isinstance(err, dict) else ""
+                    if re.fullmatch(r"[A-Z0-9_]{1,40}", status):
+                        reason_code = "_" + status.lower()
+                except (aiohttp.ClientError, ValueError, TypeError, AttributeError):
+                    pass
+                raise AIProviderUnavailable(
+                    f"gemini_image_status_{response.status}{reason_code}",
+                    retryable=response.status in RETRYABLE_PROVIDER_STATUSES,
+                    status_code=response.status,
+                )
+            try:
+                payload = await response.json(content_type=None)
+            except (aiohttp.ClientError, ValueError, TypeError) as error:
+                raise AIProviderUnavailable("gemini_image_invalid_response") from error
+        return self._image_output(payload)
+
+
 class GeminiProvider:
     """Gemini REST adapter preserving PRIME's messages and generation settings."""
 
@@ -59,17 +202,45 @@ class GeminiProvider:
             role = item.get("role")
             if role not in {"user", "assistant"}:
                 continue
-            text = str(item.get("content", "")).strip()
-            if not text:
+            parts = []
+            text = item.get("content", "")
+            if isinstance(text, str) and text.strip():
+                parts.append({"text": text})
+            media_parts = item.get("media_parts", [])
+            if media_parts is not None:
+                if not isinstance(media_parts, list):
+                    raise ValueError("invalid_media_parts")
+                for media in media_parts:
+                    if not isinstance(media, dict):
+                        raise ValueError("invalid_media_part")
+                    media_type = media.get("type")
+                    if media_type == "text":
+                        extra_text = media.get("text")
+                        if isinstance(extra_text, str) and extra_text.strip():
+                            parts.append({"text": extra_text})
+                        continue
+                    mime_type = str(media.get("mime_type") or "").strip().lower()
+                    encoded = media.get("data")
+                    if (
+                        media_type not in {"image", "audio", "document"}
+                        or not isinstance(encoded, str)
+                        or not encoded
+                        or not re.fullmatch(r"[a-z0-9.+-]+/[a-z0-9.+-]+", mime_type)
+                    ):
+                        raise ValueError("invalid_media_part")
+                    parts.append({
+                        "inlineData": {
+                            "mimeType": mime_type,
+                            "data": encoded,
+                        }
+                    })
+            if not parts:
                 continue
             gemini_role = "model" if role == "assistant" else "user"
             if contents and contents[-1]["role"] == gemini_role:
-                contents[-1]["parts"][0]["text"] += "\n" + text
+                contents[-1]["parts"].extend(parts)
             else:
-                contents.append({"role": gemini_role, "parts": [{"text": text}]})
-        # Gemini 3.x deprecates temperature/top_p/top_k. Sending a legacy
-        # temperature value makes otherwise valid generateContent calls fail
-        # with HTTP 400, so generation is controlled through thinkingLevel.
+                contents.append({"role": gemini_role, "parts": parts})
         body = {
             "contents": contents,
             "generationConfig": {
