@@ -356,3 +356,33 @@
     animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important;
   }
 }
+
+/* ---------- PRIME AI consumption and reliability ---------- */
+.prime-ai-usage-card { display: grid; gap: 1rem; }
+.prime-ai-usage-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; padding: 1rem; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); }
+.prime-ai-usage-field { display: grid; gap: .35rem; min-width: 0; font-size: .82rem; font-weight: 700; }
+.prime-ai-usage-field > span { color: var(--text); }
+.prime-ai-usage-field input { width: 100%; min-width: 0; padding: .7rem .8rem; color: var(--text); border: 1px solid var(--line); border-radius: var(--ai-radius); background: var(--surface); font: inherit; direction: ltr; text-align: left; }
+.prime-ai-usage-field small { color: var(--muted); font-size: .7rem; font-weight: 400; line-height: 1.6; }
+.prime-ai-usage-toggle { display: flex; grid-column: 1 / -1; align-items: center; gap: .6rem; font-size: .83rem; }
+.prime-ai-usage-toggle input { accent-color: var(--blue); width: 1rem; height: 1rem; }
+.prime-ai-usage-form > button { grid-column: 1 / -1; justify-self: start; }
+.prime-ai-usage-meter { display: grid; gap: .45rem; color: var(--muted); font-size: .78rem; }
+.prime-ai-usage-track { height: .65rem; overflow: hidden; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); }
+.prime-ai-usage-fill { display: block; height: 100%; border-radius: inherit; background: var(--ai-accent); transition: width .2s ease; }
+.prime-ai-usage-subsection { display: grid; gap: .65rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+.prime-ai-usage-subsection h3 { font-size: .95rem; }
+.prime-ai-usage-alert, .prime-ai-usage-failure { display: grid; gap: .3rem; padding: .8rem .9rem; border: 1px solid var(--line); border-radius: var(--ai-radius); background: var(--surface-2); min-width: 0; }
+.prime-ai-usage-alert.is-critical { border-inline-start: 3px solid var(--red, #d9534f); }
+.prime-ai-usage-alert.is-warning { border-inline-start: 3px solid var(--amber, #dba23c); }
+.prime-ai-usage-alert p, .prime-ai-usage-failure span { color: var(--muted); font-size: .8rem; line-height: 1.7; overflow-wrap: anywhere; }
+.prime-ai-usage-alert small, .prime-ai-usage-failure small { color: var(--muted); font-size: .7rem; }
+.prime-ai-usage-failure { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.prime-ai-usage-failure small { grid-column: 1 / -1; }
+.prime-ai-usage-error { color: var(--red, #d9534f); font-size: .82rem; }
+@media (max-width: 620px) {
+  .prime-ai-usage-form { grid-template-columns: minmax(0, 1fr); }
+  .prime-ai-usage-toggle, .prime-ai-usage-form > button { grid-column: 1; }
+  .prime-ai-usage-failure { grid-template-columns: minmax(0, 1fr); }
+  .prime-ai-usage-failure small { grid-column: 1; }
+}

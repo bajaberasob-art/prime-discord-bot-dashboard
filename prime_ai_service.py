@@ -14,6 +14,7 @@ import aiosqlite
 import database
 import prime_ai_control
 import prime_ai_knowledge
+import prime_ai_usage
 import prime_ai_multimodal
 from prime_ai.concurrency import BoundedProviderGate as _BoundedProviderGate
 from prime_ai.errors import (
@@ -1542,6 +1543,18 @@ async def generate_response(
         if not config.get("modes", {}).get(str(mode).lower(), mode == "CHAT"):
             raise AISettingsDisabled("ai_mode_disabled")
 
+    if guild_id is not None:
+        quota_reason = await prime_ai_usage.check_quota(guild_id)
+        if quota_reason:
+            try:
+                await prime_ai_control.record_request(
+                    guild_id, actor_id, channel_id, skill=skill, mode=mode,
+                    result="limited", latency_ms=0, failure_reason=quota_reason,
+                )
+            except Exception:
+                LOGGER.debug("Could not record a blocked PRIME AI quota request.", exc_info=True)
+            raise AIProviderUnavailable(quota_reason, status_code=429)
+
     memories = []
     if (
         guild_id is not None
@@ -1684,6 +1697,7 @@ async def generate_response(
                 guild_id, actor_id, channel_id, skill=skill, mode=mode,
                 result=result, latency_ms=int((time.monotonic() - started) * 1000),
                 tokens_used=tokens_used,
+                failure_reason=details if result != "success" else "",
             )
         except Exception:
             LOGGER.debug("Failed to record PRIME AI request metrics.", exc_info=True)

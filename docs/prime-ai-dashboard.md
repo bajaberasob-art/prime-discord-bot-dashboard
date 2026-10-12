@@ -57,3 +57,20 @@ real dashboard/backend routes with a fake Discord guild and a temporary SQLite
 database. Always disable durable storage and explicitly use a temporary database
 when running that harness. Its `/__test_login` route is strictly for that isolated
 test server; never add it to the production app or leave the test server public.
+
+
+## Consumption and reliability center
+
+The AI activity area includes a per-guild **Consumption and reliability** center.
+Monthly request quotas and estimated-budget caps are optional (zero disables each cap).
+Request-spike and provider-failure alerts use configurable thresholds and a 30-minute
+per-alert cooldown. Once a request or budget quota is reached, new model-generation
+requests for that guild are denied until the period resets or an administrator raises
+the limit.
+
+Cost estimates use manually configured blended USD pricing per million reported
+total tokens and per generated image. They remain unavailable until the applicable price
+is configured and token telemetry is complete; estimates are not invoices, and input/output
+token prices can differ. The center also surfaces provider failure
+reasons and details saved for failed administrative operations. Data is scoped to the
+currently selected Discord guild and uses the existing SQLite request history.

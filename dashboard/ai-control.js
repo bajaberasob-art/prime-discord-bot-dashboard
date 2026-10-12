@@ -60,6 +60,11 @@
       analytics: null,
       analyticsLoading: true,
       analyticsError: "",
+      usage: null,
+      usageLoading: true,
+      usageError: "",
+      usageSaving: false,
+      usageSaveError: "",
       isBotOwner: false,
       roles: [],
       providerStatus: "unknown",
@@ -1609,6 +1614,142 @@
       return wrapper;
     }
 
+
+    function renderUsageCard() {
+      const snapshot = state.usage || {};
+      const settings = snapshot.settings || {
+        monthly_request_limit: 0, monthly_budget_usd: 0, usd_per_million_tokens: 0, usd_per_image: 0,
+        request_spike_threshold: 30, provider_failure_threshold: 3, alerts_enabled: true, revision: 0,
+      };
+      const monthly = snapshot.monthly || {};
+      const card = el("section", "prime-ai-card prime-ai-usage-card");
+      const heading = sectionHeader(
+        "مركز استهلاك وموثوقية الذكاء الاصطناعي",
+        "حصة هذا الخادم خلال الشهر الحالي، وتقدير التكلفة، وتنبيهات الحمل وأسباب فشل المزوّد والإجراءات.",
+        "prime-ai-usage-title",
+      );
+      heading.append(button(state.usageLoading ? "جارٍ التحديث..." : "تحديث", "reload-usage",
+        "prime-ai-button prime-ai-button-secondary", state.usageLoading || state.usageSaving));
+      card.append(heading);
+      if (state.usageError) card.append(loadError(state.usageError, "reload-usage"));
+      if (state.usageSaveError) {
+        const error = el("p", "prime-ai-usage-error", state.usageSaveError);
+        error.setAttribute("role", "alert");
+        card.append(error);
+      }
+      const grid = el("div", "prime-ai-stat-grid");
+      [
+        ["طلبات هذا الشهر", monthly.requests || 0],
+        ["ناجحة", monthly.successful || 0],
+        ["فاشلة", monthly.failed || 0],
+        ["مرفوضة بسبب الحدود", monthly.blocked_requests || 0],
+        ["متوسط التأخير", String(monthly.avg_latency_ms || 0) + " ms"],
+        ["الرموز المسجّلة", Number(monthly.tokens || 0).toLocaleString("en-US")],
+        ["الصور المُنشأة/المحاولة", monthly.images || 0],
+        ["التكلفة المقدّرة", monthly.estimated_cost_usd == null ? "السعر أو بيانات الاستخدام غير مكتملة" : "$" + Number(monthly.estimated_cost_usd).toFixed(4)],
+        ["طلبات آخر 10 دقائق", snapshot.requests_10m || 0],
+        ["إخفاقات المزوّد آخر 30 دقيقة", snapshot.provider_failures_30m || 0],
+      ].forEach(([label, value]) => {
+        const item = el("div", "prime-ai-stat");
+        item.append(el("span", "", label), el("strong", "", value));
+        grid.append(item);
+      });
+      card.append(grid);
+
+      const form = el("form", "prime-ai-usage-form");
+      form.dataset.form = "usage";
+      const makeField = (labelText, key, value, help, step) => {
+        const wrapper = el("label", "prime-ai-usage-field");
+        wrapper.append(el("span", "", labelText));
+        const input = el("input", "prime-ai-input");
+        input.type = "number";
+        input.min = "0";
+        input.step = step || "1";
+        input.value = String(value ?? 0);
+        input.dataset.usageField = key;
+        input.autocomplete = "off";
+        wrapper.append(input);
+        if (help) wrapper.append(el("small", "", help));
+        return wrapper;
+      };
+      form.append(
+        makeField("حد الطلبات الشهري", "monthly_request_limit", settings.monthly_request_limit, "0 يعني بلا حد شهري للطلبات."),
+        makeField("الميزانية الشهرية بالدولار", "monthly_budget_usd", settings.monthly_budget_usd, "0 يعطّل قيد الميزانية؛ يحتاج سعر رموز مضبوطاً.", "0.01"),
+        makeField("السعر لكل مليون رمز بالدولار", "usd_per_million_tokens", settings.usd_per_million_tokens, "سعر متوسط يدخله المشرف؛ الحساب تقديري لأن الإدخال والإخراج قد يختلفان.", "0.000001"),
+        makeField("السعر لكل صورة بالدولار", "usd_per_image", settings.usd_per_image, "السعر التقديري للصورة الواحدة؛ اتركه 0 إذا لم تعرف سعر النموذج.", "0.001"),
+        makeField("تنبيه ارتفاع الطلبات", "request_spike_threshold", settings.request_spike_threshold, "عدد الطلبات خلال 10 دقائق."),
+        makeField("تنبيه فشل المزوّد", "provider_failure_threshold", settings.provider_failure_threshold, "عدد حالات فشل المزوّد خلال 30 دقيقة.")
+      );
+      const alertsLabel = el("label", "prime-ai-usage-toggle");
+      const alertsToggle = el("input");
+      alertsToggle.type = "checkbox";
+      alertsToggle.dataset.usageField = "alerts_enabled";
+      alertsToggle.checked = settings.alerts_enabled !== false;
+      alertsLabel.append(alertsToggle, el("span", "", "تفعيل تنبيهات الاستهلاك والموثوقية"));
+      form.append(alertsLabel);
+      form.append(button(state.usageSaving ? "جارٍ الحفظ..." : "حفظ الحدود", "save-usage",
+        "prime-ai-button prime-ai-button-primary", state.usageSaving || state.usageLoading));
+      card.append(form);
+
+      const addMeter = (label, used, limit, formatter) => {
+        if (!(Number(limit) > 0)) return;
+        const percent = Math.min(100, Math.round(Number(used || 0) / Number(limit) * 100));
+        const meter = el("div", "prime-ai-usage-meter");
+        meter.append(el("div", "", label + ": " + formatter(used) + " / " + formatter(limit) + " (" + percent + "%)"));
+        const track = el("div", "prime-ai-usage-track");
+        const fill = el("span", "prime-ai-usage-fill");
+        fill.style.width = percent + "%";
+        track.append(fill);
+        meter.append(track);
+        card.append(meter);
+      };
+      addMeter("حصة الطلبات", monthly.requests || 0, settings.monthly_request_limit, (n) => String(n));
+      if (monthly.estimated_cost_usd != null) {
+        addMeter("الميزانية المقدّرة", monthly.estimated_cost_usd, settings.monthly_budget_usd,
+          (n) => "$" + Number(n).toFixed(4));
+      }
+
+      const alertSection = el("section", "prime-ai-usage-subsection");
+      alertSection.append(el("h3", "", "التنبيهات الأخيرة"));
+      const alerts = Array.isArray(snapshot.alerts) ? snapshot.alerts : [];
+      if (!alerts.length) {
+        alertSection.append(el("p", "prime-ai-empty", "لا توجد تنبيهات مسجلة حالياً. ستظهر هنا قفزات الطلبات وتكرار الفشل والاقتراب من الحدود الشهرية."));
+      } else alerts.forEach((alert) => {
+        const item = el("article", "prime-ai-usage-alert is-" + (alert.severity || "warning"));
+        item.append(el("strong", "", alert.title || alert.alert_type));
+        item.append(el("p", "", alert.detail || ""));
+        item.append(el("small", "", readableDate(alert.last_seen_at || alert.created_at) + " · تكرر " + (alert.occurrences || 1) + " مرة"));
+        alertSection.append(item);
+      });
+      card.append(alertSection);
+
+      const failureSection = el("section", "prime-ai-usage-subsection");
+      failureSection.append(el("h3", "", "أسباب فشل المزوّد"));
+      const reasons = Array.isArray(snapshot.failure_reasons) ? snapshot.failure_reasons : [];
+      if (!reasons.length) failureSection.append(el("p", "prime-ai-empty", "لا توجد حالات فشل مسجلة هذا الشهر."));
+      else reasons.forEach((failure) => {
+        const row = el("article", "prime-ai-usage-failure");
+        row.append(el("strong", "", failure.reason || "سبب غير مسجل"));
+        row.append(el("span", "", (failure.occurrences || 0) + " مرة"));
+        failureSection.append(row);
+      });
+      card.append(failureSection);
+
+      const actionSection = el("section", "prime-ai-usage-subsection");
+      actionSection.append(el("h3", "", "الإجراءات الإدارية الفاشلة"));
+      const actionFailures = Array.isArray(snapshot.action_failures) ? snapshot.action_failures : [];
+      if (!actionFailures.length) actionSection.append(el("p", "prime-ai-empty", "لا توجد إجراءات فاشلة مسجلة."));
+      else actionFailures.forEach((failure) => {
+        const row = el("article", "prime-ai-usage-failure");
+        row.append(el("strong", "", String(failure.request || failure.skill || "إجراء").slice(0, 180)));
+        row.append(el("span", "", String(failure.error || "لم يسجل سبب واضح").slice(0, 300)));
+        row.append(el("small", "", (failure.status || "FAILED") + " · " + readableDate(failure.updated_at || failure.created_at)));
+        actionSection.append(row);
+      });
+      card.append(actionSection);
+      return card;
+    }
+
     function renderOverviewCard() {
       const card = el("section", "prime-ai-card");
       const heading = sectionHeader(
@@ -2052,6 +2193,7 @@
             { id: "actions", label: "سجل الطلبات", description: "طلبات PRIME ونتائج الإجراءات المسجلة." },
             { id: "audit", label: "سجل التدقيق", description: "الأحداث الإدارية المسجلة." },
             { id: "analytics", label: "التحليلات", description: "ملخص الاستخدام خلال 30 يوماً." },
+            { id: "usage", label: "الاستهلاك والموثوقية", description: "حصة الخادم والتكلفة الشهرية وأسباب الفشل والتنبيهات." },
             { id: "testing", label: "اختبار PRIME AI", description: "اختبار الاتصال والرد على رسالة لمرة واحدة." },
           ],
         },
@@ -2193,6 +2335,9 @@
           break;
         case "analytics":
           content.append(renderRuntimeCards());
+          break;
+        case "usage":
+          content.append(renderUsageCard());
           break;
         case "testing":
           content.append(renderTestCard());
@@ -2617,6 +2762,71 @@
       } finally {
         if (!state.disposed) {
           state.analyticsLoading = false;
+          render();
+        }
+      }
+    }
+
+
+    async function loadUsage() {
+      state.usageLoading = true;
+      state.usageError = "";
+      state.usageSaveError = "";
+      render();
+      try {
+        const response = ensureOk(await request("GET", guildPath + "/usage"));
+        const data = await responseJson(response);
+        if (!data.settings || !data.monthly) throw new Error("invalid_response");
+        if (!state.disposed) state.usage = data;
+      } catch (_) {
+        if (!state.disposed) state.usageError = errorText();
+      } finally {
+        if (!state.disposed) {
+          state.usageLoading = false;
+          render();
+        }
+      }
+    }
+
+    async function saveUsage() {
+      if (state.usageSaving || state.usageLoading) return;
+      const form = container.querySelector(".prime-ai-usage-form");
+      if (!form) return;
+      const values = {};
+      form.querySelectorAll("[data-usage-field]").forEach((input) => {
+        const key = input.dataset.usageField;
+        values[key] = input.type === "checkbox" ? Boolean(input.checked) : Number(input.value);
+      });
+      if (Object.entries(values).some(([key, value]) =>
+        key !== "alerts_enabled" && (!Number.isFinite(value) || value < 0))) {
+        state.usageSaveError = "تحقق من إدخال قيم رقمية صحيحة وغير سالبة.";
+        render();
+        return;
+      }
+      state.usageSaving = true;
+      state.usageSaveError = "";
+      render();
+      try {
+        const response = ensureOk(await request("POST", guildPath + "/usage", {
+          settings: values,
+          revision: Number(state.usage?.settings?.revision || 0),
+        }));
+        const data = await responseJson(response);
+        if (!data.settings || !data.monthly) throw new Error("invalid_response");
+        if (!state.disposed) {
+          state.usage = data;
+          state.usageSaveError = "";
+          setToast("تم حفظ حصة PRIME وميزانيته وتنبيهاته.", "success");
+        }
+      } catch (error) {
+        if (!state.disposed) {
+          state.usageSaveError = error && String(error.message).includes("409")
+            ? "تغيّرت الإعدادات في جلسة أخرى؛ حدّث المركز وحاول مجدداً."
+            : "تعذر حفظ حدود الاستهلاك. تحقق من القيم والصلاحيات ثم أعد المحاولة.";
+        }
+      } finally {
+        if (!state.disposed) {
+          state.usageSaving = false;
           render();
         }
       }
@@ -3104,6 +3314,8 @@
       } else if (action === "save-skill") saveSkill(target.dataset.skillKey);
       else if (action === "reload-operations") loadOperations();
       else if (action === "reload-analytics") loadAnalytics();
+      else if (action === "reload-usage") loadUsage();
+      else if (action === "save-usage") saveUsage();
       else if (action === "remove-channel-persona" && state.selectedPersonaChannel && state.controlDraft) {
         if (state.controlDraft.channel_personas) {
           delete state.controlDraft.channel_personas[state.selectedPersonaChannel];
@@ -3135,6 +3347,7 @@
       else if (form.dataset.form === "knowledge") saveKnowledge();
       else if (form.dataset.form === "test") runTest();
       else if (form.dataset.form === "sandbox") runSandbox();
+      else if (form.dataset.form === "usage") saveUsage();
     };
 
     container.addEventListener("input", onInput);
@@ -3147,6 +3360,7 @@
     loadControl();
     loadKnowledge();
     loadAudit();
+    loadUsage();
 
     return function cleanup() {
       state.disposed = true;

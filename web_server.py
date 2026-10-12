@@ -21,6 +21,7 @@ from aiohttp import web
 import subscription_service
 import prime_ai_service
 import prime_ai_control
+import prime_ai_usage
 import prime_ai_knowledge
 import prime_ai_runtime
 import guild_backup
@@ -914,11 +915,11 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v37";
+    return """const CACHE = "prime-dashboard-shell-v38";
 const STATIC = [
   "./",
   "./static/app.css?v=prime-guild-backup-1",
-  "./static/ai-control.css?v=prime-ai-workspace-6",
+  "./static/ai-control.css?v=prime-ai-usage-reliability-1",
   "./static/visual-refresh.css?v=visual-refresh-2",
   "./static/subscriptions.css?v=subs-1",
   "./static/announcement-space.css?v=announcements-3",
@@ -926,7 +927,7 @@ const STATIC = [
   "./static/temp-voice.css?v=temp-voice-5",
   "./static/temp-voice.js?v=temp-voice-5",
   "./static/leveling-card-assets.css?v=phase7",
-  "./static/ai-control.js?v=prime-ai-knowledge-1",
+  "./static/ai-control.js?v=prime-ai-usage-reliability-1",
   "./static/ai-magic-island.js?v=prime-ai-knowledge-1",
   "./static/app.js?v=prime-level-save-errors-2",
   "./manifest.json",
@@ -5631,6 +5632,38 @@ async def api_prime_ai_moderation(req):
 async def api_prime_ai_analytics(req):
     _, guild = await authorize(req)
     return web.json_response(await prime_ai_control.get_analytics(guild.id))
+
+
+@routes.get('/api/guild/{guild_id}/ai/usage')
+async def api_prime_ai_usage(req):
+    _, guild = await authorize(req)
+    try:
+        return web.json_response(await prime_ai_usage.get_snapshot(guild.id))
+    except Exception:
+        logger.exception("Failed to load PRIME AI usage center for guild %s", guild.id)
+        return json_error(503, "ai_usage_unavailable")
+
+
+@routes.post('/api/guild/{guild_id}/ai/usage')
+async def api_save_prime_ai_usage(req):
+    session, guild = await authorize(req, write=True)
+    body = await read_json_body(req)
+    values = body.get("settings")
+    if not isinstance(values, dict):
+        return json_error(400, "validation", fields={"settings": "إعدادات الاستهلاك غير صالحة."})
+    try:
+        snapshot = await prime_ai_usage.save_settings(
+            guild.id, values, updated_by=int(session["id"]),
+            expected_revision=body.get("revision"),
+        )
+    except prime_ai_usage.UsageSettingsConflict:
+        return json_error(409, "conflict", snapshot=await prime_ai_usage.get_snapshot(guild.id))
+    except ValueError as error:
+        return json_error(400, "validation", fields={"_": str(error)})
+    except Exception:
+        logger.exception("Failed to save PRIME AI usage settings for guild %s", guild.id)
+        return json_error(503, "ai_usage_unavailable")
+    return web.json_response({"ok": True, **snapshot})
 
 
 @routes.post('/api/guild/{guild_id}/ai/settings')
