@@ -68,8 +68,9 @@ per-alert cooldown. Once a request or budget quota is reached, new model-generat
 requests for that guild are denied until the period resets or an administrator raises
 the limit.
 
-Cost estimates use a manually configured blended USD price per million reported total
-tokens. They remain unavailable until a price is configured; estimates are not invoices,
-and input/output token prices can differ. The center also surfaces provider failure
+Cost estimates use manually configured blended USD pricing per million reported
+total tokens and per generated image. They remain unavailable until the applicable price
+is configured; estimates are not invoices, and input/output token prices can differ.
+The center also surfaces provider failure
 reasons and details saved for failed administrative operations. Data is scoped to the
 currently selected Discord guild and uses the existing SQLite request history.
