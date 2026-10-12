@@ -1596,6 +1596,8 @@
       if(!alerts.length) alertSection.append(el("p","prime-ai-help","لا توجد تنبيهات مسجلة حالياً."));
       alerts.slice(0,10).forEach(a=>{const row=el("div","prime-ai-reliability-alert"+(a.severity==="critical"?" is-critical":"")); row.append(el("strong","",a.title||"تنبيه PRIME AI"),el("p","",a.detail||""),el("small","prime-ai-help",a.created_at||"")); alertSection.append(row);});
       const reliability=(state.analytics && state.analytics.reliability)||{};
+      const failedActions=(state.analytics && state.analytics.failed_actions)||[];
+      if(failedActions.length){alertSection.append(el("h3","","أسباب فشل الإجراءات")); failedActions.forEach(a=>{const row=el("div","prime-ai-reliability-alert is-critical"); row.append(el("strong","",a.skill||"إجراء PRIME"),el("p","",a.error||a.execution_result||"لم يسجل النظام سبباً واضحاً"),el("small","prime-ai-help",String(a.status||"FAILED")+" · "+String(a.updated_at||""))); alertSection.append(row);});}
       if(Array.isArray(reliability.failure_reasons)&&reliability.failure_reasons.length){alertSection.append(el("h3","","أسباب إخفاقات المزوّد")); reliability.failure_reasons.forEach(f=>{const row=el("div","prime-ai-analytics-row"); row.append(el("span","",f.provider||"المزوّد"),el("span","",f.failure_reason||"سبب غير مسجل"),el("strong","",f.count||0)); alertSection.append(row);});}
       stats.append(alertSection);
       if (!state.analyticsLoading && !state.analyticsError && !totals.requests) {
