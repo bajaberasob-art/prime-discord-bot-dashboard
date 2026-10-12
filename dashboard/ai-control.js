@@ -1681,6 +1681,21 @@
       });
       stats.append(failurePanel);
 
+      const recentFailures = Array.isArray(state.analytics && state.analytics.recent_failures) ? state.analytics.recent_failures : [];
+      const recentFailurePanel = el("div", "prime-ai-analytics-breakdown");
+      recentFailurePanel.append(el("h3", "", "آخر الأخطاء مع معرّف التتبع"));
+      if (!recentFailures.length) {
+        recentFailurePanel.append(el("p", "prime-ai-budget-note", "لا توجد أخطاء حديثة مسجلة."));
+      }
+      recentFailures.forEach((failure) => {
+        const row = el("div", "prime-ai-failure-row prime-ai-action-failure");
+        row.append(el("strong", "", `${failure.error_reason || "unknown"} · ${failure.provider || "unknown"} / ${failure.model || "unknown"}`));
+        row.append(el("span", "", `${failure.mode || "UNKNOWN"} · ${Number(failure.latency_ms || 0)} ms · ${failure.created_at || ""}`));
+        if (failure.correlation_id) row.append(el("code", "", `ID: ${failure.correlation_id}`));
+        recentFailurePanel.append(row);
+      });
+      stats.append(recentFailurePanel);
+
       const failedActions = Array.isArray(state.analytics && state.analytics.failed_actions) ? state.analytics.failed_actions : [];
       const actionPanel = el("div", "prime-ai-analytics-breakdown");
       actionPanel.append(el("h3", "", "أسباب فشل الإجراءات"));
@@ -1695,6 +1710,7 @@
 
       const providerRows = Array.isArray(state.analytics && state.analytics.providers) ? state.analytics.providers : [];
       const modelRows = Array.isArray(state.analytics && state.analytics.models) ? state.analytics.models : [];
+      const blendedRate = Number((state.analytics && state.analytics.budget && state.analytics.budget.settings && state.analytics.budget.settings.cost_per_million_tokens) || 0);
       [
         ["الاستهلاك حسب المزوّد", providerRows, (item) => item.provider || "غير معروف"],
         ["الاستهلاك حسب النموذج", modelRows, (item) => `${item.provider || "غير معروف"} / ${item.model || "غير معروف"}`],
@@ -1710,7 +1726,7 @@
           bar.setAttribute("aria-hidden", "true");
           bar.style.setProperty("--share", `${Math.round((Number(item.requests || 0) / peak) * 100)}%`);
           row.append(bar);
-          row.append(el("strong", "", `${Number(item.requests || 0).toLocaleString()} طلب · ${Number(item.tokens || 0).toLocaleString()} رمز`));
+          row.append(el("strong", "", `${Number(item.requests || 0).toLocaleString()} طلب · ${Number(item.tokens || 0).toLocaleString()} رمز · ${(Number(item.tokens || 0) * blendedRate / 1000000).toFixed(4)} USD تقديري`));
           panel.append(row);
         });
         stats.append(panel);

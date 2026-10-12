@@ -2603,6 +2603,15 @@ async def get_analytics(guild_id: int) -> dict:
         ) as cur:
             failure_reasons = [dict(row) for row in await cur.fetchall()]
         async with db.execute(
+            "SELECT created_at, COALESCE(NULLIF(provider,''),'unknown') AS provider, "
+            "COALESCE(NULLIF(model,''),'unknown') AS model, mode, error_reason, "
+            "correlation_id, latency_ms FROM prime_ai_request_events "
+            "WHERE guild_id=? AND result!='success' "
+            "ORDER BY created_at DESC LIMIT 12",
+            (int(guild_id),),
+        ) as cur:
+            recent_failures = [dict(row) for row in await cur.fetchall()]
+        async with db.execute(
             "SELECT operation_id, detected_intent, status, error, updated_at "
             "FROM prime_ai_operations WHERE guild_id=? AND error!='' "
             "ORDER BY updated_at DESC LIMIT 8",
@@ -2671,6 +2680,7 @@ async def get_analytics(guild_id: int) -> dict:
         },
         "alerts": alerts,
         "failure_reasons": failure_reasons,
+        "recent_failures": recent_failures,
         "failed_actions": failed_actions,
     }
 

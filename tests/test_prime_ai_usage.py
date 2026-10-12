@@ -52,13 +52,19 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
             await prime_ai_control.record_request(
                 guild_id, 111111111111111, 222222222222222,
                 skill="chat", mode="CHAT", result="failed", latency_ms=500,
-                error_reason=reason,
+                error_reason=reason, provider="Google Gemini",
+                model="gemini-test", correlation_id=reason,
             )
         analytics = await prime_ai_control.get_analytics(guild_id)
         alert_types = {item["alert_type"] for item in analytics["alerts"]}
         self.assertIn("request_spike", alert_types)
         self.assertIn("provider_failures", alert_types)
         self.assertEqual(len(analytics["failure_reasons"]), 2)
+        self.assertEqual(len(analytics["recent_failures"]), 2)
+        self.assertEqual(
+            {item["correlation_id"] for item in analytics["recent_failures"]},
+            {"gemini_timeout", "gemini_connection_failed"},
+        )
 
     async def test_concurrent_reservations_cannot_spend_the_same_budget(self):
         guild_id = 123456789012349
