@@ -1645,7 +1645,7 @@
         ["متوسط التأخير", String(monthly.avg_latency_ms || 0) + " ms"],
         ["الرموز المسجّلة", Number(monthly.tokens || 0).toLocaleString("en-US")],
         ["الصور المُنشأة/المحاولة", monthly.images || 0],
-        ["التكلفة المقدّرة", monthly.estimated_cost_usd == null ? "اضبط سعر الرموز أو الصور" : "$" + Number(monthly.estimated_cost_usd).toFixed(4)],
+        ["التكلفة المقدّرة", monthly.estimated_cost_usd == null ? "السعر أو بيانات الاستخدام غير مكتملة" : "$" + Number(monthly.estimated_cost_usd).toFixed(4)],
         ["طلبات آخر 10 دقائق", snapshot.requests_10m || 0],
         ["إخفاقات المزوّد آخر 30 دقيقة", snapshot.provider_failures_30m || 0],
       ].forEach(([label, value]) => {
