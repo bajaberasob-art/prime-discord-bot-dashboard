@@ -2029,22 +2029,17 @@ async def record_request(
     result: str,
     latency_ms: int,
     tokens_used: int | None = None,
+    provider: str = "Google Gemini",
+    failure_reason: str = "",
 ) -> None:
-    async with database.connect() as db:
-        await db.execute(
-            "INSERT INTO prime_ai_request_events "
-            "(guild_id,user_id,channel_id,skill,mode,result,latency_ms,tokens_used,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (
-                int(guild_id), int(user_id) if user_id is not None else None,
-                int(channel_id) if channel_id is not None else None,
-                str(skill)[:80], str(mode)[:20], str(result)[:30],
-                max(0, min(int(latency_ms), 3_600_000)),
-                max(0, int(tokens_used)) if tokens_used is not None else None,
-                timestamp(),
-            ),
-        )
-        await db.commit()
+    # Reliability storage owns schema migration, provider metadata and failure
+    # reasons while preserving this module's public API for existing callers.
+    import prime_ai_reliability
+    await prime_ai_reliability.record_request(
+        guild_id, user_id, channel_id, skill=skill, mode=mode,
+        result=result, latency_ms=latency_ms, tokens_used=tokens_used,
+        provider=provider, failure_reason=failure_reason,
+    )
 
 
 async def record_moderation(
@@ -2134,7 +2129,7 @@ async def update_moderation_action(
     return cursor.rowcount == 1
 
 
-async def get_analytics(guild_id: int) -> dict:
+async def _get_legacy_analytics(guild_id: int) -> dict:
     async with database.connect(aiosqlite.Row) as db:
         async with db.execute(
             "SELECT COUNT(*) AS requests, "
@@ -2180,6 +2175,30 @@ async def get_analytics(guild_id: int) -> dict:
         totals[key] = int(totals.get(key) or 0)
     totals["avg_latency_ms"] = round(float(totals.get("avg_latency_ms") or 0), 1)
     return {"totals": totals, "actions": actions, "moderation_events": moderation, "skills": skills, "channels": channels, "users": users}
+
+
+async def get_analytics(guild_id: int) -> dict:
+    """Return legacy usage breakdowns plus budget, cost and reliability data."""
+    legacy = await _get_legacy_analytics(guild_id)
+    import prime_ai_reliability
+    managed = await prime_ai_reliability.get_analytics(guild_id)
+    # Keep the existing dashboard contract intact while adding actionable
+    # month-to-date quotas, estimates, alerts and failure explanations.
+    legacy.update({
+        "period": managed["period"],
+        "month_start": managed["month_start"],
+        "estimated_cost_usd": managed["estimated_cost_usd"],
+        "cost_rate_usd_per_million_tokens": managed["cost_rate_usd_per_million_tokens"],
+        "cost_estimate_configured": managed["cost_estimate_configured"],
+        "quotas": managed["quotas"],
+        "budget_settings": managed["settings"],
+        "spike": managed["spike"],
+        "reliability": managed["reliability"],
+        "alerts": managed["alerts"],
+    })
+    legacy["totals"] = managed["totals"]
+    legacy["skills"] = legacy.get("skills") or managed.get("skills", [])
+    return legacy
 
 
 async def prune_expired_data(guild_id: int, settings: dict) -> dict:
