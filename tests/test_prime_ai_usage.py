@@ -223,6 +223,31 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(analytics["budget"]["reserved_requests"], 2)
         self.assertTrue(analytics["budget"]["exceeded"])
 
+    async def test_latency_and_low_success_rate_alerts_are_triggered(self):
+        guild_id = 123456789012356
+        await prime_ai_control.save_usage_settings(
+            guild_id, monthly_limit_usd=100.0,
+            cost_per_million_tokens=1.0, request_spike_count=100,
+            request_spike_window_minutes=10, provider_failure_count=100,
+            failure_window_minutes=10, alerts_enabled=True,
+            latency_warning_ms=8000, minimum_success_rate_percent=75,
+        )
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="success", latency_ms=9000,
+            tokens_used=100, provider="Google Gemini", model="gemini-test",
+        )
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="failed", latency_ms=12000,
+            tokens_used=None, error_reason="request_rejected",
+            provider="Google Gemini", model="gemini-test",
+        )
+        analytics = await prime_ai_control.get_analytics(guild_id)
+        alert_types = {item["alert_type"] for item in analytics["alerts"]}
+        self.assertIn("latency_p95_high", alert_types)
+        self.assertIn("success_rate_low", alert_types)
+
     async def test_usage_isolated_by_guild(self):
         await prime_ai_control.record_request(
             123456789012347, 111111111111111, None,

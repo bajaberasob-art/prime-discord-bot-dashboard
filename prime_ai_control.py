@@ -2030,6 +2030,8 @@ async def _ensure_usage_schema(db) -> None:
             budget_critical_percent INTEGER NOT NULL DEFAULT 90,
             pricing_source TEXT NOT NULL DEFAULT 'manual blended token rate',
             enforcement_mode TEXT NOT NULL DEFAULT 'block',
+            latency_warning_ms INTEGER NOT NULL DEFAULT 8000,
+            minimum_success_rate_percent INTEGER NOT NULL DEFAULT 90,
             cost_per_million_tokens REAL NOT NULL DEFAULT 1.0,
             request_spike_count INTEGER NOT NULL DEFAULT 60,
             request_spike_window_minutes INTEGER NOT NULL DEFAULT 10,
@@ -2059,6 +2061,16 @@ async def _ensure_usage_schema(db) -> None:
         await db.execute(
             "ALTER TABLE prime_ai_usage_settings "
             "ADD COLUMN enforcement_mode TEXT NOT NULL DEFAULT 'block'"
+        )
+    if "latency_warning_ms" not in usage_settings_columns:
+        await db.execute(
+            "ALTER TABLE prime_ai_usage_settings "
+            "ADD COLUMN latency_warning_ms INTEGER NOT NULL DEFAULT 8000"
+        )
+    if "minimum_success_rate_percent" not in usage_settings_columns:
+        await db.execute(
+            "ALTER TABLE prime_ai_usage_settings "
+            "ADD COLUMN minimum_success_rate_percent INTEGER NOT NULL DEFAULT 90"
         )
     await db.execute("""
         CREATE TABLE IF NOT EXISTS prime_ai_usage_alerts (
@@ -2116,9 +2128,10 @@ async def _usage_settings(db, guild_id: int) -> dict:
     )
     async with db.execute(
         "SELECT monthly_limit_usd, monthly_request_limit, budget_warning_percent, "
-        "budget_critical_percent, pricing_source, enforcement_mode, cost_per_million_tokens, "
-        "request_spike_count, request_spike_window_minutes, provider_failure_count, "
-        "failure_window_minutes, alerts_enabled, updated_at FROM prime_ai_usage_settings WHERE guild_id=?",
+        "budget_critical_percent, pricing_source, enforcement_mode, latency_warning_ms, "
+        "minimum_success_rate_percent, cost_per_million_tokens, request_spike_count, "
+        "request_spike_window_minutes, provider_failure_count, failure_window_minutes, "
+        "alerts_enabled, updated_at FROM prime_ai_usage_settings WHERE guild_id=?",
         (int(guild_id),),
     ) as cur:
         row = dict(await cur.fetchone())
@@ -2148,6 +2161,41 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
     month_key = now.strftime("%Y-%m")
     spike_window = max(1, min(int(settings["request_spike_window_minutes"]), 1440))
     fail_window = max(1, min(int(settings["failure_window_minutes"]), 1440))
+    # Alert on slow p95 latency and a falling success rate within the same
+    # bounded reliability window used for provider-failure alerts.
+    async with db.execute(
+        "SELECT latency_ms, result FROM prime_ai_request_events WHERE guild_id=? "
+        "AND NOT (skill='actions' AND mode='ACTION') "
+        "AND julianday(created_at) >= julianday('now', ?)",
+        (int(guild_id), f"-{fail_window} minutes"),
+    ) as cur:
+        reliability_rows = await cur.fetchall()
+    if reliability_rows:
+        latencies = sorted(max(0, int(row[0] or 0)) for row in reliability_rows)
+        p95_index = min(len(latencies) - 1, int((len(latencies) - 1) * 0.95))
+        p95_ms = latencies[p95_index]
+        request_count = len(reliability_rows)
+        success_count = sum(1 for row in reliability_rows if row[1] == "success")
+        success_rate = success_count / request_count * 100
+        bucket = int(now.timestamp() // (fail_window * 60))
+        latency_threshold = int(settings.get("latency_warning_ms", 8000) or 8000)
+        if p95_ms >= latency_threshold:
+            await _emit_usage_alert(
+                db, guild_id, "latency_p95_high", "warning",
+                "ارتفاع زمن استجابة PRIME AI",
+                f"المئين 95 لزمن الاستجابة {p95_ms} ms خلال {fail_window} دقيقة؛ "
+                f"الحد المضبوط {latency_threshold} ms.",
+                f"latency_p95_high:{bucket}",
+            )
+        minimum_success_rate = int(settings.get("minimum_success_rate_percent", 90) or 90)
+        if success_rate < minimum_success_rate:
+            await _emit_usage_alert(
+                db, guild_id, "success_rate_low", "critical",
+                "انخفاض معدل نجاح PRIME AI",
+                f"معدل النجاح {success_rate:.1f}% ({success_count}/{request_count}) "
+                f"خلال {fail_window} دقيقة؛ الحد الأدنى المضبوط {minimum_success_rate}%.",
+                f"success_rate_low:{bucket}",
+            )
     async with db.execute(
         "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
         "AND NOT (skill='actions' AND mode='ACTION') "
@@ -2165,6 +2213,7 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
         )
     async with db.execute(
         "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
+        "AND NOT (skill='actions' AND mode='ACTION') "
         "AND result!='success' AND (error_reason LIKE '%timeout%' "
         "OR error_reason LIKE '%transport_%' OR error_reason LIKE '%gemini_%' "
         "OR error_reason LIKE '%provider_%') "
@@ -2243,6 +2292,8 @@ async def save_usage_settings(
     budget_critical_percent: int = 90,
     pricing_source: str = "manual blended token rate",
     enforcement_mode: str = "block",
+    latency_warning_ms: int = 8000,
+    minimum_success_rate_percent: int = 90,
 ) -> dict:
     values = {
         "monthly_limit_usd": float(monthly_limit_usd),
@@ -2251,6 +2302,8 @@ async def save_usage_settings(
         "budget_critical_percent": int(budget_critical_percent),
         "pricing_source": str(pricing_source or "").strip()[:160],
         "enforcement_mode": str(enforcement_mode or "").strip().lower(),
+        "latency_warning_ms": int(latency_warning_ms),
+        "minimum_success_rate_percent": int(minimum_success_rate_percent),
         "cost_per_million_tokens": float(cost_per_million_tokens),
         "request_spike_count": int(request_spike_count),
         "request_spike_window_minutes": int(request_spike_window_minutes),
@@ -2268,6 +2321,10 @@ async def save_usage_settings(
         raise ValueError("invalid_pricing_source")
     if values["enforcement_mode"] not in {"block", "warn"}:
         raise ValueError("invalid_enforcement_mode")
+    if not 100 <= values["latency_warning_ms"] <= 300000:
+        raise ValueError("invalid_latency_warning_ms")
+    if not 1 <= values["minimum_success_rate_percent"] <= 99:
+        raise ValueError("invalid_minimum_success_rate_percent")
     if not 0 <= values["cost_per_million_tokens"] <= 10000:
         raise ValueError("invalid_cost_per_million_tokens")
     if not 1 <= values["request_spike_count"] <= 100000:
@@ -2283,16 +2340,19 @@ async def save_usage_settings(
         await db.execute(
             "INSERT INTO prime_ai_usage_settings "
             "(guild_id, monthly_limit_usd, monthly_request_limit, budget_warning_percent, "
-            "budget_critical_percent, pricing_source, enforcement_mode, cost_per_million_tokens, "
-            "request_spike_count, request_spike_window_minutes, provider_failure_count, "
-            "failure_window_minutes, alerts_enabled, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "budget_critical_percent, pricing_source, enforcement_mode, latency_warning_ms, "
+            "minimum_success_rate_percent, cost_per_million_tokens, request_spike_count, "
+            "request_spike_window_minutes, provider_failure_count, failure_window_minutes, "
+            "alerts_enabled, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(guild_id) DO UPDATE SET monthly_limit_usd=excluded.monthly_limit_usd, "
             "monthly_request_limit=excluded.monthly_request_limit, "
             "budget_warning_percent=excluded.budget_warning_percent, "
             "budget_critical_percent=excluded.budget_critical_percent, "
             "pricing_source=excluded.pricing_source, "
             "enforcement_mode=excluded.enforcement_mode, "
+            "latency_warning_ms=excluded.latency_warning_ms, "
+            "minimum_success_rate_percent=excluded.minimum_success_rate_percent, "
             "cost_per_million_tokens=excluded.cost_per_million_tokens, "
             "request_spike_count=excluded.request_spike_count, "
             "request_spike_window_minutes=excluded.request_spike_window_minutes, "
@@ -2303,6 +2363,7 @@ async def save_usage_settings(
                 int(guild_id), values["monthly_limit_usd"], values["monthly_request_limit"],
                 values["budget_warning_percent"], values["budget_critical_percent"],
                 values["pricing_source"], values["enforcement_mode"],
+                values["latency_warning_ms"], values["minimum_success_rate_percent"],
                 values["cost_per_million_tokens"], values["request_spike_count"],
                 values["request_spike_window_minutes"], values["provider_failure_count"],
                 values["failure_window_minutes"], int(values["alerts_enabled"]), timestamp(),

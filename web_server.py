@@ -5642,11 +5642,15 @@ async def api_save_prime_ai_usage_budget(req):
     body.setdefault("budget_critical_percent", 90)
     body.setdefault("pricing_source", "manual blended token rate")
     body.setdefault("enforcement_mode", "block")
+    body.setdefault("latency_warning_ms", 8000)
+    body.setdefault("minimum_success_rate_percent", 90)
     numeric_fields = {
         "monthly_limit_usd": ((int, float), 0, 100000),
         "monthly_request_limit": ((int,), 0, 1000000),
         "budget_warning_percent": ((int,), 1, 98),
         "budget_critical_percent": ((int,), 2, 99),
+        "latency_warning_ms": ((int,), 100, 300000),
+        "minimum_success_rate_percent": ((int,), 1, 99),
         "cost_per_million_tokens": ((int, float), 0, 10000),
         "request_spike_count": ((int,), 1, 100000),
         "request_spike_window_minutes": ((int,), 1, 1440),
