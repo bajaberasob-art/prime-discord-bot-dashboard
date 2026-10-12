@@ -184,7 +184,7 @@ async def get_analytics(guild_id: int) -> dict:
         ) as cur:
             skills = [dict(item) for item in await cur.fetchall()]
         async with db.execute(
-            "SELECT operation_id, skill, request, error, execution_result, status, updated_at "
+            "SELECT skill, error, execution_result, status, updated_at "
             "FROM prime_ai_operations WHERE guild_id=? AND status IN ('FAILED','PARTIAL','ERROR') "
             "AND updated_at>=? ORDER BY updated_at DESC LIMIT 8",
             (int(guild_id), _stamp(now - timedelta(days=30))),
