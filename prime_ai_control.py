@@ -2648,6 +2648,7 @@ async def get_analytics(guild_id: int) -> dict:
             "AVG(latency_ms) AS avg_latency_ms, SUM(COALESCE(tokens_used,0)) AS tokens, "
             "SUM(CASE WHEN tokens_used IS NULL THEN 1 ELSE 0 END) AS unknown_cost_requests "
             "FROM prime_ai_request_events WHERE guild_id=? "
+            "AND NOT (skill='actions' AND mode='ACTION') "
             "AND julianday(created_at)>=julianday('now','-30 days') "
             "GROUP BY COALESCE(NULLIF(provider,''),'unknown'), COALESCE(NULLIF(model,''),'unknown') "
             "ORDER BY requests DESC LIMIT 12",
@@ -2660,6 +2661,7 @@ async def get_analytics(guild_id: int) -> dict:
             "SUM(CASE WHEN result!='success' THEN 1 ELSE 0 END) AS failed, "
             "SUM(COALESCE(tokens_used,0)) AS tokens, AVG(latency_ms) AS avg_latency_ms "
             "FROM prime_ai_request_events WHERE guild_id=? "
+            "AND NOT (skill='actions' AND mode='ACTION') "
             "AND julianday(created_at)>=julianday('now','-30 days') "
             "GROUP BY substr(created_at,1,10) ORDER BY day",
             (int(guild_id),),
