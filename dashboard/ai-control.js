@@ -1621,7 +1621,10 @@
       progress.append(progressFill);
       budgetCard.append(progress);
       if (budget.exceeded) {
-        budgetCard.append(el("p", "prime-ai-budget-warning", "تم بلوغ إحدى الحصص الشهرية؛ ستُرفض طلبات جديدة حتى بداية الشهر التالي أو تعديل الحدود."));
+        const enforcementMode = String(budgetSettings.enforcement_mode || "block");
+        budgetCard.append(el("p", "prime-ai-budget-warning", enforcementMode === "warn"
+          ? "تم بلوغ إحدى الحصص الشهرية. الوضع الحالي تحذيري فقط؛ ستستمر الطلبات وقد تزيد التكلفة."
+          : "تم بلوغ إحدى الحصص الشهرية؛ ستُحظر طلبات جديدة حتى بداية الشهر التالي أو تعديل الحدود."));
       }
       if (Number(budget.unknown_cost_requests || 0) > 0) {
         budgetCard.append(el("p", "prime-ai-budget-note", `التكلفة غير مكتملة: ${Number(budget.unknown_cost_requests).toLocaleString()} طلبات بلا بيانات توكن موثوقة؛ لا يُعرض لها سعر مصطنع.`));
@@ -1657,6 +1660,22 @@
         label.append(input);
         budgetForm.append(label);
       });
+      const enforcementLabel = el("label", "prime-ai-budget-field");
+      enforcementLabel.append(el("span", "", "السلوك عند تجاوز الحصة"));
+      const enforcementSelect = el("select", "");
+      enforcementSelect.name = "enforcement_mode";
+      [
+        ["block", "حظر الطلبات الجديدة عند بلوغ الحصة"],
+        ["warn", "تحذير فقط والسماح باستمرار الطلبات"],
+      ].forEach(([value, labelText]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = labelText;
+        option.selected = String(budgetSettings.enforcement_mode || "block") === value;
+        enforcementSelect.append(option);
+      });
+      enforcementLabel.append(enforcementSelect);
+      budgetForm.append(enforcementLabel);
       const pricingSourceLabel = el("label", "prime-ai-budget-field");
       pricingSourceLabel.append(el("span", "", "مصدر/مرجع السعر الممزوج"));
       const pricingSourceInput = el("input", "");
@@ -2835,6 +2854,7 @@
           budget_warning_percent: number("budget_warning_percent"),
           budget_critical_percent: number("budget_critical_percent"),
           pricing_source: String(form.elements.namedItem("pricing_source").value || "").trim(),
+          enforcement_mode: String(form.elements.namedItem("enforcement_mode").value || "block"),
           cost_per_million_tokens: number("cost_per_million_tokens"),
           request_spike_count: number("request_spike_count"),
           request_spike_window_minutes: number("request_spike_window_minutes"),

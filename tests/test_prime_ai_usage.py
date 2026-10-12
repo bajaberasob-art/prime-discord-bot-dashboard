@@ -181,6 +181,7 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(analytics["budget"]["settings"]["budget_warning_percent"], 70)
         self.assertEqual(analytics["budget"]["settings"]["budget_critical_percent"], 90)
         self.assertEqual(analytics["budget"]["settings"]["pricing_source"], "manual blended token rate")
+        self.assertEqual(analytics["budget"]["settings"]["enforcement_mode"], "block")
 
     async def test_action_result_event_does_not_consume_provider_quota(self):
         guild_id = 123456789012354
@@ -202,6 +203,25 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(analytics["budget"]["monthly_requests"], 0)
         self.assertEqual(analytics["totals"]["requests"], 0)
         self.assertEqual(analytics["budget"]["reserved_requests"], 1)
+
+    async def test_warn_only_mode_allows_requests_after_quota_and_reports_exceeded(self):
+        guild_id = 123456789012355
+        await prime_ai_control.save_usage_settings(
+            guild_id, monthly_limit_usd=0.0,
+            cost_per_million_tokens=1.0, request_spike_count=100,
+            request_spike_window_minutes=10, provider_failure_count=5,
+            failure_window_minutes=10, alerts_enabled=True,
+            monthly_request_limit=1, enforcement_mode="warn",
+        )
+        first = await prime_ai_control.reserve_usage_budget(guild_id, 0)
+        second = await prime_ai_control.reserve_usage_budget(guild_id, 0)
+        self.assertTrue(first["allowed"])
+        self.assertTrue(second["allowed"])
+        self.assertTrue(second["exceeded"])
+        analytics = await prime_ai_control.get_analytics(guild_id)
+        self.assertEqual(analytics["budget"]["settings"]["enforcement_mode"], "warn")
+        self.assertEqual(analytics["budget"]["reserved_requests"], 2)
+        self.assertTrue(analytics["budget"]["exceeded"])
 
     async def test_usage_isolated_by_guild(self):
         await prime_ai_control.record_request(
