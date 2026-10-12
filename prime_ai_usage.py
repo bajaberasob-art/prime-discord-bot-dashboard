@@ -315,16 +315,18 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         ) as cur:
             settings = _settings_from_row(await cur.fetchone())
         async with db.execute(
-            "SELECT COUNT(*) AS requests,SUM(CASE WHEN result='success' THEN 1 ELSE 0 END) AS successful,"
+            "SELECT COUNT(CASE WHEN result!='limited' THEN 1 END) AS requests,"
+            "SUM(CASE WHEN result='limited' THEN 1 ELSE 0 END) AS blocked_requests,"
+            "SUM(CASE WHEN result='success' THEN 1 ELSE 0 END) AS successful,"
             "SUM(CASE WHEN result='failed' THEN 1 ELSE 0 END) AS failed,"
-            "SUM(COALESCE(tokens_used,0)) AS tokens,COUNT(tokens_used) AS token_records,"
+            "SUM(COALESCE(tokens_used,0)) AS tokens,"
             "AVG(latency_ms) AS avg_latency_ms "
             "FROM prime_ai_request_events WHERE guild_id=? AND created_at>=?",
             (int(guild_id), start),
         ) as cur:
             row = dict(await cur.fetchone())
         async with db.execute(
-            "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? AND created_at>=?",
+            "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? AND result!='limited' AND created_at>=?",
             (int(guild_id), ten_minutes),
         ) as cur:
             requests_10m = int((await cur.fetchone())[0] or 0)
@@ -383,6 +385,7 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         estimated_cost = None
     monthly = {
         "requests": int(row.get("requests") or 0),
+        "blocked_requests": int(row.get("blocked_requests") or 0),
         "successful": int(row.get("successful") or 0),
         "failed": int(row.get("failed") or 0),
         "tokens": tokens,
