@@ -128,6 +128,59 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(analytics["budget"]["exceeded"])
         self.assertEqual(analytics["models"][0]["unknown_cost_requests"], 1)
 
+    async def test_configurable_budget_alert_thresholds(self):
+        guild_id = 123456789012352
+        await prime_ai_control.save_usage_settings(
+            guild_id, monthly_limit_usd=1.0,
+            cost_per_million_tokens=1.0, request_spike_count=100,
+            request_spike_window_minutes=10, provider_failure_count=5,
+            failure_window_minutes=10, alerts_enabled=True,
+            budget_warning_percent=70, budget_critical_percent=90,
+        )
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="success", latency_ms=50,
+            tokens_used=700_000,
+        )
+        analytics = await prime_ai_control.get_analytics(guild_id)
+        self.assertIn("budget_warning", {item["alert_type"] for item in analytics["alerts"]})
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="success", latency_ms=60,
+            tokens_used=200_000,
+        )
+        analytics = await prime_ai_control.get_analytics(guild_id)
+        self.assertIn("budget_critical_warning", {item["alert_type"] for item in analytics["alerts"]})
+
+    async def test_legacy_usage_settings_migrate_without_losing_values(self):
+        guild_id = 123456789012353
+        async with database.connect() as db:
+            await db.execute("""
+                CREATE TABLE prime_ai_usage_settings (
+                    guild_id INTEGER PRIMARY KEY,
+                    monthly_limit_usd REAL NOT NULL DEFAULT 25.0,
+                    cost_per_million_tokens REAL NOT NULL DEFAULT 1.0,
+                    request_spike_count INTEGER NOT NULL DEFAULT 60,
+                    request_spike_window_minutes INTEGER NOT NULL DEFAULT 10,
+                    provider_failure_count INTEGER NOT NULL DEFAULT 5,
+                    failure_window_minutes INTEGER NOT NULL DEFAULT 10,
+                    alerts_enabled INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await db.execute(
+                "INSERT INTO prime_ai_usage_settings "
+                "(guild_id, monthly_limit_usd, cost_per_million_tokens) VALUES (?, ?, ?)",
+                (guild_id, 13.5, 2.25),
+            )
+            await db.commit()
+        analytics = await prime_ai_control.get_analytics(guild_id)
+        self.assertEqual(analytics["budget"]["settings"]["monthly_limit_usd"], 13.5)
+        self.assertEqual(analytics["budget"]["settings"]["cost_per_million_tokens"], 2.25)
+        self.assertEqual(analytics["budget"]["settings"]["monthly_request_limit"], 0)
+        self.assertEqual(analytics["budget"]["settings"]["budget_warning_percent"], 70)
+        self.assertEqual(analytics["budget"]["settings"]["budget_critical_percent"], 90)
+
     async def test_usage_isolated_by_guild(self):
         await prime_ai_control.record_request(
             123456789012347, 111111111111111, None,

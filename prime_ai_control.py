@@ -2026,6 +2026,8 @@ async def _ensure_usage_schema(db) -> None:
             guild_id INTEGER PRIMARY KEY,
             monthly_limit_usd REAL NOT NULL DEFAULT 25.0,
             monthly_request_limit INTEGER NOT NULL DEFAULT 0,
+            budget_warning_percent INTEGER NOT NULL DEFAULT 70,
+            budget_critical_percent INTEGER NOT NULL DEFAULT 90,
             cost_per_million_tokens REAL NOT NULL DEFAULT 1.0,
             request_spike_count INTEGER NOT NULL DEFAULT 60,
             request_spike_window_minutes INTEGER NOT NULL DEFAULT 10,
@@ -2042,6 +2044,10 @@ async def _ensure_usage_schema(db) -> None:
             "ALTER TABLE prime_ai_usage_settings "
             "ADD COLUMN monthly_request_limit INTEGER NOT NULL DEFAULT 0"
         )
+    if "budget_warning_percent" not in usage_settings_columns:
+        await db.execute("ALTER TABLE prime_ai_usage_settings ADD COLUMN budget_warning_percent INTEGER NOT NULL DEFAULT 70")
+    if "budget_critical_percent" not in usage_settings_columns:
+        await db.execute("ALTER TABLE prime_ai_usage_settings ADD COLUMN budget_critical_percent INTEGER NOT NULL DEFAULT 90")
     await db.execute("""
         CREATE TABLE IF NOT EXISTS prime_ai_usage_alerts (
             alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2097,7 +2103,8 @@ async def _usage_settings(db, guild_id: int) -> dict:
         (int(guild_id),),
     )
     async with db.execute(
-        "SELECT monthly_limit_usd, monthly_request_limit, cost_per_million_tokens, request_spike_count, "
+        "SELECT monthly_limit_usd, monthly_request_limit, budget_warning_percent, "
+        "budget_critical_percent, cost_per_million_tokens, request_spike_count, "
         "request_spike_window_minutes, provider_failure_count, failure_window_minutes, "
         "alerts_enabled, updated_at FROM prime_ai_usage_settings WHERE guild_id=?",
         (int(guild_id),),
@@ -2170,14 +2177,18 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
         monthly_tokens = int((await cur.fetchone())[0] or 0)
     estimated = monthly_tokens * float(settings["cost_per_million_tokens"]) / 1_000_000
     limit = float(settings["monthly_limit_usd"])
-    if limit > 0 and estimated >= limit * 0.8:
-        is_exceeded = estimated >= limit
-        kind = "budget_exceeded" if is_exceeded else "budget_warning"
-        title = "تم بلوغ حد ميزانية PRIME AI" if is_exceeded else "اقترب استهلاك PRIME AI من الميزانية"
+    warning = int(settings.get("budget_warning_percent", 70))
+    critical = int(settings.get("budget_critical_percent", 90))
+    percent = estimated / limit * 100 if limit else 0
+    if limit > 0 and percent >= warning:
+        exceeded = percent >= 100
+        is_critical = percent >= critical
+        kind = "budget_exceeded" if exceeded else "budget_critical_warning" if is_critical else "budget_warning"
+        title = "تم بلوغ حد ميزانية PRIME AI" if exceeded else "تجاوز الاستهلاك عتبة التنبيه الحرجة" if is_critical else "اقترب استهلاك PRIME AI من الميزانية"
         await _emit_usage_alert(
-            db, guild_id, kind, "critical" if is_exceeded else "warning", title,
+            db, guild_id, kind, "critical" if is_critical else "warning", title,
             f"التكلفة التقديرية لهذا الشهر {estimated:.4f} USD من حد {limit:.2f} USD "
-            f"({min(100.0, estimated / limit * 100):.1f}%).",
+            f"({min(100.0, percent):.1f}%). عتبات التنبيه: {warning}% و{critical}%.",
             f"{kind}:{month_key}",
         )
     request_limit = int(settings.get("monthly_request_limit", 0) or 0)
@@ -2188,18 +2199,18 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
             (int(guild_id), month_start),
         ) as cur:
             monthly_requests = int((await cur.fetchone())[0] or 0)
-        if monthly_requests >= request_limit * 0.8:
-            request_exceeded = monthly_requests >= request_limit
-            kind = "monthly_requests_exceeded" if request_exceeded else "monthly_requests_warning"
-            title = (
-                "تم بلوغ حد الطلبات الشهري لـ PRIME AI"
-                if request_exceeded else "اقترب PRIME AI من حد الطلبات الشهري"
-            )
+        percent = monthly_requests / request_limit * 100
+        warning = int(settings.get("budget_warning_percent", 70))
+        critical = int(settings.get("budget_critical_percent", 90))
+        if percent >= warning:
+            exceeded = percent >= 100
+            is_critical = percent >= critical
+            kind = "monthly_requests_exceeded" if exceeded else "monthly_requests_critical_warning" if is_critical else "monthly_requests_warning"
+            title = "تم بلوغ حد الطلبات الشهري لـ PRIME AI" if exceeded else "تجاوز عدد الطلبات عتبة التنبيه الحرجة" if is_critical else "اقترب PRIME AI من حد الطلبات الشهري"
             await _emit_usage_alert(
-                db, guild_id, kind, "critical" if request_exceeded else "warning",
-                title,
+                db, guild_id, kind, "critical" if is_critical else "warning", title,
                 f"طلبات الشهر {monthly_requests} من حد {request_limit} "
-                f"({min(100.0, monthly_requests / request_limit * 100):.1f}%).",
+                f"({min(100.0, percent):.1f}%). عتبات التنبيه: {warning}% و{critical}%.",
                 f"{kind}:{month_key}",
             )
     await db.execute(
@@ -2215,10 +2226,14 @@ async def save_usage_settings(
     request_spike_window_minutes: int, provider_failure_count: int,
     failure_window_minutes: int, alerts_enabled: bool,
     monthly_request_limit: int = 0,
+    budget_warning_percent: int = 70,
+    budget_critical_percent: int = 90,
 ) -> dict:
     values = {
         "monthly_limit_usd": float(monthly_limit_usd),
         "monthly_request_limit": int(monthly_request_limit),
+        "budget_warning_percent": int(budget_warning_percent),
+        "budget_critical_percent": int(budget_critical_percent),
         "cost_per_million_tokens": float(cost_per_million_tokens),
         "request_spike_count": int(request_spike_count),
         "request_spike_window_minutes": int(request_spike_window_minutes),
@@ -2230,6 +2245,8 @@ async def save_usage_settings(
         raise ValueError("invalid_monthly_limit_usd")
     if not 0 <= values["monthly_request_limit"] <= 1000000:
         raise ValueError("invalid_monthly_request_limit")
+    if not 1 <= values["budget_warning_percent"] < values["budget_critical_percent"] < 100:
+        raise ValueError("invalid_budget_alert_percentages")
     if not 0 <= values["cost_per_million_tokens"] <= 10000:
         raise ValueError("invalid_cost_per_million_tokens")
     if not 1 <= values["request_spike_count"] <= 100000:
@@ -2244,11 +2261,14 @@ async def save_usage_settings(
         await _ensure_usage_schema(db)
         await db.execute(
             "INSERT INTO prime_ai_usage_settings "
-            "(guild_id, monthly_limit_usd, monthly_request_limit, cost_per_million_tokens, request_spike_count, "
+            "(guild_id, monthly_limit_usd, monthly_request_limit, budget_warning_percent, "
+            "budget_critical_percent, cost_per_million_tokens, request_spike_count, "
             "request_spike_window_minutes, provider_failure_count, failure_window_minutes, "
-            "alerts_enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "alerts_enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(guild_id) DO UPDATE SET monthly_limit_usd=excluded.monthly_limit_usd, "
             "monthly_request_limit=excluded.monthly_request_limit, "
+            "budget_warning_percent=excluded.budget_warning_percent, "
+            "budget_critical_percent=excluded.budget_critical_percent, "
             "cost_per_million_tokens=excluded.cost_per_million_tokens, "
             "request_spike_count=excluded.request_spike_count, "
             "request_spike_window_minutes=excluded.request_spike_window_minutes, "
@@ -2257,9 +2277,10 @@ async def save_usage_settings(
             "alerts_enabled=excluded.alerts_enabled, updated_at=excluded.updated_at",
             (
                 int(guild_id), values["monthly_limit_usd"], values["monthly_request_limit"],
-                values["cost_per_million_tokens"], values["request_spike_count"], values["request_spike_window_minutes"],
-                values["provider_failure_count"], values["failure_window_minutes"],
-                int(values["alerts_enabled"]), timestamp(),
+                values["budget_warning_percent"], values["budget_critical_percent"],
+                values["cost_per_million_tokens"], values["request_spike_count"],
+                values["request_spike_window_minutes"], values["provider_failure_count"],
+                values["failure_window_minutes"], int(values["alerts_enabled"]), timestamp(),
             ),
         )
         await db.commit()
@@ -2336,35 +2357,34 @@ async def reserve_usage_budget(
             request_cost = int(estimated_tokens) * rate / 1_000_000
             projected_cost = used_cost + pending_cost + request_cost
             projected_requests = used_requests + pending_requests + 1
-            cost_allowed = not (limit > 0 and projected_cost > limit)
+            cost_allowed = not (limit > 0 and projected_cost >= limit)
             requests_allowed = not (request_limit > 0 and projected_requests > request_limit)
             allowed = cost_allowed and requests_allowed
             month_key = now.strftime("%Y-%m")
-            if limit > 0 and projected_cost >= limit * 0.8:
-                exceeded = projected_cost >= limit
-                alert_type = "budget_exceeded" if exceeded else "budget_warning"
-                title = (
-                    "تم بلوغ حد ميزانية PRIME AI"
-                    if exceeded else "اقترب استهلاك PRIME AI من الميزانية"
-                )
+            warning = int(settings.get("budget_warning_percent", 70))
+            critical = int(settings.get("budget_critical_percent", 90))
+            percent = projected_cost / limit * 100 if limit else 0
+            if limit > 0 and percent >= warning:
+                exceeded = percent >= 100
+                is_critical = percent >= critical
+                alert_type = "budget_exceeded" if exceeded else "budget_critical_warning" if is_critical else "budget_warning"
+                title = "تم بلوغ حد ميزانية PRIME AI" if exceeded else "تجاوز الاستهلاك عتبة التنبيه الحرجة" if is_critical else "اقترب استهلاك PRIME AI من الميزانية"
                 await _emit_usage_alert(
-                    db, guild_id, alert_type,
-                    "critical" if exceeded else "warning", title,
+                    db, guild_id, alert_type, "critical" if is_critical else "warning", title,
                     f"التكلفة المتوقعة بما فيها الطلبات الجارية {projected_cost:.4f} USD "
-                    f"من حد {limit:.2f} USD "
-                    f"({min(100.0, projected_cost / limit * 100):.1f}%).",
+                    f"من حد {limit:.2f} USD ({min(100.0, percent):.1f}%).",
                     f"{alert_type}:{month_key}",
                 )
-            if request_limit > 0 and projected_requests >= request_limit * 0.8:
-                requests_exceeded = projected_requests >= request_limit
-                kind = "monthly_requests_exceeded" if requests_exceeded else "monthly_requests_warning"
+            percent = projected_requests / request_limit * 100 if request_limit else 0
+            if request_limit > 0 and percent >= warning:
+                exceeded = percent >= 100
+                is_critical = percent >= critical
+                kind = "monthly_requests_exceeded" if exceeded else "monthly_requests_critical_warning" if is_critical else "monthly_requests_warning"
                 await _emit_usage_alert(
-                    db, guild_id, kind,
-                    "critical" if requests_exceeded else "warning",
-                    "تم بلوغ حد الطلبات الشهري لـ PRIME AI" if requests_exceeded
-                    else "اقترب PRIME AI من حد الطلبات الشهري",
+                    db, guild_id, kind, "critical" if is_critical else "warning",
+                    "تم بلوغ حد الطلبات الشهري لـ PRIME AI" if exceeded else "تجاوز عدد الطلبات عتبة التنبيه الحرجة" if is_critical else "اقترب PRIME AI من حد الطلبات الشهري",
                     f"الطلبات بعد حجز هذه العملية {projected_requests} من حد {request_limit} "
-                    f"({min(100.0, projected_requests / request_limit * 100):.1f}%).",
+                    f"({min(100.0, percent):.1f}%).",
                     f"{kind}:{month_key}",
                 )
             if allowed:

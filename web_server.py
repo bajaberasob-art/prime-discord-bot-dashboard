@@ -5638,9 +5638,13 @@ async def api_save_prime_ai_usage_budget(req):
     _, guild = await authorize(req, write=True)
     body = await read_json_body(req)
     body.setdefault("monthly_request_limit", 0)
+    body.setdefault("budget_warning_percent", 70)
+    body.setdefault("budget_critical_percent", 90)
     numeric_fields = {
         "monthly_limit_usd": ((int, float), 0, 100000),
         "monthly_request_limit": ((int,), 0, 1000000),
+        "budget_warning_percent": ((int,), 1, 98),
+        "budget_critical_percent": ((int,), 2, 99),
         "cost_per_million_tokens": ((int, float), 0, 10000),
         "request_spike_count": ((int,), 1, 100000),
         "request_spike_window_minutes": ((int,), 1, 1440),
@@ -5660,6 +5664,10 @@ async def api_save_prime_ai_usage_budget(req):
     if fields:
         return json_error(400, "validation", fields=fields)
     try:
+        if clean["budget_warning_percent"] >= clean["budget_critical_percent"]:
+            return json_error(400, "validation", fields={
+                "budget_critical_percent": "يجب أن تكون العتبة الحرجة أعلى من عتبة التحذير."
+            })
         saved = await prime_ai_control.save_usage_settings(
             guild.id, **clean, alerts_enabled=body["alerts_enabled"],
         )

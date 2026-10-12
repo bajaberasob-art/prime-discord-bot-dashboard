@@ -1606,12 +1606,17 @@
       budgetCard.append(budgetNumbers);
       const progress = el("div", "prime-ai-budget-progress");
       progress.setAttribute("role", "progressbar");
-      progress.setAttribute("aria-label", "نسبة استهلاك الميزانية");
+      const requestLimit = Number(budget.monthly_request_limit || 0);
+      const requestUsage = requestLimit > 0
+        ? Math.min(100, Number(budget.projected_requests || budget.monthly_requests || 0) / requestLimit * 100)
+        : 0;
+      const combinedUsage = Math.max(Number(budget.usage_percent || 0), requestUsage);
+      progress.setAttribute("aria-label", "نسبة استخدام الحصة المالية أو الطلبات");
       progress.setAttribute("aria-valuemin", "0");
       progress.setAttribute("aria-valuemax", "100");
-      progress.setAttribute("aria-valuenow", String(Number(budget.usage_percent || 0)));
+      progress.setAttribute("aria-valuenow", String(combinedUsage));
       const progressFill = el("span", "");
-      progressFill.style.width = `${Math.max(0, Math.min(100, Number(budget.usage_percent || 0)))}%`;
+      progressFill.style.width = `${Math.max(0, Math.min(100, combinedUsage))}%`;
       if (budget.exceeded) progress.classList.add("is-over");
       progress.append(progressFill);
       budgetCard.append(progress);
@@ -1629,6 +1634,8 @@
       const budgetFields = [
         ["monthly_limit_usd", "الحد المالي بالدولار (0 = تعطيل الحد المالي)", budgetSettings.monthly_limit_usd ?? 25, "0", "100000", "0.5"],
         ["monthly_request_limit", "الحد الشهري للطلبات (0 = بلا حد عددي)", budgetSettings.monthly_request_limit ?? 0, "0", "1000000", "1"],
+        ["budget_warning_percent", "عتبة التحذير (%)", budgetSettings.budget_warning_percent ?? 70, "1", "98", "1"],
+        ["budget_critical_percent", "عتبة التنبيه الحرج (%)", budgetSettings.budget_critical_percent ?? 90, "2", "99", "1"],
         ["cost_per_million_tokens", "السعر الممزوج لكل مليون رمز ($)", budgetSettings.cost_per_million_tokens ?? 1, "0", "10000", "0.01"],
         ["request_spike_count", "تنبيه عند عدد الطلبات", budgetSettings.request_spike_count ?? 60, "1", "100000", "1"],
         ["request_spike_window_minutes", "نافذة زيادة الطلبات (دقيقة)", budgetSettings.request_spike_window_minutes ?? 10, "1", "1440", "1"],
@@ -2813,6 +2820,8 @@
         const response = await request("POST", `${guildPath}/analytics/budget`, {
           monthly_limit_usd: number("monthly_limit_usd"),
           monthly_request_limit: number("monthly_request_limit"),
+          budget_warning_percent: number("budget_warning_percent"),
+          budget_critical_percent: number("budget_critical_percent"),
           cost_per_million_tokens: number("cost_per_million_tokens"),
           request_spike_count: number("request_spike_count"),
           request_spike_window_minutes: number("request_spike_window_minutes"),
