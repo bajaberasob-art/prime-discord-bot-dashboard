@@ -5637,8 +5637,10 @@ async def api_prime_ai_analytics(req):
 async def api_save_prime_ai_usage_budget(req):
     _, guild = await authorize(req, write=True)
     body = await read_json_body(req)
+    body.setdefault("monthly_request_limit", 0)
     numeric_fields = {
-        "monthly_limit_usd": ((int, float), 1, 100000),
+        "monthly_limit_usd": ((int, float), 0, 100000),
+        "monthly_request_limit": ((int,), 0, 1000000),
         "cost_per_million_tokens": ((int, float), 0, 10000),
         "request_spike_count": ((int,), 1, 100000),
         "request_spike_window_minutes": ((int,), 1, 1440),

@@ -1587,15 +1587,17 @@
       const budgetCard = el("section", "prime-ai-budget-panel");
       budgetCard.append(
         el("h3", "", "حصة الاستخدام والميزانية الشهرية"),
-        el("p", "prime-ai-budget-note", "الإعدادات مستقلة لهذا السيرفر. التكلفة تقديرية حسب معدل الرموز الذي تضبطه وليست فاتورة المزوّد الفعلية."),
+        el("p", "prime-ai-budget-note", "الإعدادات مستقلة لهذا السيرفر. التكلفة تقديرية حسب السعر الممزوج للرموز وليست فاتورة مزوّد. عمليات الصور التي لا تعيد بيانات استخدام أو سعراً موثوقاً تُعرض كتكلفة غير معروفة."),
       );
       const budgetNumbers = el("div", "prime-ai-budget-summary");
       [
         ["استهلاك مسجّل", `${Number(budget.estimated_cost_usd || 0).toFixed(4)} USD`],
         ["محجوز للطلبات الجارية", `${Number(budget.reserved_cost_usd || 0).toFixed(4)} USD`],
-        ["الحد الشهري", `${Number(budget.monthly_limit_usd ?? 25).toFixed(2)} USD`],
-        ["الطلبات هذا الشهر", Number(budget.monthly_requests || 0).toLocaleString()],
+        ["الحد المالي الشهري", Number(budget.monthly_limit_usd ?? 25) > 0 ? `${Number(budget.monthly_limit_usd ?? 25).toFixed(2)} USD` : "غير مفعّل"],
+        ["الطلبات هذا الشهر", `${Number(budget.monthly_requests || 0).toLocaleString()} / ${Number(budget.monthly_request_limit || 0) > 0 ? Number(budget.monthly_request_limit).toLocaleString() : "بلا حد"}`],
+        ["الطلبات المتبقية", budget.remaining_requests == null ? "بلا حد" : Number(budget.remaining_requests).toLocaleString()],
         ["الرموز هذا الشهر", Number(budget.monthly_tokens || 0).toLocaleString()],
+        ["طلبات تكلفتها مجهولة", Number(budget.unknown_cost_requests || 0).toLocaleString()],
       ].forEach(([label, value]) => {
         const item = el("div", "prime-ai-budget-number");
         item.append(el("span", "", label), el("strong", "", value));
@@ -1614,13 +1616,20 @@
       progress.append(progressFill);
       budgetCard.append(progress);
       if (budget.exceeded) {
-        budgetCard.append(el("p", "prime-ai-budget-warning", "تم بلوغ الحد التقديري؛ ستُرفض طلبات الذكاء الجديدة حتى بداية الشهر التالي أو تعديل الميزانية."));
+        budgetCard.append(el("p", "prime-ai-budget-warning", "تم بلوغ إحدى الحصص الشهرية؛ ستُرفض طلبات جديدة حتى بداية الشهر التالي أو تعديل الحدود."));
+      }
+      if (Number(budget.unknown_cost_requests || 0) > 0) {
+        budgetCard.append(el("p", "prime-ai-budget-note", `التكلفة غير مكتملة: ${Number(budget.unknown_cost_requests).toLocaleString()} طلبات بلا بيانات توكن موثوقة؛ لا يُعرض لها سعر مصطنع.`));
+      }
+      if (budgetSettings.updated_at) {
+        budgetCard.append(el("p", "prime-ai-budget-note", `آخر تحديث لإعدادات التسعير والحصص: ${budgetSettings.updated_at}`));
       }
       const budgetForm = el("form", "prime-ai-budget-form");
       budgetForm.dataset.form = "usage-budget";
       const budgetFields = [
-        ["monthly_limit_usd", "الحد الشهري بالدولار", budgetSettings.monthly_limit_usd ?? 25, "1", "100000", "0.5"],
-        ["cost_per_million_tokens", "السعر التقديري لكل مليون رمز ($)", budgetSettings.cost_per_million_tokens ?? 1, "0", "10000", "0.01"],
+        ["monthly_limit_usd", "الحد المالي بالدولار (0 = تعطيل الحد المالي)", budgetSettings.monthly_limit_usd ?? 25, "0", "100000", "0.5"],
+        ["monthly_request_limit", "الحد الشهري للطلبات (0 = بلا حد عددي)", budgetSettings.monthly_request_limit ?? 0, "0", "1000000", "1"],
+        ["cost_per_million_tokens", "السعر الممزوج لكل مليون رمز ($)", budgetSettings.cost_per_million_tokens ?? 1, "0", "10000", "0.01"],
         ["request_spike_count", "تنبيه عند عدد الطلبات", budgetSettings.request_spike_count ?? 60, "1", "100000", "1"],
         ["request_spike_window_minutes", "نافذة زيادة الطلبات (دقيقة)", budgetSettings.request_spike_window_minutes ?? 10, "1", "1440", "1"],
         ["provider_failure_count", "تنبيه عند فشل المزوّد", budgetSettings.provider_failure_count ?? 5, "1", "1000", "1"],
@@ -1726,7 +1735,9 @@
           bar.setAttribute("aria-hidden", "true");
           bar.style.setProperty("--share", `${Math.round((Number(item.requests || 0) / peak) * 100)}%`);
           row.append(bar);
-          row.append(el("strong", "", `${Number(item.requests || 0).toLocaleString()} طلب · ${Number(item.tokens || 0).toLocaleString()} رمز · ${(Number(item.tokens || 0) * blendedRate / 1000000).toFixed(4)} USD تقديري`));
+          const unknownCosts = Number(item.unknown_cost_requests || 0);
+          const estimate = `${(Number(item.tokens || 0) * blendedRate / 1000000).toFixed(4)} USD تقديري`;
+          row.append(el("strong", "", `${Number(item.requests || 0).toLocaleString()} طلب · ${Number(item.tokens || 0).toLocaleString()} رمز · ${estimate}${unknownCosts ? ` · تكلفة مجهولة لـ ${unknownCosts}` : ""}`));
           panel.append(row);
         });
         stats.append(panel);
@@ -2801,6 +2812,7 @@
         const number = (name) => Number(form.elements.namedItem(name).value);
         const response = await request("POST", `${guildPath}/analytics/budget`, {
           monthly_limit_usd: number("monthly_limit_usd"),
+          monthly_request_limit: number("monthly_request_limit"),
           cost_per_million_tokens: number("cost_per_million_tokens"),
           request_spike_count: number("request_spike_count"),
           request_spike_window_minutes: number("request_spike_window_minutes"),

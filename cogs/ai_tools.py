@@ -4,6 +4,9 @@ import math
 import logging
 import asyncio
 import re
+import os
+import secrets
+import time
 from pathlib import PurePosixPath
 from datetime import datetime, timezone
 
@@ -3270,6 +3273,37 @@ class AITools(commands.Cog):
             files = []
             embeds = []
             failures = []
+
+            async def record_image_outcome(
+                result: str,
+                *,
+                error_reason: str = "",
+                latency_ms: int = 0,
+                correlation_id: str = "",
+                reservation_id: str | None = None,
+            ) -> None:
+                if not limit_guild:
+                    return
+                try:
+                    await prime_ai_control.record_request(
+                        limit_guild,
+                        int(itx.user.id),
+                        int(itx.channel_id) if itx.channel_id is not None else None,
+                        skill="image_generation",
+                        mode="IMAGE",
+                        result=result,
+                        latency_ms=latency_ms,
+                        tokens_used=None,
+                        error_reason=error_reason,
+                        provider="Google Gemini",
+                        model=str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image"),
+                        correlation_id=correlation_id,
+                        reservation_id=reservation_id,
+                    )
+                except Exception:
+                    # Metrics must not turn a successful image response into a failed command.
+                    LOGGER.warning("[AI] Could not record image usage metrics.", exc_info=True)
+
             for index in range(int(count)):
                 if index:
                     wait = prime_ai_service.allow_request(
@@ -3282,6 +3316,34 @@ class AITools(commands.Cog):
                     if wait:
                         failures.append("وصلت إلى حد الاستخدام؛ أنشأت بعض النتائج فقط.")
                         break
+                reservation_id = None
+                correlation_id = secrets.token_hex(10)
+                image_started = time.monotonic()
+                if limit_guild:
+                    try:
+                        budget_status = await prime_ai_control.reserve_usage_budget(limit_guild, 0)
+                    except Exception as error:
+                        LOGGER.error(
+                            "[AI] Image quota could not be checked (%s).",
+                            type(error).__name__,
+                            exc_info=True,
+                        )
+                        await record_image_outcome(
+                            "failed", error_reason="usage_budget_unavailable",
+                            latency_ms=int((time.monotonic() - image_started) * 1000),
+                            correlation_id=correlation_id,
+                        )
+                        failures.append("تعذر التحقق من حصة الاستخدام حالياً؛ لم يتم إرسال طلب إلى Gemini.")
+                        break
+                    reservation_id = budget_status.get("reservation_id")
+                    if not budget_status.get("allowed"):
+                        await record_image_outcome(
+                            "failed", error_reason="monthly_budget_exceeded",
+                            latency_ms=int((time.monotonic() - image_started) * 1000),
+                            correlation_id=correlation_id,
+                        )
+                        failures.append("تم بلوغ الحصة الشهرية المسموح بها؛ لم يتم إرسال طلب توليد الصورة.")
+                        break
                 try:
                     image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
                         session,
@@ -3291,13 +3353,35 @@ class AITools(commands.Cog):
                         aspect_ratio=aspect_ratio,
                     )
                 except prime_ai_service.AIProviderUnavailable as error:
+                    await record_image_outcome(
+                        "failed", error_reason=str(error)[:120],
+                        latency_ms=int((time.monotonic() - image_started) * 1000),
+                        correlation_id=correlation_id, reservation_id=reservation_id,
+                    )
                     LOGGER.warning("[AI] Gemini image generation failed (%s).", str(error)[:100])
                     failures.append(_provider_failure_message(error))
                     break
                 except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
+                    if isinstance(error, asyncio.TimeoutError):
+                        failure_reason = "timeout"
+                    elif isinstance(error, aiohttp.ClientError):
+                        failure_reason = f"transport_{type(error).__name__}"
+                    else:
+                        failure_reason = f"image_validation_{type(error).__name__}"
+                    await record_image_outcome(
+                        "failed", error_reason=failure_reason,
+                        latency_ms=int((time.monotonic() - image_started) * 1000),
+                        correlation_id=correlation_id, reservation_id=reservation_id,
+                    )
                     LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
                     failures.append("تعذر توليد إحدى الصور. تحقق من توفر Gemini وحاول مرة أخرى.")
                     break
+                else:
+                    await record_image_outcome(
+                        "success",
+                        latency_ms=int((time.monotonic() - image_started) * 1000),
+                        correlation_id=correlation_id, reservation_id=reservation_id,
+                    )
 
                 extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
                 filename = f"prime-imagine-{index + 1}.{extension}"

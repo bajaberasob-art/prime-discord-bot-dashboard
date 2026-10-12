@@ -93,10 +93,40 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         analytics = await prime_ai_control.get_analytics(guild_id)
         self.assertEqual(analytics["budget"]["monthly_tokens"], 400_000)
         self.assertEqual(analytics["budget"]["reserved_tokens"], 0)
+        self.assertEqual(analytics["budget"]["unknown_cost_requests"], 0)
         self.assertEqual(analytics["providers"][0]["provider"], "Google Gemini")
         self.assertEqual(analytics["models"][0]["model"], "gemini-test")
         self.assertEqual(analytics["totals"]["p95_latency_ms"], 150)
         self.assertEqual(analytics["totals"]["success_rate"], 100.0)
+
+    async def test_monthly_request_quota_and_unknown_cost_are_explicit(self):
+        guild_id = 123456789012350
+        await prime_ai_control.save_usage_settings(
+            guild_id, monthly_limit_usd=0.0,
+            cost_per_million_tokens=1.0, request_spike_count=100,
+            request_spike_window_minutes=10, provider_failure_count=5,
+            failure_window_minutes=10, alerts_enabled=True,
+            monthly_request_limit=1,
+        )
+        reserved = await prime_ai_control.reserve_usage_budget(guild_id, 0)
+        self.assertTrue(reserved["allowed"])
+        denied = await prime_ai_control.reserve_usage_budget(guild_id, 0)
+        self.assertFalse(denied["allowed"])
+        self.assertEqual(denied["monthly_request_limit"], 1)
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="image_generation", mode="IMAGE", result="success",
+            latency_ms=300, tokens_used=None, provider="Google Gemini",
+            model="gemini-image-test", correlation_id="image-unknown-cost",
+            reservation_id=reserved["reservation_id"],
+        )
+        analytics = await prime_ai_control.get_analytics(guild_id)
+        self.assertEqual(analytics["budget"]["monthly_request_limit"], 1)
+        self.assertEqual(analytics["budget"]["remaining_requests"], 0)
+        self.assertEqual(analytics["budget"]["unknown_cost_requests"], 1)
+        self.assertTrue(analytics["budget"]["cost_estimate_incomplete"])
+        self.assertTrue(analytics["budget"]["exceeded"])
+        self.assertEqual(analytics["models"][0]["unknown_cost_requests"], 1)
 
     async def test_usage_isolated_by_guild(self):
         await prime_ai_control.record_request(
