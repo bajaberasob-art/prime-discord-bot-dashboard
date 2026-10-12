@@ -2908,6 +2908,14 @@ class AITools(commands.Cog):
                 prompt = (
                     f"{pending_action}\nتوضيح من صاحب الطلب: {prompt}"
                 )[:prime_ai_service.MAX_CHAT_PROMPT]
+        if current_is_action and attached_media:
+            await message.reply(
+                "لا أستخدم المرفقات ضمن طلبات تنفيذ إجراءات إدارية. أرسل الإجراء بدون مرفق، أو أرسل المرفق كسؤال منفصل للتحليل؛ لم يتم تنفيذ أي إجراء.",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+
         if current_is_action or pending_action:
             response_config = config.get("response", {})
             try:
