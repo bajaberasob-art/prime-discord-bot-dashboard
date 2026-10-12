@@ -180,6 +180,7 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(analytics["budget"]["settings"]["monthly_request_limit"], 0)
         self.assertEqual(analytics["budget"]["settings"]["budget_warning_percent"], 70)
         self.assertEqual(analytics["budget"]["settings"]["budget_critical_percent"], 90)
+        self.assertEqual(analytics["budget"]["settings"]["pricing_source"], "manual blended token rate")
 
     async def test_action_result_event_does_not_consume_provider_quota(self):
         guild_id = 123456789012354
