@@ -5640,6 +5640,7 @@ async def api_save_prime_ai_usage_budget(req):
     body.setdefault("monthly_request_limit", 0)
     body.setdefault("budget_warning_percent", 70)
     body.setdefault("budget_critical_percent", 90)
+    body.setdefault("pricing_source", "manual blended token rate")
     numeric_fields = {
         "monthly_limit_usd": ((int, float), 0, 100000),
         "monthly_request_limit": ((int,), 0, 1000000),
@@ -5661,6 +5662,11 @@ async def api_save_prime_ai_usage_budget(req):
             clean[key] = value
     if not isinstance(body.get("alerts_enabled"), bool):
         fields["alerts_enabled"] = "قيمة تفعيل التنبيهات غير صالحة."
+    pricing_source = body.get("pricing_source")
+    if not isinstance(pricing_source, str) or not pricing_source.strip() or len(pricing_source.strip()) > 160:
+        fields["pricing_source"] = "أدخل مرجعاً نصياً للسعر (حتى 160 حرفاً)."
+    else:
+        clean["pricing_source"] = pricing_source.strip()
     if fields:
         return json_error(400, "validation", fields=fields)
     try:

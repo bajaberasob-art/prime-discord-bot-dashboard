@@ -1626,6 +1626,7 @@
       if (Number(budget.unknown_cost_requests || 0) > 0) {
         budgetCard.append(el("p", "prime-ai-budget-note", `التكلفة غير مكتملة: ${Number(budget.unknown_cost_requests).toLocaleString()} طلبات بلا بيانات توكن موثوقة؛ لا يُعرض لها سعر مصطنع.`));
       }
+      budgetCard.append(el("p", "prime-ai-budget-note", `مصدر التسعير: ${budgetSettings.pricing_source || "manual blended token rate"}`));
       if (budgetSettings.updated_at) {
         budgetCard.append(el("p", "prime-ai-budget-note", `آخر تحديث لإعدادات التسعير والحصص: ${budgetSettings.updated_at}`));
       }
@@ -1656,6 +1657,17 @@
         label.append(input);
         budgetForm.append(label);
       });
+      const pricingSourceLabel = el("label", "prime-ai-budget-field");
+      pricingSourceLabel.append(el("span", "", "مصدر/مرجع السعر الممزوج"));
+      const pricingSourceInput = el("input", "");
+      pricingSourceInput.type = "text";
+      pricingSourceInput.name = "pricing_source";
+      pricingSourceInput.maxLength = 160;
+      pricingSourceInput.value = String(budgetSettings.pricing_source || "manual blended token rate");
+      pricingSourceInput.placeholder = "مثال: تسعيرة يدوية محدثة 2026-10-12";
+      pricingSourceInput.required = true;
+      pricingSourceLabel.append(pricingSourceInput);
+      budgetForm.append(pricingSourceLabel);
       const alertLabel = el("label", "prime-ai-budget-alert-toggle");
       const alertToggle = el("input", "");
       alertToggle.type = "checkbox";
@@ -2822,6 +2834,7 @@
           monthly_request_limit: number("monthly_request_limit"),
           budget_warning_percent: number("budget_warning_percent"),
           budget_critical_percent: number("budget_critical_percent"),
+          pricing_source: String(form.elements.namedItem("pricing_source").value || "").trim(),
           cost_per_million_tokens: number("cost_per_million_tokens"),
           request_spike_count: number("request_spike_count"),
           request_spike_window_minutes: number("request_spike_window_minutes"),
