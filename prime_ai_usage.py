@@ -216,6 +216,7 @@ async def save_settings(
     clean = normalize_settings(values)
     await ensure_schema()
     async with database.connect(aiosqlite.Row) as db:
+        await db.execute("BEGIN IMMEDIATE")
         async with db.execute(
             "SELECT revision FROM prime_ai_usage_settings WHERE guild_id=?",
             (int(guild_id),),
