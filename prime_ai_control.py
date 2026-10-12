@@ -68,6 +68,7 @@ DANGEROUS_CONFIRMATION_TOOLS = {
     "delete_message",
     "delete_channel",
     "delete_role",
+    "timeout_member",
     "kick_member",
     "ban_member",
 }
