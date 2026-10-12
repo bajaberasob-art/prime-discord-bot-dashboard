@@ -2653,7 +2653,9 @@ class AITools(commands.Cog):
         prompt = (
             wake_prompt if wake_triggered else content_without_mention
         ).strip()
-        if is_talk_auto and not prompt:
+        if is_talk_auto and not prompt and not (
+            getattr(message, "attachments", None) or getattr(message, "stickers", None)
+        ):
             return
         if (
             not prompt
@@ -2689,7 +2691,7 @@ class AITools(commands.Cog):
         get_cog = getattr(self.bot, "get_cog", None)
         utilities_cog = get_cog("Utilities") if callable(get_cog) else None
         assistant_dispatch = getattr(utilities_cog, "dispatch_assistant_prompt", None)
-        if callable(assistant_dispatch):
+        if callable(assistant_dispatch) and not attached_media:
             try:
                 if await assistant_dispatch(message, prompt):
                     return
