@@ -2029,6 +2029,7 @@ async def _ensure_usage_schema(db) -> None:
             budget_warning_percent INTEGER NOT NULL DEFAULT 70,
             budget_critical_percent INTEGER NOT NULL DEFAULT 90,
             pricing_source TEXT NOT NULL DEFAULT 'manual blended token rate',
+            enforcement_mode TEXT NOT NULL DEFAULT 'block',
             cost_per_million_tokens REAL NOT NULL DEFAULT 1.0,
             request_spike_count INTEGER NOT NULL DEFAULT 60,
             request_spike_window_minutes INTEGER NOT NULL DEFAULT 10,
@@ -2053,6 +2054,11 @@ async def _ensure_usage_schema(db) -> None:
         await db.execute(
             "ALTER TABLE prime_ai_usage_settings "
             "ADD COLUMN pricing_source TEXT NOT NULL DEFAULT 'manual blended token rate'"
+        )
+    if "enforcement_mode" not in usage_settings_columns:
+        await db.execute(
+            "ALTER TABLE prime_ai_usage_settings "
+            "ADD COLUMN enforcement_mode TEXT NOT NULL DEFAULT 'block'"
         )
     await db.execute("""
         CREATE TABLE IF NOT EXISTS prime_ai_usage_alerts (
@@ -2110,9 +2116,9 @@ async def _usage_settings(db, guild_id: int) -> dict:
     )
     async with db.execute(
         "SELECT monthly_limit_usd, monthly_request_limit, budget_warning_percent, "
-        "budget_critical_percent, pricing_source, cost_per_million_tokens, request_spike_count, "
-        "request_spike_window_minutes, provider_failure_count, failure_window_minutes, "
-        "alerts_enabled, updated_at FROM prime_ai_usage_settings WHERE guild_id=?",
+        "budget_critical_percent, pricing_source, enforcement_mode, cost_per_million_tokens, "
+        "request_spike_count, request_spike_window_minutes, provider_failure_count, "
+        "failure_window_minutes, alerts_enabled, updated_at FROM prime_ai_usage_settings WHERE guild_id=?",
         (int(guild_id),),
     ) as cur:
         row = dict(await cur.fetchone())
@@ -2236,6 +2242,7 @@ async def save_usage_settings(
     budget_warning_percent: int = 70,
     budget_critical_percent: int = 90,
     pricing_source: str = "manual blended token rate",
+    enforcement_mode: str = "block",
 ) -> dict:
     values = {
         "monthly_limit_usd": float(monthly_limit_usd),
@@ -2243,6 +2250,7 @@ async def save_usage_settings(
         "budget_warning_percent": int(budget_warning_percent),
         "budget_critical_percent": int(budget_critical_percent),
         "pricing_source": str(pricing_source or "").strip()[:160],
+        "enforcement_mode": str(enforcement_mode or "").strip().lower(),
         "cost_per_million_tokens": float(cost_per_million_tokens),
         "request_spike_count": int(request_spike_count),
         "request_spike_window_minutes": int(request_spike_window_minutes),
@@ -2258,6 +2266,8 @@ async def save_usage_settings(
         raise ValueError("invalid_budget_alert_percentages")
     if not values["pricing_source"]:
         raise ValueError("invalid_pricing_source")
+    if values["enforcement_mode"] not in {"block", "warn"}:
+        raise ValueError("invalid_enforcement_mode")
     if not 0 <= values["cost_per_million_tokens"] <= 10000:
         raise ValueError("invalid_cost_per_million_tokens")
     if not 1 <= values["request_spike_count"] <= 100000:
@@ -2273,14 +2283,16 @@ async def save_usage_settings(
         await db.execute(
             "INSERT INTO prime_ai_usage_settings "
             "(guild_id, monthly_limit_usd, monthly_request_limit, budget_warning_percent, "
-            "budget_critical_percent, pricing_source, cost_per_million_tokens, request_spike_count, "
-            "request_spike_window_minutes, provider_failure_count, failure_window_minutes, "
-            "alerts_enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "budget_critical_percent, pricing_source, enforcement_mode, cost_per_million_tokens, "
+            "request_spike_count, request_spike_window_minutes, provider_failure_count, "
+            "failure_window_minutes, alerts_enabled, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(guild_id) DO UPDATE SET monthly_limit_usd=excluded.monthly_limit_usd, "
             "monthly_request_limit=excluded.monthly_request_limit, "
             "budget_warning_percent=excluded.budget_warning_percent, "
             "budget_critical_percent=excluded.budget_critical_percent, "
             "pricing_source=excluded.pricing_source, "
+            "enforcement_mode=excluded.enforcement_mode, "
             "cost_per_million_tokens=excluded.cost_per_million_tokens, "
             "request_spike_count=excluded.request_spike_count, "
             "request_spike_window_minutes=excluded.request_spike_window_minutes, "
@@ -2290,7 +2302,8 @@ async def save_usage_settings(
             (
                 int(guild_id), values["monthly_limit_usd"], values["monthly_request_limit"],
                 values["budget_warning_percent"], values["budget_critical_percent"],
-                values["pricing_source"], values["cost_per_million_tokens"], values["request_spike_count"],
+                values["pricing_source"], values["enforcement_mode"],
+                values["cost_per_million_tokens"], values["request_spike_count"],
                 values["request_spike_window_minutes"], values["provider_failure_count"],
                 values["failure_window_minutes"], int(values["alerts_enabled"]), timestamp(),
             ),
@@ -2372,7 +2385,9 @@ async def reserve_usage_budget(
             projected_requests = used_requests + pending_requests + 1
             cost_allowed = not (limit > 0 and projected_cost >= limit)
             requests_allowed = not (request_limit > 0 and projected_requests > request_limit)
-            allowed = cost_allowed and requests_allowed
+            caps_exceeded = not (cost_allowed and requests_allowed)
+            enforcement_mode = str(settings.get("enforcement_mode") or "block")
+            allowed = (not caps_exceeded) or enforcement_mode == "warn"
             month_key = now.strftime("%Y-%m")
             warning = int(settings.get("budget_warning_percent", 70))
             critical = int(settings.get("budget_critical_percent", 90))
@@ -2416,7 +2431,7 @@ async def reserve_usage_budget(
             raise
     return {
         "allowed": allowed,
-        "exceeded": not allowed,
+        "exceeded": caps_exceeded,
         "reservation_id": reservation_id if allowed else None,
         "estimated_cost_usd": round(used_cost, 6),
         "reserved_cost_usd": round(pending_cost, 6),
