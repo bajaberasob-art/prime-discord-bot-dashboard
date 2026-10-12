@@ -3252,6 +3252,24 @@ class AITools(commands.Cog):
         session = self._current_http_session()
         reference_data = None
         try:
+            quota_reason = await prime_ai_service.prime_ai_usage.check_quota(limit_guild) if limit_guild else None
+            if quota_reason:
+                try:
+                    await prime_ai_control.record_request(
+                        limit_guild, int(itx.user.id), int(itx.channel_id or 0),
+                        skill="image_generation_blocked", mode="IMAGE", result="limited",
+                        latency_ms=0, failure_reason=quota_reason,
+                    )
+                except Exception:
+                    LOGGER.debug("[AI] Could not record a blocked image quota request.", exc_info=True)
+                if "prime_monthly_request_limit" in quota_reason:
+                    explanation = "تم بلوغ حصة الصور/الطلبات الشهرية لهذا الخادم. راجع مركز الاستهلاك والموثوقية في الداشبورد."
+                else:
+                    explanation = "تم بلوغ الميزانية الشهرية المقدّرة. راجع سعر الصورة والميزانية في مركز الاستهلاك والموثوقية."
+                return await itx.followup.send(
+                    explanation, allowed_mentions=discord.AllowedMentions.none(), ephemeral=True
+                )
+
             if reference_image:
                 prepared = await prime_ai_multimodal.prepare_inputs(
                     attachments=[reference_image],
@@ -3275,6 +3293,18 @@ class AITools(commands.Cog):
             files = []
             embeds = []
             failures = []
+            loop = asyncio.get_running_loop()
+
+            async def record_image_usage(result, started_at, failure_reason=""):
+                try:
+                    await prime_ai_control.record_request(
+                        limit_guild, int(itx.user.id), int(itx.channel_id or 0),
+                        skill="image_generation", mode="IMAGE", result=result,
+                        latency_ms=max(0, int((loop.time() - started_at) * 1000)),
+                        failure_reason=str(failure_reason or "")[:500],
+                    )
+                except Exception:
+                    LOGGER.debug("[AI] Could not record image generation metrics.", exc_info=True)
             for index in range(int(count)):
                 if index:
                     wait = prime_ai_service.allow_request(
@@ -3287,6 +3317,7 @@ class AITools(commands.Cog):
                     if wait:
                         failures.append("وصلت إلى حد الاستخدام؛ أنشأت بعض النتائج فقط.")
                         break
+                request_started = loop.time()
                 try:
                     image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
                         session,
@@ -3296,14 +3327,17 @@ class AITools(commands.Cog):
                         aspect_ratio=aspect_ratio,
                     )
                 except prime_ai_service.AIProviderUnavailable as error:
+                    await record_image_usage("failed", request_started, str(error))
                     LOGGER.warning("[AI] Gemini image generation failed (%s).", str(error)[:100])
                     failures.append(_provider_failure_message(error))
                     break
                 except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
+                    await record_image_usage("failed", request_started, type(error).__name__)
                     LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
                     failures.append("تعذر توليد إحدى الصور. تحقق من توفر Gemini وحاول مرة أخرى.")
                     break
 
+                await record_image_usage("success", request_started)
                 extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
                 filename = f"prime-imagine-{index + 1}.{extension}"
                 files.append(discord.File(io.BytesIO(image_bytes), filename=filename))
