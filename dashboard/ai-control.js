@@ -1553,7 +1553,7 @@
     function renderRuntimeCards() {
       const wrapper = el("div", "prime-ai-runtime-grid");
       const stats = el("section", "prime-ai-card");
-      const statsHeader = sectionHeader("تحليلات PRIME AI", "بيانات الاستخدام المسجلة خلال آخر 30 يوماً.", "prime-ai-analytics-title");
+      const statsHeader = sectionHeader("تحليلات PRIME AI", "استهلاك الشهر الحالي، الحصص الشهرية، وتنبيهات الموثوقية.", "prime-ai-analytics-title");
       statsHeader.append(button(
         state.analyticsLoading ? "جارٍ التحديث..." : "تحديث المؤشرات",
         "reload-analytics",
