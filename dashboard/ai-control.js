@@ -1578,6 +1578,117 @@
         statGrid.append(item);
       });
       stats.append(statGrid);
+
+      const budget = (state.analytics && state.analytics.budget) || {};
+      const budgetSettings = budget.settings || {};
+      const budgetCard = el("section", "prime-ai-budget-panel");
+      budgetCard.append(
+        el("h3", "", "حصة الاستخدام والميزانية الشهرية"),
+        el("p", "prime-ai-budget-note", "الإعدادات مستقلة لهذا السيرفر. التكلفة تقديرية حسب معدل الرموز الذي تضبطه وليست فاتورة المزوّد الفعلية."),
+      );
+      const budgetNumbers = el("div", "prime-ai-budget-summary");
+      [
+        ["استهلاك الشهر", `${Number(budget.estimated_cost_usd || 0).toFixed(4)}`],
+        ["الحد الشهري", `${Number(budget.monthly_limit_usd ?? 25).toFixed(2)}`],
+        ["الطلبات هذا الشهر", Number(budget.monthly_requests || 0).toLocaleString()],
+        ["الرموز هذا الشهر", Number(budget.monthly_tokens || 0).toLocaleString()],
+      ].forEach(([label, value]) => {
+        const item = el("div", "prime-ai-budget-number");
+        item.append(el("span", "", label), el("strong", "", value));
+        budgetNumbers.append(item);
+      });
+      budgetCard.append(budgetNumbers);
+      const progress = el("div", "prime-ai-budget-progress");
+      progress.setAttribute("role", "progressbar");
+      progress.setAttribute("aria-label", "نسبة استهلاك الميزانية");
+      progress.setAttribute("aria-valuemin", "0");
+      progress.setAttribute("aria-valuemax", "100");
+      progress.setAttribute("aria-valuenow", String(Number(budget.usage_percent || 0)));
+      const progressFill = el("span", "");
+      progressFill.style.width = `${Math.max(0, Math.min(100, Number(budget.usage_percent || 0)))}%`;
+      if (budget.exceeded) progress.classList.add("is-over");
+      progress.append(progressFill);
+      budgetCard.append(progress);
+      if (budget.exceeded) {
+        budgetCard.append(el("p", "prime-ai-budget-warning", "تم بلوغ الحد التقديري؛ ستُرفض طلبات الذكاء الجديدة حتى بداية الشهر التالي أو تعديل الميزانية."));
+      }
+      const budgetForm = el("form", "prime-ai-budget-form");
+      budgetForm.dataset.form = "usage-budget";
+      const budgetFields = [
+        ["monthly_limit_usd", "الحد الشهري بالدولار", budgetSettings.monthly_limit_usd ?? 25, "1", "100000", "0.5"],
+        ["cost_per_million_tokens", "السعر التقديري لكل مليون رمز ($)", budgetSettings.cost_per_million_tokens ?? 1, "0", "10000", "0.01"],
+        ["request_spike_count", "تنبيه عند عدد الطلبات", budgetSettings.request_spike_count ?? 60, "1", "100000", "1"],
+        ["request_spike_window_minutes", "نافذة زيادة الطلبات (دقيقة)", budgetSettings.request_spike_window_minutes ?? 10, "1", "1440", "1"],
+        ["provider_failure_count", "تنبيه عند فشل المزوّد", budgetSettings.provider_failure_count ?? 5, "1", "1000", "1"],
+        ["failure_window_minutes", "نافذة فشل المزوّد (دقيقة)", budgetSettings.failure_window_minutes ?? 10, "1", "1440", "1"],
+      ];
+      budgetFields.forEach(([name, labelText, value, min, max, step]) => {
+        const label = el("label", "prime-ai-budget-field");
+        label.append(el("span", "", labelText));
+        const input = el("input", "");
+        input.type = "number";
+        input.name = name;
+        input.value = String(value);
+        input.min = min;
+        input.max = max;
+        input.step = step;
+        input.required = true;
+        label.append(input);
+        budgetForm.append(label);
+      });
+      const alertLabel = el("label", "prime-ai-budget-alert-toggle");
+      const alertToggle = el("input", "");
+      alertToggle.type = "checkbox";
+      alertToggle.name = "alerts_enabled";
+      alertToggle.checked = budgetSettings.alerts_enabled !== false;
+      alertLabel.append(alertToggle, document.createTextNode("تفعيل تنبيهات الميزانية والضغط وفشل المزوّد"));
+      budgetForm.append(alertLabel);
+      const budgetSave = el("button", "prime-ai-button prime-ai-button-primary");
+      budgetSave.type = "submit";
+      budgetSave.textContent = "حفظ الحدود";
+      budgetForm.append(budgetSave);
+      budgetCard.append(budgetForm);
+      stats.append(budgetCard);
+
+      const alerts = Array.isArray(state.analytics && state.analytics.alerts) ? state.analytics.alerts : [];
+      const alertPanel = el("div", "prime-ai-analytics-breakdown");
+      alertPanel.append(el("h3", "", "إنذارات الموثوقية والميزانية"));
+      if (!alerts.length) {
+        alertPanel.append(el("p", "prime-ai-budget-note", "لا توجد إنذارات مسجلة حالياً."));
+      } else {
+        alerts.forEach((alert) => {
+          const row = el("div", `prime-ai-alert-row ${alert.severity === "critical" ? "is-critical" : ""}`);
+          row.append(el("strong", "", alert.title || alert.alert_type || "تنبيه"));
+          row.append(el("p", "", alert.detail || "لا توجد تفاصيل إضافية."));
+          row.append(el("time", "", alert.created_at || ""));
+          alertPanel.append(row);
+        });
+      }
+      stats.append(alertPanel);
+
+      const failures = Array.isArray(state.analytics && state.analytics.failure_reasons) ? state.analytics.failure_reasons : [];
+      const failurePanel = el("div", "prime-ai-analytics-breakdown");
+      failurePanel.append(el("h3", "", "أسباب فشل طلبات المزوّد"));
+      if (!failures.length) failurePanel.append(el("p", "prime-ai-budget-note", "لا توجد أسباب فشل مسجلة خلال آخر 30 يوماً."));
+      failures.forEach((failure) => {
+        const row = el("div", "prime-ai-failure-row");
+        row.append(el("code", "", failure.error_reason || "unknown"), el("strong", "", failure.requests || 0));
+        failurePanel.append(row);
+      });
+      stats.append(failurePanel);
+
+      const failedActions = Array.isArray(state.analytics && state.analytics.failed_actions) ? state.analytics.failed_actions : [];
+      const actionPanel = el("div", "prime-ai-analytics-breakdown");
+      actionPanel.append(el("h3", "", "أسباب فشل الإجراءات"));
+      if (!failedActions.length) actionPanel.append(el("p", "prime-ai-budget-note", "لا توجد إجراءات فاشلة مسجلة بتفاصيل خطأ."));
+      failedActions.forEach((failure) => {
+        const row = el("div", "prime-ai-failure-row prime-ai-action-failure");
+        row.append(el("strong", "", failure.detected_intent || failure.operation_id || "إجراء PRIME"));
+        row.append(el("span", "", `${failure.status || "UNKNOWN"} · ${failure.error || "سبب غير مسجل"}`));
+        actionPanel.append(row);
+      });
+      stats.append(actionPanel);
+
       if (!state.analyticsLoading && !state.analyticsError && !totals.requests) {
         const idle = el("div", "prime-ai-empty");
         idle.append(el("strong", "", "لا توجد بيانات استخدام بعد"), el("span", "", "ستتشكل المؤشرات والتوزيعات عند أول طلب إلى PRIME AI."));
@@ -2622,6 +2733,31 @@
       }
     }
 
+    async function saveUsageBudget(form) {
+      const submit = form.querySelector("button[type='submit']");
+      if (submit) submit.disabled = true;
+      try {
+        const number = (name) => Number(form.elements.namedItem(name).value);
+        const response = await request("POST", `${guildPath}/analytics/budget`, {
+          monthly_limit_usd: number("monthly_limit_usd"),
+          cost_per_million_tokens: number("cost_per_million_tokens"),
+          request_spike_count: number("request_spike_count"),
+          request_spike_window_minutes: number("request_spike_window_minutes"),
+          provider_failure_count: number("provider_failure_count"),
+          failure_window_minutes: number("failure_window_minutes"),
+          alerts_enabled: Boolean(form.elements.namedItem("alerts_enabled").checked),
+        });
+        const data = await responseJson(response);
+        if (!response || !response.ok || !data.budget_settings) throw new Error("budget_save_failed");
+        setToast("تم حفظ الميزانية وحدود التنبيه لهذا السيرفر.", "success");
+        await loadAnalytics();
+      } catch (_) {
+        setToast("تعذر حفظ الميزانية. تحقق من القيم والصلاحيات ثم أعد المحاولة.", "error");
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+    }
+
     async function saveSettings() {
       if (
         state.settingsSaving ||
@@ -3135,6 +3271,7 @@
       else if (form.dataset.form === "knowledge") saveKnowledge();
       else if (form.dataset.form === "test") runTest();
       else if (form.dataset.form === "sandbox") runSandbox();
+      else if (form.dataset.form === "usage-budget") saveUsageBudget(form);
     };
 
     container.addEventListener("input", onInput);
