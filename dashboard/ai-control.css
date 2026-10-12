@@ -299,6 +299,10 @@
 .prime-ai-bar { display: block; height: .45rem; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .prime-ai-bar::after { display: block; width: var(--share, 0%); height: 100%; border-radius: inherit; background: var(--ai-accent); content: ""; }
 .prime-ai-runtime-grid { display: grid; gap: 1rem; }
+.prime-ai-reliability-alert { display: grid; gap: .25rem; padding: .7rem .8rem; margin-top: .45rem; border: 1px solid var(--line); border-radius: var(--ai-radius); background: var(--surface-2); }
+.prime-ai-reliability-alert p { margin: 0; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.prime-ai-reliability-alert.is-critical { border-color: var(--red); }
+.prime-ai-analytics-breakdown-title { margin-top: 1rem; font-size: .9rem; }
 
 /* ---------- loading ---------- */
 .prime-ai-loading { display: grid; gap: .75rem; margin-top: .5rem; border: 0; background: transparent; }
