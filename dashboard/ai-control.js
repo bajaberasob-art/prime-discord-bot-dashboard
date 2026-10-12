@@ -58,6 +58,8 @@
       operationsLoading: true,
       operationsError: "",
       analytics: null,
+      analyticsDays: 30,
+      analyticsProvider: "",
       analyticsLoading: true,
       analyticsError: "",
       isBotOwner: false,
@@ -1551,7 +1553,11 @@
     function renderRuntimeCards() {
       const wrapper = el("div", "prime-ai-runtime-grid");
       const stats = el("section", "prime-ai-card");
-      const statsHeader = sectionHeader("تحليلات PRIME AI", "بيانات الاستخدام المسجلة خلال آخر 30 يوماً.", "prime-ai-analytics-title");
+      const statsHeader = sectionHeader(
+        "تحليلات PRIME AI",
+        "استخدام الفترة المحددة. الميزانية الشهرية تُحسب مستقلة عن فلاتر العرض.",
+        "prime-ai-analytics-title",
+      );
       statsHeader.append(button(
         state.analyticsLoading ? "جارٍ التحديث..." : "تحديث المؤشرات",
         "reload-analytics",
@@ -1559,6 +1565,45 @@
         state.analyticsLoading,
       ));
       stats.append(statsHeader);
+      const filters = el("div", "prime-ai-analytics-filters");
+      const periodLabel = el("label", "prime-ai-budget-field");
+      periodLabel.append(el("span", "", "الفترة"));
+      const periodSelect = el("select", "");
+      [["7", "آخر 7 أيام"], ["30", "آخر 30 يوماً"], ["90", "آخر 90 يوماً"]].forEach(([value, labelText]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = labelText;
+        option.selected = String(state.analyticsDays || 30) === value;
+        periodSelect.append(option);
+      });
+      periodSelect.addEventListener("change", () => {
+        state.analyticsDays = Number(periodSelect.value) || 30;
+        loadAnalytics();
+      });
+      periodLabel.append(periodSelect);
+      filters.append(periodLabel);
+      const providerLabel = el("label", "prime-ai-budget-field");
+      providerLabel.append(el("span", "", "مزود الذكاء الاصطناعي"));
+      const providerSelect = el("select", "");
+      const allProviders = document.createElement("option");
+      allProviders.value = "";
+      allProviders.textContent = "كل المزودين";
+      allProviders.selected = !state.analyticsProvider;
+      providerSelect.append(allProviders);
+      (state.analytics && Array.isArray(state.analytics.available_providers) ? state.analytics.available_providers : []).forEach((providerName) => {
+        const option = document.createElement("option");
+        option.value = providerName;
+        option.textContent = providerName;
+        option.selected = state.analyticsProvider === providerName;
+        providerSelect.append(option);
+      });
+      providerSelect.addEventListener("change", () => {
+        state.analyticsProvider = providerSelect.value || "";
+        loadAnalytics();
+      });
+      providerLabel.append(providerSelect);
+      filters.append(providerLabel);
+      stats.append(filters);
       if (state.analyticsError) {
         stats.append(loadError(state.analyticsError, "reload-analytics"));
       }
@@ -1786,7 +1831,7 @@
       const dailyRows = Array.isArray(state.analytics && state.analytics.daily) ? state.analytics.daily.slice(-14) : [];
       if (dailyRows.length) {
         const trend = el("div", "prime-ai-analytics-breakdown");
-        trend.append(el("h3", "", "اتجاه الاستخدام اليومي — آخر 14 يوماً"));
+        trend.append(el("h3", "", "اتجاه الاستخدام اليومي للفترة المحددة"));
         const peak = Math.max(1, ...dailyRows.map((item) => Number(item.requests) || 0));
         dailyRows.forEach((item) => {
           const row = el("div", "prime-ai-analytics-row");
@@ -2831,7 +2876,10 @@
       state.analyticsError = "";
       render();
       try {
-        const response = ensureOk(await request("GET", `${guildPath}/analytics`));
+        const params = new URLSearchParams();
+        params.set("days", String(state.analyticsDays || 30));
+        if (state.analyticsProvider) params.set("provider", state.analyticsProvider);
+        const response = ensureOk(await request("GET", guildPath + "/analytics?" + params.toString()));
         const data = await responseJson(response);
         if (!data.totals || typeof data.totals !== "object") throw new Error("invalid_response");
         if (!state.disposed) state.analytics = data;
