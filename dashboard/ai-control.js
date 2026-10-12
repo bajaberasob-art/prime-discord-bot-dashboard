@@ -1674,6 +1674,7 @@
         makeField("حد الطلبات الشهري", "monthly_request_limit", settings.monthly_request_limit, "0 يعني بلا حد شهري للطلبات."),
         makeField("الميزانية الشهرية بالدولار", "monthly_budget_usd", settings.monthly_budget_usd, "0 يعطّل قيد الميزانية؛ يحتاج سعر رموز مضبوطاً.", "0.01"),
         makeField("السعر لكل مليون رمز بالدولار", "usd_per_million_tokens", settings.usd_per_million_tokens, "سعر متوسط يدخله المشرف؛ الحساب تقديري لأن الإدخال والإخراج قد يختلفان.", "0.000001"),
+        makeField("السعر لكل صورة بالدولار", "usd_per_image", settings.usd_per_image, "السعر التقديري للصورة الواحدة؛ اتركه 0 إذا لم تعرف سعر النموذج.", "0.001"),
         makeField("تنبيه ارتفاع الطلبات", "request_spike_threshold", settings.request_spike_threshold, "عدد الطلبات خلال 10 دقائق."),
         makeField("تنبيه فشل المزوّد", "provider_failure_threshold", settings.provider_failure_threshold, "عدد حالات فشل المزوّد خلال 30 دقيقة.")
       );
