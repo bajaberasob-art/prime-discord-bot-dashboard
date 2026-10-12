@@ -3354,6 +3354,11 @@ class AITools(commands.Cog):
                     LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
                     failures.append("تعذر توليد إحدى الصور. تحقق من توفر Gemini وحاول مرة أخرى.")
                     break
+                except Exception as error:
+                    await record_image_usage("failed", request_started, type(error).__name__)
+                    LOGGER.exception("[AI] Unexpected Gemini image generation error.")
+                    failures.append("تعذر توليد إحدى الصور بسبب خطأ غير متوقع؛ راجع أسباب الفشل في مركز الموثوقية.")
+                    break
 
                 await record_image_usage("success", request_started)
                 extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
