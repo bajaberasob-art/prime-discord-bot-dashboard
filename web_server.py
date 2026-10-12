@@ -21,6 +21,7 @@ from aiohttp import web
 import subscription_service
 import prime_ai_service
 import prime_ai_control
+import prime_ai_reliability
 import prime_ai_knowledge
 import prime_ai_runtime
 import guild_backup
@@ -5236,6 +5237,36 @@ async def api_get_prime_ai_control(req):
     except Exception:
         logger.exception("Failed to read PRIME AI control center for guild %s", guild.id)
         return json_error(503, "ai_storage_unavailable")
+
+
+@routes.get('/api/guild/{guild_id}/ai/reliability')
+async def api_get_prime_ai_reliability(req):
+    session, guild = await authorize(req)
+    try:
+        return web.json_response(await prime_ai_reliability.get_analytics(guild.id))
+    except Exception:
+        logger.exception("Failed to read PRIME AI reliability center for guild %s", guild.id)
+        return json_error(503, "ai_reliability_unavailable")
+
+
+@routes.post('/api/guild/{guild_id}/ai/reliability')
+async def api_save_prime_ai_reliability(req):
+    session, guild = await authorize(req, write=True)
+    body = await read_json_body(req)
+    try:
+        settings = await prime_ai_reliability.save_settings(
+            guild.id, int(session["id"]), body.get("settings")
+        )
+        await prime_ai_service.record_audit(
+            guild.id, int(session["id"]), "reliability_settings", "نجح",
+            "تم تحديث حدود الاستخدام والتنبيهات والتقدير المالي.",
+        )
+        return web.json_response({"ok": True, "settings": settings})
+    except ValueError as error:
+        return json_error(400, "validation", fields={"settings": str(error)})
+    except Exception:
+        logger.exception("Failed to save PRIME AI reliability settings for guild %s", guild.id)
+        return json_error(503, "ai_reliability_unavailable")
 
 
 @routes.post('/api/guild/{guild_id}/ai/control')
