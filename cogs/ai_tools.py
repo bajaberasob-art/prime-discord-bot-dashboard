@@ -3296,6 +3296,8 @@ class AITools(commands.Cog):
             loop = asyncio.get_running_loop()
 
             async def record_image_usage(result, started_at, failure_reason=""):
+                if not limit_guild:
+                    return
                 try:
                     await prime_ai_control.record_request(
                         limit_guild, int(itx.user.id), int(itx.channel_id or 0),
@@ -3306,6 +3308,22 @@ class AITools(commands.Cog):
                 except Exception:
                     LOGGER.debug("[AI] Could not record image generation metrics.", exc_info=True)
             for index in range(int(count)):
+                if limit_guild:
+                    per_image_quota = await prime_ai_service.prime_ai_usage.check_quota(limit_guild)
+                    if per_image_quota:
+                        try:
+                            await prime_ai_control.record_request(
+                                limit_guild, int(itx.user.id), int(itx.channel_id or 0),
+                                skill="image_generation_blocked", mode="IMAGE", result="limited",
+                                latency_ms=0, failure_reason=per_image_quota,
+                            )
+                        except Exception:
+                            LOGGER.debug("[AI] Could not record blocked image quota.", exc_info=True)
+                        if "prime_monthly_request_limit" in per_image_quota:
+                            failures.append("تم بلوغ حصة الصور/الطلبات الشهرية؛ لم تُنشأ نتائج إضافية.")
+                        else:
+                            failures.append("تم بلوغ الميزانية الشهرية المقدّرة؛ لم تُنشأ نتائج إضافية.")
+                        break
                 if index:
                     wait = prime_ai_service.allow_request(
                         limit_guild,
