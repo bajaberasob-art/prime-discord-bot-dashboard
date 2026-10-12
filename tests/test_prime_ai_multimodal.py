@@ -9,6 +9,7 @@ from unittest.mock import patch
 import prime_ai_multimodal as multimodal
 from prime_ai.errors import AIProviderUnavailable
 from prime_ai.providers import GeminiImageProvider, GeminiProvider
+from PIL import Image
 
 
 class FakeAttachment:
@@ -70,6 +71,21 @@ class PrimeAIMultimodalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([part["mime_type"] for part in binary], ["image/png", "audio/ogg", "application/pdf"])
         self.assertTrue(any("استمع للمحتوى مباشرة" in part.get("text", "") for part in prepared.parts))
         self.assertTrue(any("مستند PDF" in part.get("text", "") for part in prepared.parts))
+        self.assertFalse(prepared.warnings)
+
+    async def test_gif_attachment_is_converted_to_gemini_supported_png(self):
+        source = io.BytesIO()
+        Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(source, format="GIF")
+        attachment = FakeAttachment("sticker.gif", source.getvalue(), "image/gif")
+
+        prepared = await multimodal.prepare_inputs(attachments=[attachment])
+
+        image_part = next(part for part in prepared.parts if part["type"] == "image")
+        self.assertEqual(image_part["mime_type"], "image/png")
+        decoded = base64.b64decode(image_part["data"], validate=True)
+        with Image.open(io.BytesIO(decoded)) as image:
+            self.assertEqual(image.format, "PNG")
+            self.assertEqual(image.size, (2, 2))
         self.assertFalse(prepared.warnings)
 
     async def test_plain_text_and_docx_are_extracted_without_uploading_raw_office_files(self):

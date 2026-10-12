@@ -232,6 +232,7 @@ async def _download_discord_image(session, url: str, *, limit: int) -> tuple[byt
             or parsed.hostname not in ALLOWED_CDN_HOSTS
             or parsed.username is not None
             or parsed.password is not None
+            or parsed.port not in (None, 443)
             or not (parsed.path.startswith("/stickers/") or parsed.path.startswith("/emojis/"))
         ):
             return None
