@@ -1728,7 +1728,7 @@
           bar.setAttribute("aria-hidden", "true");
           bar.style.setProperty("--share", `${Math.round((Number(item.requests || 0) / peak) * 100)}%`);
           row.append(bar);
-          row.append(el("strong", "", `${Number(item.requests || 0)} طلب · `${Number(item.successful || 0)} ناجح · `${Number(item.failed || 0)} فاشل`));
+          row.append(el("strong", "", `${Number(item.requests || 0)} طلب · ${Number(item.successful || 0)} ناجح · ${Number(item.failed || 0)} فاشل`));
           trend.append(row);
         });
         stats.append(trend);
