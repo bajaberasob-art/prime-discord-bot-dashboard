@@ -1683,7 +1683,8 @@ async def generate_response(
             await prime_ai_control.record_request(
                 guild_id, actor_id, channel_id, skill=skill, mode=mode,
                 result=result, latency_ms=int((time.monotonic() - started) * 1000),
-                tokens_used=tokens_used,
+                tokens_used=tokens_used, provider=PROVIDER_NAME,
+                failure_reason=(details if result != "success" else ""),
             )
         except Exception:
             LOGGER.debug("Failed to record PRIME AI request metrics.", exc_info=True)
