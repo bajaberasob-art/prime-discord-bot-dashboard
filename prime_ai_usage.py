@@ -50,16 +50,23 @@ def estimate_cost(
     usd_per_million_tokens: float,
     images: int = 0,
     usd_per_image: float = 0.0,
+    text_requests: int = 0,
 ) -> float | None:
-    """Estimate tokens and images using administrator-supplied rates."""
+    """Estimate cost only when each used billing category has a configured rate."""
     token_rate = float(usd_per_million_tokens or 0)
     image_rate = float(usd_per_image or 0)
+    token_count = max(0, int(tokens or 0)) if tokens is not None else None
     image_count = max(0, int(images or 0))
+    text_count = max(0, int(text_requests or 0))
     if token_rate <= 0 and image_rate <= 0:
         return None
-    if token_rate > 0 and tokens is None:
+    if text_count and (token_rate <= 0 or tokens is None):
         return None
-    token_cost = max(0, int(tokens or 0)) * token_rate / 1_000_000 if token_rate > 0 else 0.0
+    if token_count and token_rate <= 0:
+        return None
+    if image_count and image_rate <= 0:
+        return None
+    token_cost = token_count * token_rate / 1_000_000 if token_rate > 0 and token_count is not None else 0.0
     image_cost = image_count * image_rate
     return round(token_cost + image_cost, 6)
 
@@ -323,11 +330,14 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         ) as cur:
             failures_30m = int((await cur.fetchone())[0] or 0)
         async with db.execute(
-            "SELECT COUNT(*) FROM prime_ai_request_events "
-            "WHERE guild_id=? AND skill='image_generation' AND created_at>=?",
+            "SELECT SUM(CASE WHEN skill='image_generation' THEN 1 ELSE 0 END) AS images,"
+            "SUM(CASE WHEN skill NOT IN ('image_generation','image_generation_blocked') THEN 1 ELSE 0 END) AS text_requests "
+            "FROM prime_ai_request_events WHERE guild_id=? AND created_at>=?",
             (int(guild_id), start),
         ) as cur:
-            monthly_images = int((await cur.fetchone())[0] or 0)
+            category_counts = dict(await cur.fetchone())
+            monthly_images = int(category_counts.get("images") or 0)
+            monthly_text_requests = int(category_counts.get("text_requests") or 0)
         async with db.execute(
             "SELECT skill,COUNT(*) AS requests FROM prime_ai_request_events "
             "WHERE guild_id=? AND created_at>=? GROUP BY skill ORDER BY requests DESC LIMIT 8",
@@ -366,7 +376,11 @@ async def get_snapshot(guild_id: int) -> dict[str, Any]:
         "tokens": tokens,
         "avg_latency_ms": round(float(row.get("avg_latency_ms") or 0), 1),
         "images": monthly_images,
-        "estimated_cost_usd": estimate_cost(tokens, settings["usd_per_million_tokens"], monthly_images, settings["usd_per_image"]),
+        "text_requests": monthly_text_requests,
+        "estimated_cost_usd": estimate_cost(
+            tokens, settings["usd_per_million_tokens"], monthly_images,
+            settings["usd_per_image"], monthly_text_requests,
+        ),
     }
     return {
         "settings": settings, "monthly": monthly, "requests_10m": requests_10m,
