@@ -3451,6 +3451,8 @@
     loadControl();
     loadKnowledge();
     loadAudit();
+    loadOperations();
+    loadAnalytics();
 
     return function cleanup() {
       state.disposed = true;
