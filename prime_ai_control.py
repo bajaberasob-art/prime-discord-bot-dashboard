@@ -11,6 +11,7 @@ from typing import Any
 import aiosqlite
 
 import database
+from prime_ai.pricing import calculate_cost_usd
 from prime_ai.providers import PROVIDER_NAME, PROVIDER_MODEL
 
 
@@ -2109,9 +2110,23 @@ async def _ensure_usage_schema(db) -> None:
             guild_id INTEGER NOT NULL,
             reserved_tokens INTEGER NOT NULL CHECK (reserved_tokens >= 0),
             created_at TEXT NOT NULL,
-            expires_at TEXT NOT NULL
+            expires_at TEXT NOT NULL,
+            reserved_cost_usd REAL,
+            model TEXT NOT NULL DEFAULT 'unknown',
+            pricing_source TEXT NOT NULL DEFAULT ''
         )
     """)
+    async with db.execute("PRAGMA table_info(prime_ai_usage_reservations)") as cur:
+        reservation_columns = {row[1] for row in await cur.fetchall()}
+    for column, definition in (
+        ("reserved_cost_usd", "REAL"),
+        ("model", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("pricing_source", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if column not in reservation_columns:
+            await db.execute(
+                f"ALTER TABLE prime_ai_usage_reservations ADD COLUMN {column} {definition}"
+            )
     async with db.execute("PRAGMA table_info(prime_ai_request_events)") as cur:
         columns = {row[1] for row in await cur.fetchall()}
     for column, definition in (
@@ -2119,6 +2134,10 @@ async def _ensure_usage_schema(db) -> None:
         ("provider", "TEXT NOT NULL DEFAULT 'unknown'"),
         ("model", "TEXT NOT NULL DEFAULT 'unknown'"),
         ("correlation_id", "TEXT NOT NULL DEFAULT ''"),
+        ("prompt_tokens", "INTEGER"),
+        ("completion_tokens", "INTEGER"),
+        ("estimated_cost_usd", "REAL"),
+        ("cost_pricing_source", "TEXT NOT NULL DEFAULT ''"),
     ):
         if column not in columns:
             await db.execute(
@@ -2584,6 +2603,8 @@ async def record_request(
     result: str,
     latency_ms: int,
     tokens_used: int | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
     error_reason: str = "",
     provider: str = "unknown",
     model: str = "unknown",
@@ -2592,11 +2613,39 @@ async def record_request(
 ) -> None:
     async with database.connect(aiosqlite.Row) as db:
         await _ensure_usage_schema(db)
+        settings = await _usage_settings(db, guild_id)
+        clean_prompt_tokens = (
+            max(0, int(prompt_tokens))
+            if prompt_tokens is not None and not isinstance(prompt_tokens, bool)
+            else None
+        )
+        clean_completion_tokens = (
+            max(0, int(completion_tokens))
+            if completion_tokens is not None and not isinstance(completion_tokens, bool)
+            else None
+        )
+        usage_cost = calculate_cost_usd(
+            str(model or "unknown"), clean_prompt_tokens, clean_completion_tokens,
+        )
+        if usage_cost is not None:
+            estimated_cost = float(usage_cost["estimated_cost_usd"])
+            cost_pricing_source = str(usage_cost["pricing_source"])
+        elif (
+            tokens_used is not None
+            and str(settings.get("pricing_source") or "").lower().startswith("manual blended token rate")
+        ):
+            estimated_cost = max(0, int(tokens_used)) * float(
+                settings["cost_per_million_tokens"]
+            ) / 1_000_000
+            cost_pricing_source = str(settings["pricing_source"])[:160]
+        else:
+            estimated_cost = None
+            cost_pricing_source = ""
         await db.execute(
             "INSERT INTO prime_ai_request_events "
             "(guild_id,user_id,channel_id,skill,mode,result,latency_ms,tokens_used,error_reason,"
-            "provider,model,correlation_id,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "provider,model,correlation_id,prompt_tokens,completion_tokens,estimated_cost_usd,"
+            "cost_pricing_source,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 int(guild_id), int(user_id) if user_id is not None else None,
                 int(channel_id) if channel_id is not None else None,
@@ -2604,7 +2653,9 @@ async def record_request(
                 max(0, min(int(latency_ms), 3_600_000)),
                 max(0, int(tokens_used)) if tokens_used is not None else None,
                 str(error_reason or "")[:120], str(provider or "unknown")[:80],
-                str(model or "unknown")[:100], str(correlation_id or "")[:80], timestamp(),
+                str(model or "unknown")[:100], str(correlation_id or "")[:80],
+                clean_prompt_tokens, clean_completion_tokens, estimated_cost,
+                cost_pricing_source[:160], timestamp(),
             ),
         )
         if reservation_id:
@@ -2612,7 +2663,6 @@ async def record_request(
                 "DELETE FROM prime_ai_usage_reservations WHERE guild_id=? AND reservation_id=?",
                 (int(guild_id), str(reservation_id)[:80]),
             )
-        settings = await _usage_settings(db, guild_id)
         await _evaluate_usage_alerts(db, guild_id, settings)
         await db.commit()
 
