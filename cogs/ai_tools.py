@@ -694,9 +694,9 @@ class AITools(commands.Cog):
     def _safe_usage_alert_text(value: object, limit: int) -> str:
         text = discord.utils.escape_mentions(str(value or ""))
         text = re.sub(
-            r"(?i)\\b(api[_ -]?key|access[_ -]?token|authorization|bearer)"
-            r"\\s*[:=]\\s*[^\\s,;]+",
-            r"\\1=[REDACTED]",
+            r"(?i)\b(api[_ -]?key|access[_ -]?token|authorization|bearer)"
+            r"\s*[:=]\s*[^\s,;]+",
+            r"\1=[REDACTED]",
             text,
         )
         return text[:limit]
@@ -728,8 +728,8 @@ class AITools(commands.Cog):
                         created_at = self._safe_usage_alert_text(alert.get("created_at"), 40)
                         content = (
                             f"{severity} · **تنبيه استخدام PRIME AI** · "
-                            f"#{int(alert['alert_id'])}\\n"
-                            f"**{title}**\\n{detail}\\n"
+                            f"#{int(alert['alert_id'])}\n"
+                            f"**{title}**\n{detail}\n"
                             f"النوع: `{alert_type}` · الوقت: `{created_at}`"
                         )
                         try:
