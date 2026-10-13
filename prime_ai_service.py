@@ -1692,7 +1692,10 @@ async def generate_response(
             await prime_ai_control.record_request(
                 guild_id, actor_id, channel_id, skill=skill, mode=mode,
                 result=result, latency_ms=int((time.monotonic() - started) * 1000),
-                tokens_used=tokens_used, error_reason=error_reason,
+                tokens_used=tokens_used,
+                prompt_tokens=getattr(tokens_used, "prompt_tokens", None),
+                completion_tokens=getattr(tokens_used, "completion_tokens", None),
+                error_reason=error_reason,
                 provider=PROVIDER_NAME, model=str(payload.get("model") or PROVIDER_MODEL),
                 correlation_id=request_correlation_id,
                 reservation_id=usage_reservation_id,
@@ -1712,10 +1715,14 @@ async def generate_response(
             if isinstance(part, dict) and part.get("type") != "text"
         )
         estimated_input_tokens = (text_chars + 3) // 4 + media_parts_count * 2048
-        estimated_tokens = estimated_input_tokens + max(1, int(payload.get("max_tokens") or 1200))
+        estimated_output_tokens = max(1, int(payload.get("max_tokens") or 1200))
+        estimated_tokens = estimated_input_tokens + estimated_output_tokens
         try:
             budget_status = await prime_ai_control.reserve_usage_budget(
                 guild_id, estimated_tokens,
+                model=str(payload.get("model") or PROVIDER_MODEL),
+                estimated_input_tokens=estimated_input_tokens,
+                estimated_output_tokens=estimated_output_tokens,
             )
         except Exception as error:
             LOGGER.error(
@@ -1730,11 +1737,19 @@ async def generate_response(
             raise AIProviderUnavailable("usage_budget_unavailable", status_code=503) from error
         usage_reservation_id = budget_status.get("reservation_id")
         if not budget_status.get("allowed"):
+            reason = (
+                "unknown_cost_blocked"
+                if budget_status.get("unknown_cost_blocked")
+                else "monthly_budget_exceeded"
+            )
             await record_outcome(
                 "failed",
-                "provider=PRIME AI · reason=monthly_budget_exceeded",
+                f"provider=PRIME AI · reason={reason}",
             )
-            raise AIProviderUnavailable("monthly_budget_exceeded", status_code=429)
+            raise AIProviderUnavailable(
+                reason,
+                status_code=429 if reason == "monthly_budget_exceeded" else 422,
+            )
 
     tokens_used = None
     try:
