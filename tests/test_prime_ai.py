@@ -200,7 +200,9 @@ class PrimeAIDashboardPhaseFiveContractTests(unittest.TestCase):
         self.assertNotIn('controlInput("provider.context_limit"', source)
         self.assertNotIn('controlInput("response.cooldown_seconds"', source)
         self.assertIn("function renderOverviewCard()", source)
-        self.assertIn('request("GET", `${guildPath}/analytics`)', source)
+        self.assertIn('request("GET", `${guildPath}/analytics` + "?" + params.toString())', source)
+        self.assertIn('params.set("days", String(state.analyticsDays || 30))', source)
+        self.assertIn('params.set("provider", state.analyticsProvider)', source)
         self.assertIn('request("GET", `${guildPath}/audit`)', source)
         self.assertIn("state.events[0]", source)
 
