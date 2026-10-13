@@ -218,7 +218,7 @@ class PrimeAIDashboardPhaseFiveContractTests(unittest.TestCase):
             source = source_file.read()
         start = source.index("async def api_save_prime_ai_usage_budget(req):")
         end = source.index(
-            "\\n@routes.post('/api/guild/{guild_id}/ai/settings')",
+            "\n@routes.post('/api/guild/{guild_id}/ai/settings')",
             start,
         )
         handler = source[start:end]
