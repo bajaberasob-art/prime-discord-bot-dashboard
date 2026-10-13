@@ -204,7 +204,7 @@ class PrimeAIDashboardPhaseFiveContractTests(unittest.TestCase):
         self.assertIn('params.set("days", String(state.analyticsDays || 30))', source)
         self.assertIn('params.set("provider", state.analyticsProvider)', source)
         self.assertIn(
-            "loadControl();\\n    loadKnowledge();\\n    loadAudit();\\n    loadOperations();\\n    loadAnalytics();",
+            "loadControl();\n    loadKnowledge();\n    loadAudit();\n    loadOperations();\n    loadAnalytics();",
             source,
         )
         self.assertIn('request("GET", `${guildPath}/audit`)', source)
