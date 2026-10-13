@@ -203,6 +203,10 @@ class PrimeAIDashboardPhaseFiveContractTests(unittest.TestCase):
         self.assertIn('request("GET", `${guildPath}/analytics` + "?" + params.toString())', source)
         self.assertIn('params.set("days", String(state.analyticsDays || 30))', source)
         self.assertIn('params.set("provider", state.analyticsProvider)', source)
+        self.assertRegex(
+            source,
+            r"loadControl\(\);\\s*loadKnowledge\(\);\\s*loadAudit\(\);\\s*loadOperations\(\);\\s*loadAnalytics\(\);",
+        )
         self.assertIn('request("GET", `${guildPath}/audit`)', source)
         self.assertIn("state.events[0]", source)
 
