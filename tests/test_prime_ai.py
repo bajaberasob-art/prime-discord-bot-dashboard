@@ -210,6 +210,23 @@ class PrimeAIDashboardPhaseFiveContractTests(unittest.TestCase):
         self.assertIn('request("GET", `${guildPath}/audit`)', source)
         self.assertIn("state.events[0]", source)
 
+    def test_usage_budget_changes_are_audited_for_the_authorized_guild(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "web_server.py"
+        )
+        with open(path, encoding="utf-8") as source_file:
+            source = source_file.read()
+        start = source.index("async def api_save_prime_ai_usage_budget(req):")
+        end = source.index(
+            "\\n@routes.post('/api/guild/{guild_id}/ai/settings')",
+            start,
+        )
+        handler = source[start:end]
+        self.assertIn('session, guild = await authorize(req, write=True)', handler)
+        self.assertIn("prime_ai_service.record_audit(", handler)
+        self.assertIn('int(session["id"])', handler)
+        self.assertIn("guild.id", handler)
+
     def test_control_center_navigation_exposes_safe_dry_run_sandbox(self):
         path = os.path.join(
             os.path.dirname(__file__), "..", "dashboard", "ai-control.js"
