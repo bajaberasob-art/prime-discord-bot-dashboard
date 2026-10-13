@@ -2086,6 +2086,23 @@ async def _ensure_usage_schema(db) -> None:
             UNIQUE(guild_id, fingerprint)
         )
     """)
+    async with db.execute("PRAGMA table_info(prime_ai_usage_alerts)") as cur:
+        alert_columns = {row[1] for row in await cur.fetchall()}
+    for column, definition in (
+        ("discord_attempted_at", "TEXT"),
+        ("discord_notified_at", "TEXT"),
+        ("discord_delivery_attempts", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if column not in alert_columns:
+            await db.execute(
+                f"ALTER TABLE prime_ai_usage_alerts ADD COLUMN {column} {definition}"
+            )
+    # Do not replay a backlog of old dashboard-only alerts into Discord on upgrade.
+    await db.execute(
+        "UPDATE prime_ai_usage_alerts SET discord_notified_at=created_at "
+        "WHERE discord_notified_at IS NULL "
+        "AND julianday(created_at) < julianday('now','-1 day')"
+    )
     await db.execute("""
         CREATE TABLE IF NOT EXISTS prime_ai_usage_reservations (
             reservation_id TEXT PRIMARY KEY,
@@ -2684,6 +2701,64 @@ async def update_moderation_action(
             )
         await db.commit()
     return cursor.rowcount == 1
+
+
+async def claim_pending_usage_alerts(
+    guild_id: int, *, limit: int = 10, retry_after_minutes: int = 10,
+) -> list[dict]:
+    """Atomically claim due Discord notifications for one guild.
+
+    Delivery is at-least-once: a crash after Discord accepts a message but
+    before the delivery marker is committed can produce one later duplicate.
+    """
+    guild_id = int(guild_id)
+    limit = max(1, min(int(limit), 50))
+    retry_after_minutes = max(1, min(int(retry_after_minutes), 1440))
+    claimed: list[dict] = []
+    async with database.connect(aiosqlite.Row) as db:
+        await _ensure_usage_schema(db)
+        async with db.execute(
+            "SELECT a.alert_id, a.alert_type, a.severity, a.title, a.detail, a.created_at "
+            "FROM prime_ai_usage_alerts AS a "
+            "JOIN prime_ai_usage_settings AS s ON s.guild_id=a.guild_id "
+            "WHERE a.guild_id=? AND s.alerts_enabled=1 "
+            "AND a.discord_notified_at IS NULL "
+            "AND (a.discord_attempted_at IS NULL OR "
+            "julianday(a.discord_attempted_at) < julianday('now', ?)) "
+            "ORDER BY a.alert_id ASC LIMIT ?",
+            (guild_id, f"-{retry_after_minutes} minutes", limit),
+        ) as cur:
+            candidates = [dict(row) for row in await cur.fetchall()]
+        for alert in candidates:
+            cur = await db.execute(
+                "UPDATE prime_ai_usage_alerts "
+                "SET discord_attempted_at=?, "
+                "discord_delivery_attempts=discord_delivery_attempts+1 "
+                "WHERE guild_id=? AND alert_id=? AND discord_notified_at IS NULL "
+                "AND (discord_attempted_at IS NULL OR "
+                "julianday(discord_attempted_at) < julianday('now', ?))",
+                (
+                    timestamp(), guild_id, int(alert["alert_id"]),
+                    f"-{retry_after_minutes} minutes",
+                ),
+            )
+            if cur.rowcount == 1:
+                claimed.append(alert)
+        await db.commit()
+    return claimed
+
+
+async def mark_usage_alert_delivered(guild_id: int, alert_id: int) -> bool:
+    """Mark an alert delivered only after Discord confirms the send call."""
+    async with database.connect() as db:
+        await _ensure_usage_schema(db)
+        cur = await db.execute(
+            "UPDATE prime_ai_usage_alerts SET discord_notified_at=? "
+            "WHERE guild_id=? AND alert_id=? AND discord_notified_at IS NULL",
+            (timestamp(), int(guild_id), int(alert_id)),
+        )
+        await db.commit()
+    return cur.rowcount == 1
 
 
 async def get_analytics(
