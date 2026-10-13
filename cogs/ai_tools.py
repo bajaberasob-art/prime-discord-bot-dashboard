@@ -466,6 +466,7 @@ class AITools(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._retention_task: asyncio.Task | None = None
+        self._usage_alert_task: asyncio.Task | None = None
         self._registered_view_keys: set[str] = set()
         self._restore_lock = asyncio.Lock()
         self._policy_store = RuntimePolicyCache(self._load_runtime_policies)
@@ -516,10 +517,15 @@ class AITools(commands.Cog):
             self._retention_task = self._background_tasks.spawn(
                 self._retention_loop(), name="prime-ai-retention",
             )
+        if self._usage_alert_task is None or self._usage_alert_task.done():
+            self._usage_alert_task = self._background_tasks.spawn(
+                self._usage_alert_loop(), name="prime-ai-usage-alerts",
+            )
 
     async def cog_unload(self):
         await self._background_tasks.close()
         self._retention_task = None
+        self._usage_alert_task = None
         self._policy_store.clear()
 
     async def restore_pending_action_views(self):
@@ -654,6 +660,104 @@ class AITools(commands.Cog):
                 )
             except Exception:
                 LOGGER.exception("[AI] Global AI retention cleanup failed.")
+
+    def _usage_alert_channel(self, guild: discord.Guild):
+        """Use the guild's configured logging destinations, never a global fallback."""
+        # AI usage alerts follow existing server/channel/message log routing.
+        try:
+            routing = database.get_cached_logging_channels(guild.id)
+        except Exception:
+            routing = {}
+        for key in ("log_server", "log_channel", "log_messages", "log_moderation"):
+            channel_id = int(routing.get(key) or 0)
+            if not channel_id:
+                continue
+            channel = guild.get_channel(channel_id)
+            if channel is None or int(getattr(getattr(channel, "guild", None), "id", 0)) != int(guild.id):
+                continue
+            member = getattr(guild, "me", None)
+            if member is None and self.bot.user is not None:
+                member = guild.get_member(self.bot.user.id)
+            if member is None:
+                continue
+            try:
+                permissions = channel.permissions_for(member)
+                if not permissions.view_channel or not permissions.send_messages:
+                    continue
+            except (AttributeError, TypeError):
+                continue
+            if callable(getattr(channel, "send", None)):
+                return channel
+        return None
+
+    @staticmethod
+    def _safe_usage_alert_text(value: object, limit: int) -> str:
+        text = discord.utils.escape_mentions(str(value or ""))
+        text = re.sub(
+            r"(?i)\\b(api[_ -]?key|access[_ -]?token|authorization|bearer)"
+            r"\\s*[:=]\\s*[^\\s,;]+",
+            r"\\1=[REDACTED]",
+            text,
+        )
+        return text[:limit]
+
+    async def _usage_alert_loop(self):
+        """Dispatch persisted usage alerts using each guild's own log routing."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            for guild in list(getattr(self.bot, "guilds", ())):
+                if self.bot.is_closed():
+                    break
+                try:
+                    channel = self._usage_alert_channel(guild)
+                    if channel is None:
+                        # Leave alerts unclaimed; a newly configured channel will
+                        # receive them on the next poll without losing the record.
+                        continue
+                    alerts = await prime_ai_control.claim_pending_usage_alerts(
+                        guild.id, limit=10, retry_after_minutes=10,
+                    )
+                    for alert in alerts:
+                        severity = (
+                            "🚨 حرج" if str(alert.get("severity")) == "critical"
+                            else "⚠️ تحذير"
+                        )
+                        title = self._safe_usage_alert_text(alert.get("title"), 180)
+                        detail = self._safe_usage_alert_text(alert.get("detail"), 700)
+                        alert_type = self._safe_usage_alert_text(alert.get("alert_type"), 48)
+                        created_at = self._safe_usage_alert_text(alert.get("created_at"), 40)
+                        content = (
+                            f"{severity} · **تنبيه استخدام PRIME AI** · "
+                            f"#{int(alert['alert_id'])}\\n"
+                            f"**{title}**\\n{detail}\\n"
+                            f"النوع: `{alert_type}` · الوقت: `{created_at}`"
+                        )
+                        try:
+                            await channel.send(
+                                content[:1900],
+                                allowed_mentions=discord.AllowedMentions.none(),
+                            )
+                        except Exception as error:
+                            # The claim's cooldown prevents noisy permission/API retries.
+                            LOGGER.warning(
+                                "[AI] Usage alert delivery failed for guild %s "
+                                "(alert %s, %s).",
+                                guild.id, alert.get("alert_id"), type(error).__name__,
+                            )
+                            continue
+                        try:
+                            await prime_ai_control.mark_usage_alert_delivered(
+                                guild.id, int(alert["alert_id"]),
+                            )
+                        except Exception:
+                            # A later retry is possible if persisting delivery fails.
+                            LOGGER.exception(
+                                "[AI] Could not persist delivery for usage alert %s.",
+                                alert.get("alert_id"),
+                            )
+                except Exception:
+                    LOGGER.exception("[AI] Usage alert dispatch failed for guild %s.", guild.id)
+            await asyncio.sleep(60)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(
