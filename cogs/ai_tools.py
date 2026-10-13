@@ -661,11 +661,11 @@ class AITools(commands.Cog):
             except Exception:
                 LOGGER.exception("[AI] Global AI retention cleanup failed.")
 
-    def _usage_alert_channel(self, guild: discord.Guild):
+    async def _usage_alert_channel(self, guild: discord.Guild):
         """Use the guild's configured logging destinations, never a global fallback."""
-        # AI usage alerts follow existing server/channel/message log routing.
+        # Load routing from the database on a cold start, then use its normal cache.
         try:
-            routing = database.get_cached_logging_channels(guild.id)
+            routing = await database.get_logging_channels(guild.id)
         except Exception:
             routing = {}
         for key in ("log_server", "log_channel", "log_messages", "log_moderation"):
@@ -709,7 +709,7 @@ class AITools(commands.Cog):
                 if self.bot.is_closed():
                     break
                 try:
-                    channel = self._usage_alert_channel(guild)
+                    channel = await self._usage_alert_channel(guild)
                     if channel is None:
                         # Leave alerts unclaimed; a newly configured channel will
                         # receive them on the next poll without losing the record.
