@@ -21,6 +21,49 @@ RETRYABLE_PROVIDER_STATUSES = frozenset({408, 425, 500, 502, 503, 504})
 FALLBACK_PROVIDER_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
+class TokenUsage(int):
+    """Total token count with optional split counts, backward-compatible as int."""
+
+    def __new__(
+        cls, total_tokens: int, prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+    ):
+        value = int.__new__(cls, max(0, int(total_tokens)))
+        value.prompt_tokens = (
+            max(0, int(prompt_tokens)) if prompt_tokens is not None else None
+        )
+        value.completion_tokens = (
+            max(0, int(completion_tokens)) if completion_tokens is not None else None
+        )
+        return value
+
+
+def _token_usage(metadata: dict) -> TokenUsage | None:
+    if not isinstance(metadata, dict):
+        return None
+    prompt = metadata.get("promptTokenCount")
+    total = metadata.get("totalTokenCount")
+    output = metadata.get("candidatesTokenCount")
+    if output is None and total is not None and prompt is not None:
+        try:
+            # totalTokenCount includes model thinking tokens; those are billed
+            # as output on Gemini models where thinking is exposed in usage.
+            output = max(0, int(total) - int(prompt))
+        except (TypeError, ValueError, OverflowError):
+            output = None
+    if total is None and prompt is not None and output is not None:
+        try:
+            total = int(prompt) + int(output)
+        except (TypeError, ValueError, OverflowError):
+            total = None
+    if total is None:
+        return None
+    try:
+        return TokenUsage(total, prompt, output)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 class PollinationsProvider:
     """URL adapter for the existing image command."""
 
@@ -354,7 +397,7 @@ class GeminiProvider:
                             chunks.extend(self._text_parts(event))
                             usage = event.get("usageMetadata", {})
                             if isinstance(usage, dict):
-                                tokens_used = usage.get("totalTokenCount", tokens_used)
+                                tokens_used = _token_usage(usage) or tokens_used
                         except (ValueError, TypeError, KeyError, IndexError, AttributeError):
                             # Ignore malformed SSE events, not transport failures.
                             continue
@@ -369,7 +412,7 @@ class GeminiProvider:
                     answer = "".join(self._text_parts(data))
                     usage = data.get("usageMetadata", {})
                     if isinstance(usage, dict):
-                        tokens_used = usage.get("totalTokenCount")
+                        tokens_used = _token_usage(usage)
             except (AIProviderUnavailable, aiohttp.ClientError):
                 raise
             except (ValueError, TypeError, KeyError, IndexError, AttributeError) as error:
