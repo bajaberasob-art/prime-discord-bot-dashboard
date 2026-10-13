@@ -273,6 +273,51 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         all_providers = await prime_ai_control.get_analytics(guild_id, days=30)
         self.assertEqual(all_providers["totals"]["requests"], 2)
 
+    async def test_discord_usage_alert_claim_and_delivery_are_guild_scoped(self):
+        guild_id = 123456789012358
+        await prime_ai_control.save_usage_settings(
+            guild_id, monthly_limit_usd=100.0,
+            cost_per_million_tokens=1.0, request_spike_count=1,
+            request_spike_window_minutes=10, provider_failure_count=5,
+            failure_window_minutes=10, alerts_enabled=True,
+        )
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="success", latency_ms=100,
+            tokens_used=10, provider="Google Gemini", model="gemini-test",
+        )
+
+        claimed, competing_claim = await asyncio.gather(
+            prime_ai_control.claim_pending_usage_alerts(guild_id),
+            prime_ai_control.claim_pending_usage_alerts(guild_id),
+        )
+        combined = claimed + competing_claim
+        spike_alerts = [
+            item for item in combined if item["alert_type"] == "request_spike"
+        ]
+        self.assertEqual(len(spike_alerts), 1)
+        alert = spike_alerts[0]
+
+        # A different guild must not be able to claim this server's alert.
+        self.assertEqual(
+            await prime_ai_control.claim_pending_usage_alerts(123456789012359),
+            [],
+        )
+        self.assertTrue(
+            await prime_ai_control.mark_usage_alert_delivered(
+                guild_id, alert["alert_id"],
+            )
+        )
+        self.assertFalse(
+            await prime_ai_control.mark_usage_alert_delivered(
+                guild_id, alert["alert_id"],
+            )
+        )
+        self.assertEqual(
+            await prime_ai_control.claim_pending_usage_alerts(guild_id),
+            [],
+        )
+
     async def test_usage_isolated_by_guild(self):
         await prime_ai_control.record_request(
             123456789012347, 111111111111111, None,
