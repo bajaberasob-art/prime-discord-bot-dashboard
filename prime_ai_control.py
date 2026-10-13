@@ -2268,12 +2268,15 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
         )
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     async with db.execute(
-        "SELECT COALESCE(SUM(tokens_used),0) FROM prime_ai_request_events "
-        "WHERE guild_id=? AND created_at >= ?",
+        "SELECT COALESCE(SUM(estimated_cost_usd),0), "
+        "SUM(CASE WHEN estimated_cost_usd IS NULL AND NOT "
+        "(skill='actions' AND mode='ACTION') THEN 1 ELSE 0 END) "
+        "FROM prime_ai_request_events WHERE guild_id=? AND created_at >= ?",
         (int(guild_id), month_start),
     ) as cur:
-        monthly_tokens = int((await cur.fetchone())[0] or 0)
-    estimated = monthly_tokens * float(settings["cost_per_million_tokens"]) / 1_000_000
+        monthly_cost_row = await cur.fetchone()
+        estimated = float(monthly_cost_row[0] or 0)
+        unknown_cost_requests = int(monthly_cost_row[1] or 0)
     limit = float(settings["monthly_limit_usd"])
     warning = int(settings.get("budget_warning_percent", 70))
     critical = int(settings.get("budget_critical_percent", 90))
@@ -2285,8 +2288,9 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
         title = "تم بلوغ حد ميزانية PRIME AI" if exceeded else "تجاوز الاستهلاك عتبة التنبيه الحرجة" if is_critical else "اقترب استهلاك PRIME AI من الميزانية"
         await _emit_usage_alert(
             db, guild_id, kind, "critical" if is_critical else "warning", title,
-            f"التكلفة التقديرية لهذا الشهر {estimated:.4f} USD من حد {limit:.2f} USD "
-            f"({min(100.0, percent):.1f}%). عتبات التنبيه: {warning}% و{critical}%.",
+            f"التكلفة المسعّرة لهذا الشهر {estimated:.4f} USD من حد {limit:.2f} USD "
+            f"({min(100.0, percent):.1f}%). عتبات التنبيه: {warning}% و{critical}%. "
+            + (f"التكلفة غير مكتملة: {unknown_cost_requests} طلبات بلا تسعير موثوق." if unknown_cost_requests else ""),
             f"{kind}:{month_key}",
         )
     request_limit = int(settings.get("monthly_request_limit", 0) or 0)
@@ -2413,13 +2417,16 @@ async def reserve_usage_budget(
     guild_id: int,
     estimated_tokens: int,
     *,
+    model: str | None = None,
+    estimated_input_tokens: int | None = None,
+    estimated_output_tokens: int | None = None,
+    require_known_cost: bool = False,
     lease_seconds: int = 900,
 ) -> dict:
-    """Atomically reserve estimated usage before calling an AI provider.
+    """Atomically reserve request and model-priced cost before provider work.
 
-    SQLite's write lock serializes competing reservations for a guild, so two
-    in-flight requests cannot both spend the same remaining monthly allowance.
-    Reservations expire after a bounded lease if a process exits mid-request.
+    Unknown-cost operations may use a request quota. If a financial cap is
+    enabled in block mode, callers that require priced operations fail closed.
     """
     if (
         isinstance(estimated_tokens, bool)
@@ -2428,6 +2435,16 @@ async def reserve_usage_budget(
         or estimated_tokens > 10_000_000
     ):
         raise ValueError("invalid_estimated_tokens")
+    for label, value in (
+        ("estimated_input_tokens", estimated_input_tokens),
+        ("estimated_output_tokens", estimated_output_tokens),
+    ):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int)
+            or value < 0 or value > 10_000_000
+        ):
+            raise ValueError(f"invalid_{label}")
+    model_name = str(model or "unknown").strip()[:100] or "unknown"
     lease_seconds = max(60, min(int(lease_seconds), 3600))
     reservation_id = secrets.token_hex(16)
     now = now_utc()
@@ -2446,18 +2463,29 @@ async def reserve_usage_budget(
             )
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
             async with db.execute(
-                "SELECT COALESCE(SUM(tokens_used),0) FROM prime_ai_request_events "
-                "WHERE guild_id=? AND julianday(created_at)>=julianday(?)",
+                "SELECT COALESCE(SUM(estimated_cost_usd),0), "
+                "SUM(CASE WHEN estimated_cost_usd IS NULL AND NOT "
+                "(skill='actions' AND mode='ACTION') THEN 1 ELSE 0 END) "
+                "FROM prime_ai_request_events WHERE guild_id=? AND julianday(created_at)>=julianday(?)",
                 (int(guild_id), month_start),
             ) as cur:
-                used_tokens = int((await cur.fetchone())[0] or 0)
+                used_cost_row = await cur.fetchone()
+                used_cost = float(used_cost_row[0] or 0)
+                unknown_cost_requests = int(used_cost_row[1] or 0)
             async with db.execute(
-                "SELECT COALESCE(SUM(reserved_tokens),0) FROM prime_ai_usage_reservations "
-                "WHERE guild_id=? AND julianday(created_at)>=julianday(?) "
+                "SELECT COALESCE(SUM(reserved_tokens),0), "
+                "COALESCE(SUM(reserved_cost_usd),0), COUNT(*), "
+                "SUM(CASE WHEN reserved_cost_usd IS NULL THEN 1 ELSE 0 END) "
+                "FROM prime_ai_usage_reservations WHERE guild_id=? "
+                "AND julianday(created_at)>=julianday(?) "
                 "AND julianday(expires_at)>julianday(?)",
                 (int(guild_id), month_start, created_at),
             ) as cur:
-                pending_tokens = int((await cur.fetchone())[0] or 0)
+                reservation_row = await cur.fetchone()
+                pending_tokens = int(reservation_row[0] or 0)
+                pending_cost = float(reservation_row[1] or 0)
+                pending_requests = int(reservation_row[2] or 0)
+                pending_unknown_costs = int(reservation_row[3] or 0)
             async with db.execute(
                 "SELECT COUNT(*) FROM prime_ai_request_events "
                 "WHERE guild_id=? AND julianday(created_at)>=julianday(?) "
@@ -2465,26 +2493,38 @@ async def reserve_usage_budget(
                 (int(guild_id), month_start),
             ) as cur:
                 used_requests = int((await cur.fetchone())[0] or 0)
-            async with db.execute(
-                "SELECT COUNT(*) FROM prime_ai_usage_reservations "
-                "WHERE guild_id=? AND julianday(created_at)>=julianday(?) "
-                "AND julianday(expires_at)>julianday(?)",
-                (int(guild_id), month_start, created_at),
-            ) as cur:
-                pending_requests = int((await cur.fetchone())[0] or 0)
+
             rate = float(settings["cost_per_million_tokens"])
             limit = float(settings["monthly_limit_usd"])
             request_limit = int(settings.get("monthly_request_limit", 0) or 0)
-            used_cost = used_tokens * rate / 1_000_000
-            pending_cost = pending_tokens * rate / 1_000_000
-            request_cost = int(estimated_tokens) * rate / 1_000_000
-            projected_cost = used_cost + pending_cost + request_cost
+            pricing = calculate_cost_usd(
+                model_name, estimated_input_tokens, estimated_output_tokens,
+            )
+            if pricing is not None:
+                request_cost = float(pricing["estimated_cost_usd"])
+                request_pricing_source = str(pricing["pricing_source"])
+                cost_known = True
+            elif (
+                not require_known_cost
+                and str(settings.get("pricing_source") or "").lower().startswith("manual blended token rate")
+            ):
+                request_cost = max(0, int(estimated_tokens)) * rate / 1_000_000
+                request_pricing_source = str(settings["pricing_source"])[:160]
+                cost_known = True
+            else:
+                request_cost = None
+                request_pricing_source = ""
+                cost_known = False
+
+            projected_cost = used_cost + pending_cost + (request_cost or 0.0)
             projected_requests = used_requests + pending_requests + 1
-            cost_allowed = not (limit > 0 and projected_cost >= limit)
-            requests_allowed = not (request_limit > 0 and projected_requests > request_limit)
-            caps_exceeded = not (cost_allowed and requests_allowed)
+            financial_limit_hit = limit > 0 and projected_cost >= limit
+            requests_limit_hit = request_limit > 0 and projected_requests > request_limit
+            unknown_cost_blocked = bool(require_known_cost and limit > 0 and not cost_known)
+            caps_exceeded = financial_limit_hit or requests_limit_hit or unknown_cost_blocked
             enforcement_mode = str(settings.get("enforcement_mode") or "block")
             allowed = (not caps_exceeded) or enforcement_mode == "warn"
+
             month_key = now.strftime("%Y-%m")
             warning = int(settings.get("budget_warning_percent", 70))
             critical = int(settings.get("budget_critical_percent", 90))
@@ -2496,8 +2536,9 @@ async def reserve_usage_budget(
                 title = "تم بلوغ حد ميزانية PRIME AI" if exceeded else "تجاوز الاستهلاك عتبة التنبيه الحرجة" if is_critical else "اقترب استهلاك PRIME AI من الميزانية"
                 await _emit_usage_alert(
                     db, guild_id, alert_type, "critical" if is_critical else "warning", title,
-                    f"التكلفة المتوقعة بما فيها الطلبات الجارية {projected_cost:.4f} USD "
-                    f"من حد {limit:.2f} USD ({min(100.0, percent):.1f}%).",
+                    f"التكلفة المسعّرة بما فيها الطلبات الجارية {projected_cost:.4f} USD "
+                    f"من حد {limit:.2f} USD ({min(100.0, percent):.1f}%). "
+                    + (f"يوجد {unknown_cost_requests + pending_unknown_costs + int(not cost_known)} طلبات/حجوزات بلا تكلفة معروفة." if unknown_cost_requests + pending_unknown_costs + int(not cost_known) else ""),
                     f"{alert_type}:{month_key}",
                 )
             percent = projected_requests / request_limit * 100 if request_limit else 0
@@ -2512,14 +2553,22 @@ async def reserve_usage_budget(
                     f"({min(100.0, percent):.1f}%).",
                     f"{kind}:{month_key}",
                 )
+            if unknown_cost_blocked:
+                await _emit_usage_alert(
+                    db, guild_id, "unknown_cost_blocked", "critical",
+                    "تم منع عملية غير معروفة التكلفة",
+                    f"لم يُرسل الطلب للنموذج {model_name} لأن الحد المالي مفعّل ولا توجد تسعيرة موثوقة لهذا النموذج/العملية.",
+                    f"unknown_cost_blocked:{month_key}:{model_name}",
+                )
             if allowed:
                 await db.execute(
                     "INSERT INTO prime_ai_usage_reservations "
-                    "(reservation_id,guild_id,reserved_tokens,created_at,expires_at) "
-                    "VALUES (?,?,?,?,?)",
+                    "(reservation_id,guild_id,reserved_tokens,created_at,expires_at,"
+                    "reserved_cost_usd,model,pricing_source) VALUES (?,?,?,?,?,?,?,?)",
                     (
                         reservation_id, int(guild_id), int(estimated_tokens),
-                        created_at, expires_at,
+                        created_at, expires_at, request_cost, model_name,
+                        request_pricing_source[:160],
                     ),
                 )
             await db.commit()
@@ -2529,10 +2578,17 @@ async def reserve_usage_budget(
     return {
         "allowed": allowed,
         "exceeded": caps_exceeded,
+        "unknown_cost_blocked": unknown_cost_blocked,
+        "request_cost_known": cost_known,
+        "request_cost_usd": round(request_cost, 9) if request_cost is not None else None,
+        "pricing_source": request_pricing_source,
         "reservation_id": reservation_id if allowed else None,
         "estimated_cost_usd": round(used_cost, 6),
         "reserved_cost_usd": round(pending_cost, 6),
         "projected_cost_usd": round(projected_cost, 6),
+        "cost_estimate_incomplete": bool(unknown_cost_requests or pending_unknown_costs or not cost_known),
+        "unknown_cost_requests": unknown_cost_requests,
+        "unknown_cost_reservations": pending_unknown_costs,
         "monthly_limit_usd": limit,
         "remaining_usd": round(max(0.0, limit - projected_cost), 6),
         "monthly_request_limit": request_limit,
