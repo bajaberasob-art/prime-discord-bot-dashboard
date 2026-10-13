@@ -5646,7 +5646,7 @@ async def api_prime_ai_analytics(req):
 
 @routes.post('/api/guild/{guild_id}/ai/analytics/budget')
 async def api_save_prime_ai_usage_budget(req):
-    _, guild = await authorize(req, write=True)
+    session, guild = await authorize(req, write=True)
     body = await read_json_body(req)
     body.setdefault("monthly_request_limit", 0)
     body.setdefault("budget_warning_percent", 70)
@@ -5700,6 +5700,25 @@ async def api_save_prime_ai_usage_budget(req):
         )
     except (ValueError, TypeError):
         return json_error(400, "validation", message="إعدادات الميزانية غير صالحة.")
+    try:
+        await prime_ai_service.record_audit(
+            guild.id,
+            int(session["id"]),
+            "ميزانية PRIME AI",
+            "عُدلت الإعدادات",
+            (
+                f"monthly_limit_usd={clean['monthly_limit_usd']}; "
+                f"monthly_request_limit={clean['monthly_request_limit']}; "
+                f"enforcement_mode={clean['enforcement_mode']}; "
+                f"alerts_enabled={body['alerts_enabled']}"
+            )[:500],
+        )
+    except Exception:
+        # Audit failure must not undo the already-saved usage policy.
+        logger.exception(
+            "Could not record PRIME AI usage-budget audit for guild %s",
+            guild.id,
+        )
     return web.json_response({"budget_settings": saved})
 
 
