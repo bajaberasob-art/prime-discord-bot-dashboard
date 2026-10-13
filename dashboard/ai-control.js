@@ -2879,7 +2879,7 @@
         const params = new URLSearchParams();
         params.set("days", String(state.analyticsDays || 30));
         if (state.analyticsProvider) params.set("provider", state.analyticsProvider);
-        const response = ensureOk(await request("GET", guildPath + "/analytics?" + params.toString()));
+        const response = ensureOk(await request("GET", `${guildPath}/analytics` + "?" + params.toString()));
         const data = await responseJson(response);
         if (!data.totals || typeof data.totals !== "object") throw new Error("invalid_response");
         if (!state.disposed) state.analytics = data;
