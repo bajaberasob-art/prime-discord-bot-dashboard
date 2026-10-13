@@ -2606,28 +2606,36 @@ async def check_usage_budget(guild_id: int) -> dict:
         now = now_utc()
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
         async with db.execute(
-            "SELECT COALESCE(SUM(tokens_used),0) FROM prime_ai_request_events "
-            "WHERE guild_id=? AND created_at >= ?",
+            "SELECT COALESCE(SUM(estimated_cost_usd),0), "
+            "SUM(CASE WHEN estimated_cost_usd IS NULL AND NOT "
+            "(skill='actions' AND mode='ACTION') THEN 1 ELSE 0 END) "
+            "FROM prime_ai_request_events WHERE guild_id=? AND julianday(created_at)>=julianday(?)",
             (int(guild_id), month_start),
         ) as cur:
-            tokens = int((await cur.fetchone())[0] or 0)
-        cost = tokens * float(settings["cost_per_million_tokens"]) / 1_000_000
+            cost_row = await cur.fetchone()
+            cost = float(cost_row[0] or 0)
+            unknown_cost_requests = int(cost_row[1] or 0)
         async with db.execute(
-            "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? AND created_at >= ? "
+            "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
+            "AND julianday(created_at)>=julianday(?) "
             "AND NOT (skill='actions' AND mode='ACTION')",
             (int(guild_id), month_start),
         ) as cur:
             monthly_requests = int((await cur.fetchone())[0] or 0)
         async with db.execute(
-            "SELECT COALESCE(SUM(reserved_tokens),0), COUNT(*) FROM prime_ai_usage_reservations "
-            "WHERE guild_id=? AND julianday(created_at)>=julianday(?) "
+            "SELECT COALESCE(SUM(reserved_tokens),0), "
+            "COALESCE(SUM(reserved_cost_usd),0), COUNT(*), "
+            "SUM(CASE WHEN reserved_cost_usd IS NULL THEN 1 ELSE 0 END) "
+            "FROM prime_ai_usage_reservations WHERE guild_id=? "
+            "AND julianday(created_at)>=julianday(?) "
             "AND julianday(expires_at)>julianday(?)",
             (int(guild_id), month_start, timestamp(now)),
         ) as cur:
             reservation_row = await cur.fetchone()
             reserved_tokens = int(reservation_row[0] or 0)
-            reserved_requests = int(reservation_row[1] or 0)
-        reserved_cost = reserved_tokens * float(settings["cost_per_million_tokens"]) / 1_000_000
+            reserved_cost = float(reservation_row[1] or 0)
+            reserved_requests = int(reservation_row[2] or 0)
+            unknown_cost_reservations = int(reservation_row[3] or 0)
         await _evaluate_usage_alerts(db, guild_id, settings)
         await db.commit()
     limit = float(settings["monthly_limit_usd"])
@@ -2635,13 +2643,19 @@ async def check_usage_budget(guild_id: int) -> dict:
     projected = cost + reserved_cost
     projected_requests = monthly_requests + reserved_requests
     return {
-        "exceeded": (limit > 0 and projected >= limit) or (request_limit > 0 and projected_requests >= request_limit),
+        "exceeded": (
+            (limit > 0 and projected >= limit)
+            or (request_limit > 0 and projected_requests >= request_limit)
+        ),
         "estimated_cost_usd": round(cost, 6),
         "reserved_cost_usd": round(reserved_cost, 6),
         "projected_cost_usd": round(projected, 6),
         "reserved_tokens": reserved_tokens,
         "monthly_limit_usd": limit,
         "remaining_usd": round(max(0.0, limit - projected), 6),
+        "cost_estimate_incomplete": bool(unknown_cost_requests or unknown_cost_reservations),
+        "unknown_cost_requests": unknown_cost_requests,
+        "unknown_cost_reservations": unknown_cost_reservations,
         "monthly_request_limit": request_limit,
         "monthly_requests": monthly_requests,
         "reserved_requests": reserved_requests,
