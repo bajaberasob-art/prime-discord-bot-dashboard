@@ -44,13 +44,13 @@ def _token_usage(metadata: dict) -> TokenUsage | None:
     prompt = metadata.get("promptTokenCount")
     total = metadata.get("totalTokenCount")
     output = metadata.get("candidatesTokenCount")
-    if output is None and total is not None and prompt is not None:
+    if total is not None and prompt is not None:
         try:
-            # totalTokenCount includes model thinking tokens; those are billed
-            # as output on Gemini models where thinking is exposed in usage.
+            # Prefer total minus prompt because Gemini total usage can include
+            # separate thinking tokens that candidatesTokenCount may omit.
             output = max(0, int(total) - int(prompt))
         except (TypeError, ValueError, OverflowError):
-            output = None
+            output = metadata.get("candidatesTokenCount")
     if total is None and prompt is not None and output is not None:
         try:
             total = int(prompt) + int(output)
