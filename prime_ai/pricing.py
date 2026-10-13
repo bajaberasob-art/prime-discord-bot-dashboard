@@ -31,15 +31,6 @@ def rates_for_model(model: str, when: date | None = None) -> dict | None:
             "valid_from": "2026-01-01",
             "valid_until": "2026-12-31" if current_date < date(2027, 1, 1) else None,
         }
-    if name == "gemini-3.5-flash-lite":
-        return {
-            "input_usd_per_million": 0.30,
-            "output_usd_per_million": 2.50,
-            "source": f"Google Gemini Standard paid tier ({PRICING_VERIFIED_DATE})",
-            "source_url": GEMINI_PRICING_URL,
-            "valid_from": "2026-01-01",
-            "valid_until": None,
-        }
     return None
 
 
