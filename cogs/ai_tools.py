@@ -3425,7 +3425,11 @@ class AITools(commands.Cog):
                 image_started = time.monotonic()
                 if limit_guild:
                     try:
-                        budget_status = await prime_ai_control.reserve_usage_budget(limit_guild, 0)
+                        budget_status = await prime_ai_control.reserve_usage_budget(
+                            limit_guild, 0,
+                            model=str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image"),
+                            require_known_cost=True,
+                        )
                     except Exception as error:
                         LOGGER.error(
                             "[AI] Image quota could not be checked (%s).",
@@ -3441,12 +3445,22 @@ class AITools(commands.Cog):
                         break
                     reservation_id = budget_status.get("reservation_id")
                     if not budget_status.get("allowed"):
+                        reason = (
+                            "unknown_cost_blocked"
+                            if budget_status.get("unknown_cost_blocked")
+                            else "monthly_budget_exceeded"
+                        )
                         await record_image_outcome(
-                            "failed", error_reason="monthly_budget_exceeded",
+                            "failed", error_reason=reason,
                             latency_ms=int((time.monotonic() - image_started) * 1000),
                             correlation_id=correlation_id,
                         )
-                        failures.append("تم بلوغ الحصة الشهرية المسموح بها؛ لم يتم إرسال طلب توليد الصورة.")
+                        failures.append(
+                            "لم يتم إرسال طلب الصورة لأن الحد المالي مفعّل ولا توجد تسعيرة موثوقة لهذا النموذج؛ "
+                            "عطّل الحد المالي أو اختر وضع التحذير فقط، أو استخدم حد الطلبات الشهري."
+                            if reason == "unknown_cost_blocked"
+                            else "تم بلوغ الحصة الشهرية المسموح بها؛ لم يتم إرسال طلب توليد الصورة."
+                        )
                         break
                 try:
                     image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
