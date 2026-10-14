@@ -2280,7 +2280,7 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
     limit = float(settings["monthly_limit_usd"])
     warning = int(settings.get("budget_warning_percent", 70))
     critical = int(settings.get("budget_critical_percent", 90))
-    percent = estimated / limit * 100 if limit else 0
+    percent = round(estimated / limit * 100, 6) if limit else 0
     if limit > 0 and percent >= warning:
         exceeded = percent >= 100
         is_critical = percent >= critical
