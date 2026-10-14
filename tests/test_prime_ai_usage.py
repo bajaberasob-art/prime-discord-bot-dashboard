@@ -20,6 +20,55 @@ class PrimeAIUsageReliabilityTests(unittest.IsolatedAsyncioTestCase):
         database.DB_NAME = self.old_db_name
         self.temp_dir.cleanup()
 
+    async def test_published_gemini_image_price_allows_strict_budget_reservation(self):
+        guild_id = 123456789012399
+        await prime_ai_control.save_usage_settings(
+            guild_id, monthly_limit_usd=1.0,
+            cost_per_million_tokens=1.0, request_spike_count=100,
+            request_spike_window_minutes=10, provider_failure_count=5,
+            failure_window_minutes=10, alerts_enabled=True,
+            pricing_source="Google Gemini published pricing",
+            enforcement_mode="block",
+        )
+        status = await prime_ai_control.reserve_usage_budget(
+            guild_id, 2620,
+            model="gemini-3.1-flash-image",
+            estimated_input_tokens=100,
+            estimated_output_tokens=2520,
+            require_known_cost=True,
+        )
+        self.assertTrue(status["allowed"])
+        self.assertTrue(status["request_cost_known"])
+        self.assertIsNotNone(status["reservation_id"])
+        self.assertGreaterEqual(status["request_cost_usd"], 0.151)
+        self.assertLess(status["request_cost_usd"], 0.152)
+
+    async def test_budget_threshold_rounding_reaches_critical_threshold(self):
+        guild_id = 123456789012398
+        await prime_ai_control.save_usage_settings(
+            guild_id, monthly_limit_usd=1.0,
+            cost_per_million_tokens=1.0, request_spike_count=100,
+            request_spike_window_minutes=10, provider_failure_count=5,
+            failure_window_minutes=10, alerts_enabled=True,
+            budget_warning_percent=70, budget_critical_percent=90,
+            pricing_source="manual blended token rate",
+        )
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="success", latency_ms=50,
+            tokens_used=700_000,
+        )
+        await prime_ai_control.record_request(
+            guild_id, 111111111111111, 222222222222222,
+            skill="chat", mode="CHAT", result="success", latency_ms=50,
+            tokens_used=200_000,
+        )
+        analytics = await prime_ai_control.get_analytics(guild_id)
+        self.assertIn(
+            "budget_critical_warning",
+            {item["alert_type"] for item in analytics["alerts"]},
+        )
+
     async def test_monthly_cost_is_estimated_and_budget_alert_is_persisted(self):
         guild_id = 123456789012345
         await prime_ai_control.save_usage_settings(
