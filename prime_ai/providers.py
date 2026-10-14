@@ -420,6 +420,158 @@ class GeminiProvider:
         return answer.strip(), tokens_used
 
 
+class OpenAICompatibleProvider:
+    """Text-only fallback adapter for OpenAI-compatible chat-completions APIs."""
+
+    def __init__(
+        self, *, name: str, provider_key: str, endpoint: str,
+        api_key_env: str, model_env: str, default_model: str,
+        extra_headers: dict[str, str] | None = None,
+    ):
+        self.name = name
+        self.provider_key = provider_key
+        self.endpoint = endpoint
+        self.api_key_env = api_key_env
+        self.model_env = model_env
+        self.default_model = default_model
+        self.extra_headers = dict(extra_headers or {})
+
+    def is_configured(self) -> bool:
+        return bool(os.getenv(self.api_key_env, "").strip())
+
+    def model_name(self) -> str:
+        model = os.getenv(self.model_env, self.default_model).strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/~-]{0,119}", model):
+            raise AIProviderUnavailable(f"{self.provider_key}_model_invalid", status_code=503)
+        return model
+
+    async def complete(
+        self, session, payload: dict, *, timeout_seconds: float,
+    ) -> tuple[str, int | None]:
+        api_key = os.getenv(self.api_key_env, "").strip()
+        if not api_key:
+            raise AIProviderUnavailable(f"{self.provider_key}_api_key_missing", status_code=503)
+        if session is None or getattr(session, "closed", False):
+            raise AIProviderUnavailable("shared_http_session_unavailable", status_code=503)
+
+        source_messages = payload.get("messages")
+        if not isinstance(source_messages, list) or not source_messages:
+            raise AIProviderUnavailable("openai_compatible_messages_invalid", status_code=400)
+        messages = []
+        for item in source_messages:
+            if not isinstance(item, dict) or item.get("role") not in {"system", "user", "assistant"}:
+                continue
+            # Attachments stay on Gemini; member files are not silently forwarded
+            # to another company during automatic failover.
+            if item.get("media_parts"):
+                raise AIProviderUnavailable("external_provider_multimodal_not_supported", status_code=400)
+            content = item.get("content", "")
+            if not isinstance(content, str):
+                raise AIProviderUnavailable("openai_compatible_message_content_invalid", status_code=400)
+            messages.append({"role": item["role"], "content": content})
+        if not messages:
+            raise AIProviderUnavailable("openai_compatible_messages_empty", status_code=400)
+
+        model = self.model_name()
+        try:
+            temperature = max(0.0, min(2.0, float(payload.get("temperature", 0.7))))
+            max_tokens = max(64, min(8192, int(payload.get("max_tokens", 1200))))
+        except (TypeError, ValueError, OverflowError) as error:
+            raise AIProviderUnavailable("openai_compatible_generation_settings_invalid", status_code=400) from error
+
+        body = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            **self.extra_headers,
+        }
+        try:
+            async with session.post(
+                self.endpoint,
+                json=body,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(
+                    total=max(1.0, min(float(timeout_seconds), 180.0)),
+                    connect=5.0,
+                ),
+            ) as response:
+                if response.status != 200:
+                    raise AIProviderUnavailable(
+                        f"{self.provider_key}_status_{response.status}",
+                        retryable=response.status in FALLBACK_PROVIDER_STATUSES,
+                        status_code=response.status,
+                    )
+                data = await response.json(content_type=None)
+        except AIProviderUnavailable:
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            raise
+        except (ValueError, TypeError, AttributeError) as error:
+            raise AIProviderUnavailable(
+                f"{self.provider_key}_invalid_response", status_code=502,
+            ) from error
+
+        try:
+            choices = data.get("choices", []) if isinstance(data, dict) else []
+            first = choices[0] if isinstance(choices, list) and choices else {}
+            message = first.get("message", {}) if isinstance(first, dict) else {}
+            content = message.get("content", "") if isinstance(message, dict) else ""
+            if isinstance(content, list):
+                content = "".join(
+                    str(part.get("text", ""))
+                    for part in content
+                    if isinstance(part, dict) and isinstance(part.get("text"), str)
+                )
+            answer = str(content or "").strip()
+            usage = data.get("usage", {}) if isinstance(data, dict) else {}
+            prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+            completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+            total_tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
+            if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
+                total_tokens = int(prompt_tokens) + int(completion_tokens)
+            tokens_used = (
+                TokenUsage(total_tokens, prompt_tokens, completion_tokens)
+                if total_tokens is not None else None
+            )
+            actual_model = str(data.get("model") or model) if isinstance(data, dict) else model
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError) as error:
+            raise AIProviderUnavailable(
+                f"{self.provider_key}_invalid_response", status_code=502,
+            ) from error
+
+        if not answer:
+            raise AIProviderUnavailable(f"{self.provider_key}_empty_response", status_code=502)
+        payload["_actual_provider"] = self.name
+        payload["_actual_model"] = actual_model[:140]
+        return answer, tokens_used
+
+
+OPENROUTER_PROVIDER = OpenAICompatibleProvider(
+    name="OpenRouter",
+    provider_key="openrouter",
+    endpoint="https://openrouter.ai/api/v1/chat/completions",
+    api_key_env="OPENROUTER_API_KEY",
+    model_env="PRIME_OPENROUTER_MODEL",
+    default_model="openai/gpt-oss-20b",
+    extra_headers={"X-OpenRouter-Title": "PRIME Discord Bot"},
+)
+GROQ_PROVIDER = OpenAICompatibleProvider(
+    name="Groq",
+    provider_key="groq",
+    endpoint="https://api.groq.com/openai/v1/chat/completions",
+    api_key_env="GROQ_API_KEY",
+    model_env="PRIME_GROQ_MODEL",
+    default_model="openai/gpt-oss-20b",
+)
+
+
 async def complete_with_retries(
     session, payload: dict, *, provider: GeminiProvider,
     timeout_seconds: int, retry_count: int,
@@ -533,3 +685,116 @@ async def request_with_fallback(
             total_budget,
         )
         raise
+
+async def request_with_provider_fallback(
+    session, payload: dict, *, timeout_seconds: float, retry_count: int,
+    complete, logger, fallback_providers=(),
+) -> tuple[str, int | None]:
+    """Try Gemini models first, then configured independent text providers."""
+    messages = payload.get("messages", [])
+    has_attachments = isinstance(messages, list) and any(
+        isinstance(message, dict) and message.get("media_parts")
+        for message in messages
+    )
+    if has_attachments:
+        return await request_with_fallback(
+            session, payload, timeout_seconds=timeout_seconds,
+            retry_count=retry_count, complete=complete, logger=logger,
+        )
+
+    configured = [
+        provider for provider in fallback_providers
+        if callable(getattr(provider, "is_configured", None))
+        and provider.is_configured()
+    ]
+    if not configured:
+        return await request_with_fallback(
+            session, payload, timeout_seconds=timeout_seconds,
+            retry_count=retry_count, complete=complete, logger=logger,
+        )
+
+    total_budget = max(0.01, float(timeout_seconds))
+    primary_fraction = 0.70 if len(configured) == 1 else 0.65
+    primary_budget = max(0.01, total_budget * primary_fraction)
+    deadline = asyncio.get_running_loop().time() + total_budget
+    primary_error = None
+
+    def eligible(error, *, after_gemini_lite=False):
+        if isinstance(error, (asyncio.TimeoutError, aiohttp.ClientError)):
+            return True
+        if not isinstance(error, AIProviderUnavailable):
+            return False
+        reason = str(error).lower()
+        if "_api_key_missing" in reason:
+            return True
+        if error.status_code in (FALLBACK_PROVIDER_STATUSES | {401, 402, 403, 404}):
+            return True
+        # Errors from the secondary model may be specific to that model; do not
+        # automatically reroute non-retryable content/safety refusals.
+        return after_gemini_lite and error.status_code == 404
+
+    try:
+        async with asyncio.timeout(primary_budget):
+            return await request_with_fallback(
+                session, payload, timeout_seconds=primary_budget,
+                retry_count=retry_count, complete=complete, logger=logger,
+            )
+    except (AIProviderUnavailable, asyncio.TimeoutError, aiohttp.ClientError) as error:
+        primary_error = error
+        if not eligible(
+            error,
+            after_gemini_lite=str(payload.get("model") or "") == FALLBACK_PROVIDER_MODEL,
+        ):
+            raise
+        logger.warning(
+            "[AI] Gemini models unavailable; trying configured independent provider fallbacks (%s).",
+            type(error).__name__,
+        )
+
+    last_error = primary_error
+    for index, provider in enumerate(configured):
+        remaining = max(0.01, deadline - asyncio.get_running_loop().time())
+        attempt_budget = max(0.01, remaining / (len(configured) - index))
+        try:
+            model = provider.model_name()
+            payload["model"] = model
+            payload["_active_provider"] = provider.name
+            payload["_active_model"] = model
+            async with asyncio.timeout(attempt_budget):
+                answer, tokens = await provider.complete(
+                    session, payload, timeout_seconds=attempt_budget,
+                )
+            if not str(answer or "").strip():
+                raise AIProviderUnavailable(
+                    f"{provider.provider_key}_empty_response", status_code=502,
+                )
+            payload["_actual_provider"] = provider.name
+            payload["_actual_model"] = str(payload.get("_actual_model") or model)
+            logger.warning(
+                "[AI] Response completed by fallback provider %s (model=%s).",
+                provider.name, str(payload.get("_actual_model") or model)[:100],
+            )
+            return answer, tokens
+        except (AIProviderUnavailable, asyncio.TimeoutError, aiohttp.ClientError) as fallback_error:
+            last_error = fallback_error
+            logger.warning(
+                "[AI] Fallback provider %s failed (%s, status=%s).",
+                getattr(provider, "name", "unknown"),
+                type(fallback_error).__name__,
+                getattr(fallback_error, "status_code", None),
+            )
+            if index < len(configured) - 1:
+                status = getattr(fallback_error, "status_code", None)
+                reason = str(fallback_error).lower()
+                if (
+                    isinstance(fallback_error, (asyncio.TimeoutError, aiohttp.ClientError))
+                    or status in (FALLBACK_PROVIDER_STATUSES | {401, 402, 403, 404})
+                    or "_api_key_missing" in reason
+                ):
+                    continue
+            break
+
+    if last_error is not None:
+        raise last_error
+    raise AIProviderUnavailable("all_ai_providers_unavailable", status_code=503)
+

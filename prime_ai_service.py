@@ -28,8 +28,9 @@ from prime_ai.errors import (
 from prime_ai.text import sanitize_discord_text
 from prime_ai.providers import (
     GeminiImageProvider, GeminiProvider, PollinationsProvider, PROVIDER_NAME, PROVIDER_MODEL,
-    FALLBACK_PROVIDER_MODEL, RETRYABLE_PROVIDER_STATUSES,
-    FALLBACK_PROVIDER_STATUSES, complete_with_retries, request_with_fallback,
+    OPENROUTER_PROVIDER, GROQ_PROVIDER, FALLBACK_PROVIDER_MODEL,
+    RETRYABLE_PROVIDER_STATUSES, FALLBACK_PROVIDER_STATUSES,
+    complete_with_retries, request_with_fallback, request_with_provider_fallback,
 )
 from prime_ai.limits import SlidingWindowLimiter
 import runtime_diagnostics
@@ -69,10 +70,15 @@ async def _complete_with_retries(
     timeout_seconds: int,
     retry_count: int,
 ) -> tuple[str, int | None]:
-    return await complete_with_retries(
+    payload["_active_provider"] = PROVIDER_NAME
+    payload["_active_model"] = str(payload.get("model") or PROVIDER_MODEL)
+    answer, tokens = await complete_with_retries(
         session, payload, provider=GEMINI_PROVIDER,
         timeout_seconds=timeout_seconds, retry_count=retry_count,
     )
+    payload["_actual_provider"] = PROVIDER_NAME
+    payload["_actual_model"] = str(payload.get("model") or PROVIDER_MODEL)
+    return answer, tokens
 
 
 _RATE_LIMITER = SlidingWindowLimiter()
@@ -1674,6 +1680,7 @@ async def generate_response(
 
     usage_reservation_id = None
     request_correlation_id = secrets.token_hex(10)
+    external_fallback_providers = (OPENROUTER_PROVIDER, GROQ_PROVIDER)
 
     async def record_outcome(result: str, details: str, tokens_used=None):
         if guild_id is None:
@@ -1689,6 +1696,13 @@ async def generate_response(
                 str(reason_match.group(1)).strip()[:120]
                 if reason_match else ("provider_failure" if result != "success" else "")
             )
+            actual_provider = str(
+                payload.get("_actual_provider") or payload.get("_active_provider") or PROVIDER_NAME
+            )
+            actual_model = str(
+                payload.get("_actual_model") or payload.get("_active_model")
+                or payload.get("model") or PROVIDER_MODEL
+            )
             await prime_ai_control.record_request(
                 guild_id, actor_id, channel_id, skill=skill, mode=mode,
                 result=result, latency_ms=int((time.monotonic() - started) * 1000),
@@ -1696,7 +1710,7 @@ async def generate_response(
                 prompt_tokens=getattr(tokens_used, "prompt_tokens", None),
                 completion_tokens=getattr(tokens_used, "completion_tokens", None),
                 error_reason=error_reason,
-                provider=PROVIDER_NAME, model=str(payload.get("model") or PROVIDER_MODEL),
+                provider=actual_provider, model=actual_model,
                 correlation_id=request_correlation_id,
                 reservation_id=usage_reservation_id,
             )
@@ -1736,6 +1750,10 @@ async def generate_response(
             )
             raise AIProviderUnavailable("usage_budget_unavailable", status_code=503) from error
         usage_reservation_id = budget_status.get("reservation_id")
+        # The usage reservation is priced for Gemini. Do not switch to an
+        # unpriced third-party model while a monthly financial cap is active.
+        if float(budget_status.get("monthly_limit_usd") or 0) > 0:
+            external_fallback_providers = ()
         if not budget_status.get("allowed"):
             reason = (
                 "unknown_cost_blocked"
@@ -1765,10 +1783,11 @@ async def generate_response(
             )
             provider_started = time.perf_counter()
             try:
-                answer, tokens_used = await request_with_fallback(
+                answer, tokens_used = await request_with_provider_fallback(
                     session, payload, timeout_seconds=timeout_seconds,
                     retry_count=retry_count, complete=_complete_with_retries,
                     logger=LOGGER,
+                    fallback_providers=external_fallback_providers,
                 )
             finally:
                 runtime_diagnostics.record_timing(
@@ -1785,7 +1804,7 @@ async def generate_response(
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · reason=timeout",
+            f"provider={payload.get('_active_provider', PROVIDER_NAME)} · model={payload.get('_active_model', payload.get('model', PROVIDER_MODEL))} · reason=timeout",
         )
         raise AIProviderUnavailable("gemini_timeout", status_code=504) from error
     except aiohttp.ClientError as error:
@@ -1800,7 +1819,7 @@ async def generate_response(
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · "
+            f"provider={payload.get('_active_provider', PROVIDER_NAME)} · model={payload.get('_active_model', payload.get('model', PROVIDER_MODEL))} · "
             f"reason=transport_{type(error).__name__}",
         )
         raise AIProviderUnavailable("gemini_connection_failed", status_code=503) from error
@@ -1813,7 +1832,7 @@ async def generate_response(
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · "
+            f"provider={payload.get('_active_provider', PROVIDER_NAME)} · model={payload.get('_active_model', payload.get('model', PROVIDER_MODEL))} · "
             f"status={error.status_code if error.status_code is not None else 'n/a'} · "
             f"reason={str(error)[:80]}",
         )
@@ -1832,7 +1851,8 @@ async def generate_response(
         )
     await record_outcome(
         "success",
-        f"provider={PROVIDER_NAME} · model={payload['model']} · "
+        f"provider={payload.get('_actual_provider', PROVIDER_NAME)} · "
+        f"model={payload.get('_actual_model', payload['model'])} · "
         f"prompt_chars={len(value)} · answer_chars={len(answer)}",
         tokens_used=tokens_used,
     )

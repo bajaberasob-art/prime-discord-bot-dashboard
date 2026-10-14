@@ -1760,7 +1760,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value={"config": config}),
             ),
             patch.object(ai, "list_context_memories", new=AsyncMock(return_value=[])),
-            patch.object(ai, "request_with_fallback", request),
+            patch.object(ai, "request_with_provider_fallback", request),
             patch.object(ai, "record_audit", new=AsyncMock()),
             patch.object(prime_ai_control, "record_request", new=AsyncMock()),
         ):
