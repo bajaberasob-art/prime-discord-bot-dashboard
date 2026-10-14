@@ -1,8 +1,10 @@
 import os
 import unittest
+from datetime import date
 from unittest.mock import Mock, patch
 
 from prime_ai.errors import AIProviderUnavailable
+from prime_ai.pricing import calculate_cost_usd, rates_for_model
 from prime_ai.providers import OpenAICompatibleProvider, TokenUsage, request_with_provider_fallback
 
 
@@ -56,6 +58,19 @@ class _FallbackProvider:
 
 
 class ProviderFailoverTests(unittest.IsolatedAsyncioTestCase):
+    def test_pricing_catalog_covers_fallback_and_gemini_introductory_expiry(self):
+        fallback = rates_for_model("gemini-3.5-flash-lite")
+        self.assertIsNotNone(fallback)
+        self.assertEqual(fallback["input_usd_per_million"], 0.30)
+        self.assertEqual(fallback["output_usd_per_million"], 2.50)
+        estimated = calculate_cost_usd("gemini-3.5-flash-lite", 1_000_000, 1_000_000)
+        self.assertEqual(estimated["estimated_cost_usd"], 2.8)
+
+        final_intro_day = rates_for_model("gemini-3.8-flash", date(2026, 12, 31))
+        first_standard_day = rates_for_model("gemini-3.8-flash", date(2027, 1, 1))
+        self.assertEqual(final_intro_day["output_usd_per_million"], 3.75)
+        self.assertIsNone(first_standard_day)
+
     async def test_openai_compatible_adapter_parses_text_and_usage(self):
         session = _FakeSession(_FakeResponse({
             "model": "openai/gpt-oss-20b",

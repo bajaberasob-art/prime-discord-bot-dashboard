@@ -20,6 +20,8 @@ def rates_for_model(model: str, when: date | None = None) -> dict | None:
     rates = {
         # Google Gemini 3.8 Flash introductory paid-tier price, valid to year end.
         "gemini-3.8-flash": (0.75, 3.75),
+        # Google Gemini 3.5 Flash-Lite Standard paid tier.
+        "gemini-3.5-flash-lite": (0.30, 2.50),
         "gemini-3.1-flash": (0.50, 3.00),
         "gemini-3.1-flash-lite": (0.25, 1.50),
         "gemini-3.1-flash-image": (0.50, 60.00),
