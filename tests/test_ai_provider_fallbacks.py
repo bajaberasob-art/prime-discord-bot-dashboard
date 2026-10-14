@@ -69,7 +69,9 @@ class ProviderFailoverTests(unittest.IsolatedAsyncioTestCase):
         final_intro_day = rates_for_model("gemini-3.8-flash", date(2026, 12, 31))
         first_standard_day = rates_for_model("gemini-3.8-flash", date(2027, 1, 1))
         self.assertEqual(final_intro_day["output_usd_per_million"], 3.75)
-        self.assertIsNone(first_standard_day)
+        self.assertEqual(first_standard_day["input_usd_per_million"], 1.50)
+        self.assertEqual(first_standard_day["output_usd_per_million"], 7.50)
+        self.assertIsNone(first_standard_day["valid_until"])
 
     async def test_openai_compatible_adapter_parses_text_and_usage(self):
         session = _FakeSession(_FakeResponse({

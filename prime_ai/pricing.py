@@ -32,12 +32,15 @@ def rates_for_model(model: str, when: date | None = None) -> dict | None:
     if pair is None:
         return None
     is_flash_38 = name == "gemini-3.8-flash"
-    if is_flash_38 and current_date > date(2026, 12, 31):
-        return None
+    standard_flash_38 = is_flash_38 and current_date >= date(2027, 1, 1)
+    if standard_flash_38:
+        pair = (1.50, 7.50)
     return {
         "input_usd_per_million": pair[0],
         "output_usd_per_million": pair[1],
         "source": (
+            f"Google Gemini 3.8 Flash Standard paid-tier pricing ({PRICING_VERIFIED_DATE})"
+            if standard_flash_38 else
             f"Google Gemini 3.8 Flash introductory pricing ({PRICING_VERIFIED_DATE})"
             if is_flash_38 else
             f"Google Gemini Standard paid tier ({PRICING_VERIFIED_DATE})"
@@ -46,8 +49,10 @@ def rates_for_model(model: str, when: date | None = None) -> dict | None:
             "https://ai.google.dev/gemini-api/docs/whats-new-gemini-3.8"
             if is_flash_38 else GEMINI_PRICING_URL
         ),
-        "valid_from": "2026-10-15",
-        "valid_until": "2026-12-31" if is_flash_38 else None,
+        "valid_from": (
+            "2027-01-01" if standard_flash_38 else "2026-10-15"
+        ),
+        "valid_until": "2026-12-31" if is_flash_38 and not standard_flash_38 else None,
     }
 
 
