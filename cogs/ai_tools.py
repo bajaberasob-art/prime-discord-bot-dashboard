@@ -3392,7 +3392,7 @@ class AITools(commands.Cog):
                     await prime_ai_control.record_request(
                         limit_guild,
                         int(itx.user.id),
-                        int(itx.channel_id) if itx.channel_id is not None else None,
+                        int(getattr(itx, "channel_id", 0) or 0) or None,
                         skill="image_generation",
                         mode="IMAGE",
                         result=result,
