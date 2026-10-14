@@ -1,37 +1,40 @@
-"""Dated, model-specific Gemini Standard paid-tier token pricing.
+"""Dated Gemini Developer API Standard paid-tier pricing.
 
-Rates are based on Google's published Gemini Developer API pricing.
-Unknown models or incomplete token usage intentionally return no estimate.
-No network requests are performed at runtime.
+Source: Google's published pricing page, verified 2026-10-15.
+Rates are USD per million tokens. Image models use a conservative 4K-output
+token allowance at reservation time; final image cost remains an estimate.
+Unknown models intentionally return no estimate.
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-PRICING_VERIFIED_DATE = "2026-10-13"
+PRICING_VERIFIED_DATE = "2026-10-15"
 GEMINI_PRICING_URL = "https://ai.google.dev/gemini-api/docs/pricing"
-GEMINI_MODEL_GUIDE_URL = "https://ai.google.dev/gemini-api/docs/latest-model?hl=en"
 
-# USD per 1,000,000 tokens, Standard paid tier. Output includes thinking tokens
-# when Google's model pricing page says it does. The 3.8 introductory rate ends
-# on 2026-12-31; do not carry it into 2027.
+
 def rates_for_model(model: str, when: date | None = None) -> dict | None:
     name = str(model or "").strip()
     current_date = when or datetime.now(timezone.utc).date()
-    if name == "gemini-3.8-flash":
-        input_rate, output_rate = (
-            (0.75, 3.75) if current_date < date(2027, 1, 1)
-            else (1.50, 7.50)
-        )
-        return {
-            "input_usd_per_million": input_rate,
-            "output_usd_per_million": output_rate,
-            "source": f"Google Gemini Standard paid tier ({PRICING_VERIFIED_DATE})",
-            "source_url": GEMINI_MODEL_GUIDE_URL,
-            "valid_from": "2026-01-01",
-            "valid_until": "2026-12-31" if current_date < date(2027, 1, 1) else None,
-        }
-    return None
+    # Gemini 3.1 standard paid tier. Output prices include thinking tokens.
+    rates = {
+        "gemini-3.1-flash": (0.50, 3.00),
+        "gemini-3.1-flash-lite": (0.25, 1.50),
+        "gemini-3.1-flash-image": (0.50, 60.00),
+        "gemini-3.1-flash-lite-image": (0.25, 30.00),
+        "gemini-3-pro-image": (2.00, 120.00),
+    }
+    pair = rates.get(name)
+    if pair is None:
+        return None
+    return {
+        "input_usd_per_million": pair[0],
+        "output_usd_per_million": pair[1],
+        "source": f"Google Gemini Standard paid tier ({PRICING_VERIFIED_DATE})",
+        "source_url": GEMINI_PRICING_URL,
+        "valid_from": "2026-10-15",
+        "valid_until": None,
+    }
 
 
 def calculate_cost_usd(
@@ -41,7 +44,7 @@ def calculate_cost_usd(
     *,
     when: date | None = None,
 ) -> dict | None:
-    """Return a per-request estimate, or None where pricing/usage is unknown."""
+    """Return an estimate, or None when pricing or token usage is unknown."""
     rates = rates_for_model(model, when)
     if rates is None:
         return None
