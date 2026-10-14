@@ -3431,16 +3431,15 @@ class AITools(commands.Cog):
                 reservation_id = None
                 correlation_id = secrets.token_hex(10)
                 image_started = time.monotonic()
+                image_model = str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image")
+                estimated_input_tokens = max(1, (len(prompt) + 3) // 4) + (
+                    560 if reference_data else 0
+                )
+                # Reserve against Google's published 4K image-output token
+                # allowance ($0.1512 at $60/M tokens); intentionally conservative.
+                estimated_output_tokens = 2520
                 if limit_guild:
                     try:
-                        image_model = str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image")
-                        estimated_input_tokens = max(1, (len(prompt) + 3) // 4) + (
-                            560 if reference_data else 0
-                        )
-                        # Reserve against Google's published 4K image-output token
-                        # allowance ($0.1512 at $60/M tokens); this is intentionally
-                        # conservative because the provider currently returns bytes only.
-                        estimated_output_tokens = 2520
                         budget_status = await prime_ai_control.reserve_usage_budget(
                             limit_guild, estimated_input_tokens + estimated_output_tokens,
                             model=image_model,
