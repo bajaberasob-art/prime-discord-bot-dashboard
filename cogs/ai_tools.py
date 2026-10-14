@@ -3385,6 +3385,8 @@ class AITools(commands.Cog):
                 latency_ms: int = 0,
                 correlation_id: str = "",
                 reservation_id: str | None = None,
+                prompt_tokens: int | None = None,
+                completion_tokens: int | None = None,
             ) -> None:
                 if not limit_guild:
                     return
@@ -3397,7 +3399,13 @@ class AITools(commands.Cog):
                         mode="IMAGE",
                         result=result,
                         latency_ms=latency_ms,
-                        tokens_used=None,
+                        tokens_used=(
+                            prompt_tokens + completion_tokens
+                            if prompt_tokens is not None and completion_tokens is not None
+                            else None
+                        ),
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
                         error_reason=error_reason,
                         provider="Google Gemini",
                         model=str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image"),
@@ -3425,9 +3433,19 @@ class AITools(commands.Cog):
                 image_started = time.monotonic()
                 if limit_guild:
                     try:
+                        image_model = str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image")
+                        estimated_input_tokens = max(1, (len(prompt) + 3) // 4) + (
+                            560 if reference_data else 0
+                        )
+                        # Reserve against Google's published 4K image-output token
+                        # allowance ($0.1512 at $60/M tokens); this is intentionally
+                        # conservative because the provider currently returns bytes only.
+                        estimated_output_tokens = 2520
                         budget_status = await prime_ai_control.reserve_usage_budget(
-                            limit_guild, 0,
-                            model=str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image"),
+                            limit_guild, estimated_input_tokens + estimated_output_tokens,
+                            model=image_model,
+                            estimated_input_tokens=estimated_input_tokens,
+                            estimated_output_tokens=estimated_output_tokens,
                             require_known_cost=True,
                         )
                     except Exception as error:
@@ -3499,6 +3517,8 @@ class AITools(commands.Cog):
                         "success",
                         latency_ms=int((time.monotonic() - image_started) * 1000),
                         correlation_id=correlation_id, reservation_id=reservation_id,
+                        prompt_tokens=estimated_input_tokens,
+                        completion_tokens=estimated_output_tokens,
                     )
 
                 extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
