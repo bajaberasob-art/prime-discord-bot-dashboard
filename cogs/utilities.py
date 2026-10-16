@@ -28,6 +28,7 @@ from database import (
     delete_auto_responder,
     record_auto_responder_execution,
     save_auto_responder,
+    set_auto_responder_enabled as update_auto_responder_enabled,
     save_command_control,
     save_command_policy,
     save_shortcut,
@@ -717,6 +718,14 @@ class Utilities(commands.Cog):
         if deleted:
             await self.sync_auto_responders(guild_id)
         return deleted
+
+    async def set_auto_responder_enabled(
+        self, guild_id: int, rule_id: int, enabled: bool
+    ) -> dict[str, Any] | None:
+        rule = await update_auto_responder_enabled(guild_id, rule_id, enabled)
+        if rule is not None:
+            await self.sync_auto_responders(guild_id)
+        return rule
 
     async def add_shortcut(
         self,

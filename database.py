@@ -7971,7 +7971,12 @@ async def save_command_policy(
     return result
 
 
-async def get_auto_responders(guild_id: int) -> list[dict[str, Any]]:
+async def get_auto_responders(
+    guild_id: int,
+    *,
+    include_disabled: bool = False,
+) -> list[dict[str, Any]]:
+    """Return rule settings; runtime callers get enabled rules only by default."""
     async with connect(aiosqlite.Row) as db:
         async with db.execute(
             """
@@ -7980,10 +7985,10 @@ async def get_auto_responders(guild_id: int) -> list[dict[str, Any]]:
                    target_type, target_id, reaction_emoji,
                    execution_count, updated_at
             FROM guild_auto_responders
-            WHERE guild_id = ? AND enabled = 1
+            WHERE guild_id = ? AND (? = 1 OR enabled = 1)
             ORDER BY id
             """,
-            (int(guild_id),),
+            (int(guild_id), int(bool(include_disabled))),
         ) as cur:
             rows = []
             for row in await cur.fetchall():
@@ -8090,6 +8095,35 @@ async def delete_auto_responder(guild_id: int, rule_id: int) -> bool:
         deleted = cursor.rowcount > 0
         await db.commit()
     return deleted
+
+
+async def set_auto_responder_enabled(
+    guild_id: int,
+    rule_id: int,
+    enabled: bool,
+) -> dict[str, Any] | None:
+    """Toggle a responder safely and return its full, normalized saved rule."""
+    async with connect() as db:
+        cursor = await db.execute(
+            """
+            UPDATE guild_auto_responders
+            SET enabled = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE guild_id = ? AND id = ?
+            """,
+            (int(bool(enabled)), int(guild_id), int(rule_id)),
+        )
+        updated = cursor.rowcount > 0
+        await db.commit()
+    if not updated:
+        return None
+    return next(
+        (
+            item
+            for item in await get_auto_responders(int(guild_id), include_disabled=True)
+            if int(item["id"]) == int(rule_id)
+        ),
+        None,
+    )
 
 
 async def record_auto_responder_execution(guild_id: int, rule_id: int) -> int:

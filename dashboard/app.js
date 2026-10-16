@@ -2990,6 +2990,7 @@
     const form = $("#auto-responder-form");
     if (!form) return;
     form.dataset.ruleId = rule?.id || "";
+    form.dataset.enabled = rule?.enabled === false ? "false" : "true";
     form.elements.trigger.value = rule?.trigger || "";
     form.elements.response.value = rule?.response || "";
     form.elements.cooldown_seconds.value = rule?.cooldown_seconds ?? 5;
@@ -3036,6 +3037,7 @@
           ? form.elements.target_user_id.value.trim()
           : 0,
       reaction_emoji: form.elements.reaction_emoji.value.trim(),
+      enabled: form.dataset.enabled !== "false",
     };
     if (!body.trigger || (!body.response.trim() && !body.reaction_emoji)) {
       toast("أدخل المشغل ونص الرد أو اختر إيموجي التفاعل");
@@ -3056,7 +3058,29 @@
       if (index >= 0) state.autoResponses[index] = data.rule;
       else state.autoResponses.push(data.rule);
       pulse();
-      toast("✅ تم حفظ قاعدة الرد وتفعيلها", "success", 2500);
+      toast(body.enabled ? "✅ تم حفظ قاعدة الرد وتفعيلها" : "تم حفظ قاعدة الرد وهي معطّلة", "success", 2500);
+      renderPage();
+    } catch (error) {
+      if (error.message !== "unauth") toast("تعذر الاتصال بالخادم");
+    }
+  }
+  async function toggleAutoResponder(rule) {
+    const enabled = rule.enabled === false;
+    try {
+      const r = await api(`api/guild/${state.guild.id}/auto-responses/${rule.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.session.csrf },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await readJson(r, {});
+      if (!r.ok) {
+        toast(data.fields ? Object.values(data.fields)[0] : "تعذر تغيير حالة قاعدة الرد");
+        return;
+      }
+      const index = state.autoResponses.findIndex((item) => String(item.id) === String(data.rule.id));
+      if (index >= 0) state.autoResponses[index] = data.rule;
+      pulse();
+      toast(enabled ? "تم تفعيل قاعدة الرد" : "تم تعطيل قاعدة الرد", "success", 2200);
       renderPage();
     } catch (error) {
       if (error.message !== "unauth") toast("تعذر الاتصال بالخادم");
@@ -4718,7 +4742,7 @@
       el("article", { class: "command-metric accent-blue" }, el("small", { text: "إجمالي الأوامر" }), el("strong", { text: String(studio.commands.length) }), el("span", { text: "مسجلة في البوت" })),
       el("article", { class: "command-metric accent-green" }, el("small", { text: "متاحة الآن" }), el("strong", { text: String(studio.commands.filter((command) => command.enabled !== false).length) }), el("span", { text: "أمر مفعّل" })),
       el("article", { class: "command-metric accent-amber" }, el("small", { text: "تحتاج مراجعة" }), el("strong", { text: String(studio.commands.filter((command) => commandPermissionWarnings(command).length).length) }), el("span", { text: "تحذير صلاحيات" })),
-      el("article", { class: "command-metric accent-purple" }, el("small", { text: "ردود تلقائية" }), el("strong", { text: String(state.autoResponses.length) }), el("span", { text: "قاعدة نشطة" })),
+      el("article", { class: "command-metric accent-purple" }, el("small", { text: "ردود تلقائية" }), el("strong", { text: String(state.autoResponses.filter((rule) => rule.enabled !== false).length) }), el("span", { text: "قاعدة مفعّلة" })),
     );
     const search = el("input", {
       class: "studio-search",
@@ -5058,12 +5082,13 @@
     };
     const cards = el("div", { class: "trigger-grid" });
     if (!state.autoResponses.length) {
-      cards.append(el("div", { class: "empty studio-empty", text: "لا توجد ردود تلقائية مفعّلة بعد" }));
+      cards.append(el("div", { class: "empty studio-empty", text: "لا توجد قواعد رد تلقائي بعد" }));
     } else {
       state.autoResponses.forEach((rule) => {
         const cardNode = el("article", { class: "trigger-card" },
           el("div", { class: "trigger-card-top" },
             el("span", { class: "trigger-type", text: rule.match_type }),
+            el("span", { class: "trigger-state " + (rule.enabled === false ? "is-disabled" : "is-enabled"), text: rule.enabled === false ? "معطّلة" : "مفعّلة" }),
             el("span", { class: "trigger-count", text: `${rule.execution_count || 0} تنفيذ` }),
           ),
           el("h4", { text: rule.trigger }),
@@ -5071,6 +5096,7 @@
           el("small", { text: `${rule.channel_id ? "قناة محددة" : "كل القنوات"} · تبريد ${rule.cooldown_seconds}s` }),
           el("div", { class: "trigger-actions" },
             el("button", { class: "icon-action", type: "button", title: "نسخ المشغل", text: "⧉", onClick: () => navigator.clipboard?.writeText(rule.trigger).then(() => toast("تم نسخ المشغل", "success", 1600)) }),
+            el("button", { class: "icon-action", type: "button", title: rule.enabled === false ? "تفعيل القاعدة" : "تعطيل القاعدة", text: rule.enabled === false ? "▶" : "⏸", onClick: () => toggleAutoResponder(rule) }),
             el("button", { class: "icon-action", type: "button", title: "تعديل", text: "✎", onClick: () => setRuleForm(rule) }),
             el("button", { class: "icon-action danger", type: "button", title: "حذف", text: "⌫", onClick: () => deleteAutoResponder(rule) }),
           ),
@@ -5121,8 +5147,8 @@
       autoCard,
       el("section", { class: "active-trigger-section" },
         el("div", { class: "section-heading" },
-          el("div", {}, el("div", { class: "eyebrow", text: "LIVE REGISTRY" }), el("h3", { text: "Active Triggers" })),
-          el("span", { class: "live-dot", text: `${state.autoResponses.length} مفعّل` }),
+          el("div", {}, el("div", { class: "eyebrow", text: "LIVE REGISTRY" }), el("h3", { text: "قواعد الرد التلقائي" })),
+          el("span", { class: "live-dot", text: `${state.autoResponses.filter((rule) => rule.enabled !== false).length} مفعّل · ${state.autoResponses.filter((rule) => rule.enabled === false).length} معطّل` }),
         ),
         cards,
       ),

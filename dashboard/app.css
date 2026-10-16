@@ -5532,6 +5532,22 @@ body {
   color: #86efac;
   background: #052e16;
 }
+.trigger-state {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 7px;
+  font-size: .62rem;
+}
+.trigger-state.is-enabled {
+  border-color: #166534;
+  color: #86efac;
+  background: #052e16;
+}
+.trigger-state.is-disabled {
+  border-color: #854d0e;
+  color: #fcd34d;
+  background: #422006;
+}
 .icon-action {
   width: 30px;
   height: 30px;

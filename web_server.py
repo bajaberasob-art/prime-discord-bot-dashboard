@@ -915,10 +915,10 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v39";
+    return """const CACHE = "prime-dashboard-shell-v40";
 const STATIC = [
   "./",
-  "./static/app.css?v=prime-guild-backup-1",
+  "./static/app.css?v=prime-auto-responder-state-1",
   "./static/ai-control.css?v=prime-ai-usage-1",
   "./static/visual-refresh.css?v=visual-refresh-2",
   "./static/subscriptions.css?v=subs-1",
@@ -929,7 +929,7 @@ const STATIC = [
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
-  "./static/app.js?v=prime-auto-response-chunks-1",
+  "./static/app.js?v=prime-auto-responder-toggle-1",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",
@@ -2869,7 +2869,7 @@ async def api_guild_shortcut_delete(req):
 @routes.get('/api/guild/{guild_id}/auto-responses')
 async def api_guild_auto_responses(req):
     _, guild = await authorize(req)
-    rules = await get_auto_responders(guild.id)
+    rules = await get_auto_responders(guild.id, include_disabled=True)
     meta = await guild_meta(guild)
     return web.json_response({
         "rules": rules,
@@ -2973,6 +2973,36 @@ async def api_guild_auto_responses_save(req):
         )
     except (ValueError, re.error) as error:
         return json_error(400, "validation", fields={"trigger": str(error)})
+    return web.json_response({"rule": rule})
+
+
+@routes.patch('/api/guild/{guild_id}/auto-responses/{rule_id}')
+async def api_guild_auto_responder_toggle(req):
+    _, guild = await authorize(req, write=True)
+    utilities = _utilities_cog()
+    if utilities is None:
+        return json_error(503, "utilities_unavailable")
+    try:
+        rule_id = int(req.match_info["rule_id"])
+    except (TypeError, ValueError):
+        return json_error(400, "validation", fields={"rule_id": "معرف القاعدة غير صالح"})
+    if rule_id <= 0:
+        return json_error(400, "validation", fields={"rule_id": "معرف القاعدة غير صالح"})
+    try:
+        body = await read_json_body(req)
+    except (json.JSONDecodeError, ValueError):
+        return json_error(400, "invalid_json")
+    if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+        return json_error(
+            400,
+            "validation",
+            fields={"enabled": "حالة التفعيل يجب أن تكون true أو false"},
+        )
+    rule = await utilities.set_auto_responder_enabled(
+        guild.id, rule_id, body["enabled"]
+    )
+    if rule is None:
+        return json_error(404, "auto_responder_not_found")
     return web.json_response({"rule": rule})
 
 

@@ -318,6 +318,33 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.on_message(message)
         self.assertEqual(len(message.channel.sent), 1)
 
+    async def test_disabled_auto_responder_remains_visible_and_can_be_reenabled(self):
+        rule = await self.cog.add_auto_responder(
+            700,
+            "toggle-me",
+            "exact",
+            "رد الحالة",
+        )
+
+        disabled = await self.cog.set_auto_responder_enabled(
+            700, int(rule["id"]), False
+        )
+        self.assertIsNotNone(disabled)
+        self.assertFalse(disabled["enabled"])
+        self.assertEqual(await database.get_auto_responders(700), [])
+        all_rules = await database.get_auto_responders(700, include_disabled=True)
+        self.assertEqual(len(all_rules), 1)
+        self.assertFalse(all_rules[0]["enabled"])
+        self.assertEqual(self.cog.auto_responders[700], [])
+
+        reenabled = await self.cog.set_auto_responder_enabled(
+            700, int(rule["id"]), True
+        )
+        self.assertIsNotNone(reenabled)
+        self.assertTrue(reenabled["enabled"])
+        self.assertEqual(len(await database.get_auto_responders(700)), 1)
+        self.assertEqual(len(self.cog.auto_responders[700]), 1)
+
     async def test_zero_cooldown_allows_repeat_responses_for_same_member(self):
         rule = await self.cog.add_auto_responder(
             700,
