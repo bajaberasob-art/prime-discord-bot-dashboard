@@ -367,22 +367,27 @@ class ShortcutInteraction:
                 str(getattr(embed, attribute, "") or "")
                 for attribute in ("title", "description")
             )
-        text = " ".join(values)
-        failure_markers = (
-            "❌",
-            "⛔",
-            "⚠️ الاستخدام",
-            "غير مسموح",
-            "معطل",
-            "تعذر",
-            "فشل",
-            "لا يمكن",
-            "لا تملك",
-            "ليس لديك",
-            "لم أجد",
+        # Only explicit leading failure language marks a callback as failed.
+        # Searching anywhere caused false negatives when success text mentioned
+        # prior failures or a phrase such as "تعذر سابقاً".
+        failure_prefixes = (
+            "❌", "⛔", "⚠️ الاستخدام", "⚠️ تعذر", "⚠️ فشل",
+            "غير مسموح", "تعذر تنفيذ", "تعذر إكمال", "فشل تنفيذ",
+            "فشل فحص", "لا يمكن تنفيذ", "لا تملك صلاحية",
+            "ليس لديك صلاحية", "لم أجد الأمر", "هذا الأمر معطل",
+            "الأمر معطل", "الأمر متوقف", "رفض discord",
         )
-        if any(marker in text for marker in failure_markers):
-            self.response_error = True
+        response_parts = [str(content or "")]
+        if embed is not None:
+            response_parts.extend(
+                str(getattr(embed, attribute, "") or "")
+                for attribute in ("title", "description")
+            )
+        for part in response_parts:
+            normalized = re.sub(r"^\s+", "", part).casefold()
+            if any(normalized.startswith(marker) for marker in failure_prefixes):
+                self.response_error = True
+                break
 
 
 class VoiceControl(discord.ui.View):
@@ -1826,10 +1831,10 @@ class Utilities(commands.Cog):
         details: str = "بدون وسائط إضافية",
     ) -> None:
         embed = discord.Embed(
-            title="⚡ تم تنفيذ الأمر بنجاح",
+            title=f"✅ تم تنفيذ الأمر {command_name} بنجاح",
             description=(
-                f"تم استخدام الاختصار: **{alias}** ➔ تنفيذ أمر "
-                f"**{command_name}** بنجاح بواسطة {message.author.mention}."
+                f"الاختصار المستخدم: **{alias}**. الأمر المنفّذ: "
+                f"**{command_name}**، بواسطة {message.author.mention}."
             ),
             color=0x10B981,
             timestamp=discord.utils.utcnow(),
@@ -2082,7 +2087,18 @@ class Utilities(commands.Cog):
             if shortcut["target_type"] == "help":
                 await self._send_command_help(message, shortcut["target"])
                 return True
-            return await self._dispatch_command_shortcut(message, shortcut["target"])
+            succeeded = await self._dispatch_command_shortcut(message, shortcut["target"])
+            if succeeded:
+                command_target = str(shortcut.get("target", "")).strip().lstrip("!/").strip()
+                await self._send_alias_confirmation(
+                    message,
+                    str(shortcut.get("trigger", "")),
+                    command_target,
+                    details="تم تنفيذ الاختصار بنجاح",
+                )
+            # A matched shortcut consumes the message even if its target reports
+            # an error; do not route the same trigger into an auto-response or AI.
+            return True
         command = self._text_command_for_trigger(trigger)
         if command is None:
             return False

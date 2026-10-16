@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import database
-from cogs.utilities import Utilities, dynamic_prefix, split_discord_message
+from cogs.utilities import ShortcutInteraction, Utilities, dynamic_prefix, split_discord_message
 
 
 class FakeChannel:
@@ -456,6 +456,46 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("تحذير", embed.fields[2].value)
         self.assertIn("طرد الأعضاء", embed.fields[3].value)
 
+    def test_response_error_detection_ignores_failure_words_in_success_text(self):
+        interaction = ShortcutInteraction(FakeMessage("trigger"))
+        interaction._record_response(
+            "تم تنفيذ الأمر بنجاح؛ عدد حالات الفشل السابقة: 2", {}
+        )
+        self.assertFalse(interaction.response_error)
+
+        interaction._record_response("❌ لا تملك صلاحية تنفيذ هذا الأمر", {})
+        self.assertTrue(interaction.response_error)
+
+    async def test_command_shortcut_with_successful_failure_count_is_not_reported_failed(self):
+        async def callback(interaction):
+            await interaction.response.send_message(
+                "تم تنفيذ الأمر بنجاح؛ عدد حالات الفشل السابقة: 0"
+            )
+
+        async def check_can_run(_interaction):
+            return True
+
+        command = SimpleNamespace(
+            name="status",
+            qualified_name="status",
+            callback=callback,
+            binding=None,
+            parameters=[],
+            _check_can_run=check_can_run,
+        )
+        self.bot.tree.get_command = lambda name: command if name == "status" else None
+        await self.cog.add_shortcut(700, "الحالة", "command", target="/status")
+
+        message = FakeMessage("الحالة")
+        await self.cog.on_message(message)
+
+        self.assertEqual(len(message.channel.sent), 2)
+        self.assertEqual(
+            message.channel.sent[0][0],
+            "تم تنفيذ الأمر بنجاح؛ عدد حالات الفشل السابقة: 0",
+        )
+        self.assertIn("status", message.channel.sent[1][1]["embed"].title)
+
     async def test_command_shortcut_executes_the_real_slash_callback(self):
         async def callback(interaction):
             await interaction.response.send_message("نفّذ الأمر فعلياً")
@@ -477,8 +517,9 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         message = FakeMessage("تحذير")
         await self.cog.on_message(message)
 
-        self.assertEqual(len(message.channel.sent), 1)
+        self.assertEqual(len(message.channel.sent), 2)
         self.assertEqual(message.channel.sent[0][0], "نفّذ الأمر فعلياً")
+        self.assertIn("warn", message.channel.sent[1][1]["embed"].title)
 
     async def test_grouped_command_alias_keeps_the_qualified_slash_target(self):
         executed = []

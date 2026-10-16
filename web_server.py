@@ -2836,7 +2836,7 @@ async def api_guild_shortcut_save(req):
     command_name = _qualified_command_target(target, known)
     if known and command_name not in known:
         return json_error(400, "validation", fields={"target": "الأمر الهدف غير موجود"})
-    if utilities is not None:
+    if utilities is not None and hasattr(utilities, "find_shortcut_responder_conflicts"):
         conflicts = await utilities.find_shortcut_responder_conflicts(guild.id, trigger)
         if conflicts:
             return json_error(
@@ -2885,7 +2885,7 @@ async def api_guild_auto_responses(req):
     rules = await get_auto_responders(guild.id, include_disabled=True)
     utilities = _utilities_cog()
     shortcuts = await get_shortcuts(guild.id)
-    if utilities is not None:
+    if utilities is not None and hasattr(utilities, "find_responder_shortcut_conflicts"):
         for rule in rules:
             rule["conflicts"] = utilities.find_responder_shortcut_conflicts(
                 rule, shortcuts

@@ -5420,9 +5420,56 @@ class PrimeAIActionEngineTests(unittest.IsolatedAsyncioTestCase):
                 source="ask_ai",
             )
             execute.assert_awaited_once()
-            self.assertIn("أكد Discord نجاح", result)
+            self.assertIn("✅ تم تنفيذ الأمر بنجاح", result)
+            self.assertIn("إرسال رسالة", result)
             self.assertEqual(set_status.await_args.args[1], "SUCCESS")
             self.assertEqual(audit.await_count, 2)
+
+    async def test_status_storage_failure_does_not_turn_confirmed_discord_action_into_failure(self):
+        guild, actor, channel, _bot, _channels, _members = self._runtime_context()
+        operation = self._operation()
+        operation["user_id"] = actor.id
+        config = self._action_config()
+        cog = AITools(SimpleNamespace())
+
+        with (
+            patch.object(
+                prime_ai_control,
+                "get_control_settings",
+                new=AsyncMock(return_value={"config": config}),
+            ),
+            patch.object(ai, "get_settings", new=AsyncMock(return_value={"enabled": True})),
+            patch.object(prime_ai_runtime, "validate_action_policy", new=AsyncMock()),
+            patch.object(
+                prime_ai_runtime,
+                "execute_tool",
+                new=AsyncMock(return_value="sent_message_id=300000000000000999"),
+            ) as execute,
+            patch.object(prime_ai_control, "update_operation_steps", new=AsyncMock()),
+            patch.object(
+                prime_ai_control,
+                "set_operation_status",
+                new=AsyncMock(side_effect=OSError("operation status database unavailable")),
+            ),
+            patch.object(prime_ai_control, "record_request", new=AsyncMock()) as record_request,
+            patch.object(ai, "record_audit", new=AsyncMock()),
+            patch.object(cog, "_take_action_rate_limits", new=AsyncMock(return_value=0)),
+        ):
+            result = await cog._execute_operation(
+                operation,
+                guild,
+                actor,
+                channel,
+                config,
+                confirmation_status="confirmed",
+                source="ask_ai",
+            )
+
+        execute.assert_awaited_once()
+        self.assertIn("✅ تم تنفيذ الأمر بنجاح", result)
+        self.assertIn("إرسال رسالة", result)
+        self.assertIn("تعذر تحديث سجل التتبع الداخلي", result)
+        self.assertEqual(record_request.await_args.kwargs["result"], "success")
 
 
 class PrimeAIModerationRuntimeTests(unittest.IsolatedAsyncioTestCase):

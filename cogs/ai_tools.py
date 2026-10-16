@@ -2016,7 +2016,13 @@ class AITools(commands.Cog):
                     LOGGER.exception("[AI] Could not write failed action audit.")
                 break
 
-        success = failure is None and len(outcomes) == len(steps)
+        # The confirmed tool outcomes, not a later database write, determine the
+        # user-facing result. Keep persistence failures as tracking warnings only.
+        success = (
+            len(outcomes) == len(steps)
+            and all(step.get("status") == "SUCCESS" for step in steps)
+        )
+        tracking_warning = False
         try:
             finalized = await prime_ai_control.set_operation_status(
                 operation_id,
@@ -2026,18 +2032,16 @@ class AITools(commands.Cog):
                 allowed_from=("RUNNING",),
             )
             if not finalized and outcomes:
-                failure = ActionOutcomeTrackingError(
-                    "completed_action_status_transition_was_rejected"
+                tracking_warning = True
+                LOGGER.error(
+                    "[AI] Confirmed Discord action could not finalize stored status (operation_id=%s).",
+                    operation_id,
                 )
-                success = False
         except Exception as error:
             if not outcomes:
                 raise
             LOGGER.exception("[AI] Could not finalize a completed action operation.")
-            failure = ActionOutcomeTrackingError(
-                "completed_action_status_could_not_be_saved"
-            )
-            success = False
+            tracking_warning = True
         try:
             await prime_ai_control.record_request(
                 guild.id,
@@ -2063,21 +2067,56 @@ class AITools(commands.Cog):
             except Exception:
                 LOGGER.exception("[AI] Could not update moderation review status.")
         if success:
-            completed_names = [
-                prime_ai_control.ACTION_REGISTRY.get(step.get("tool"), {}).get(
-                    "name", step.get("tool", "إجراء")
-                )
-                for step in steps
-            ]
-            return (
-                "أكد Discord نجاح: "
+            completed_names = []
+            for step in steps:
+                metadata = prime_ai_control.ACTION_REGISTRY.get(step.get("tool"), {})
+                label = str(metadata.get("name", step.get("tool", "إجراء")))
+                args = step.get("arguments") or {}
+                details = []
+                try:
+                    channel_id = args.get("channel_id")
+                    target_channel = guild.get_channel(int(channel_id)) if channel_id else None
+                    if target_channel is not None:
+                        details.append(f"القناة #{getattr(target_channel, 'name', channel_id)}")
+                    user_id = args.get("user_id")
+                    target_member = guild.get_member(int(user_id)) if user_id and hasattr(guild, "get_member") else None
+                    if target_member is not None:
+                        member_name = getattr(target_member, "display_name", getattr(target_member, "name", user_id))
+                        details.append(f"العضو {member_name}")
+                    role_id = args.get("role_id")
+                    target_role = guild.get_role(int(role_id)) if role_id and hasattr(guild, "get_role") else None
+                    if target_role is not None:
+                        details.append(f"الرتبة {getattr(target_role, 'name', role_id)}")
+                except (TypeError, ValueError):
+                    pass
+                if args.get("name"):
+                    details.append(f"الاسم «{str(args['name'])[:80]}»")
+                if args.get("minutes"):
+                    details.append(f"المدة {args['minutes']} دقيقة")
+                if args.get("mode"):
+                    details.append("فتح الكتابة" if args.get("mode") == "open" else "منع الكتابة")
+                if details:
+                    label += " (" + "، ".join(details) + ")"
+                completed_names.append(label)
+            response = (
+                "✅ تم تنفيذ الأمر بنجاح في Discord: "
                 + "، ".join(completed_names)
                 + f" ({len(outcomes)} إجراء)."
             )
+            if tracking_warning:
+                response += "\n⚠️ تعذر تحديث سجل التتبع الداخلي، لكن Discord أكد نجاح التنفيذ."
+            return response
         if isinstance(failure, ActionOutcomeTrackingError):
+            completed = [
+                str(prime_ai_control.ACTION_REGISTRY.get(step.get("tool"), {}).get(
+                    "name", step.get("tool", "إجراء")
+                ))
+                for step in steps if step.get("status") == "SUCCESS"
+            ]
+            details = "، ".join(completed) or f"{len(outcomes)} إجراء"
             return (
-                f"اكتمل تنفيذ {len(outcomes)} إجراء، لكن تعذر حفظ حالته النهائية؛ "
-                "تحقق من الخادم والسجل قبل إعادة الطلب."
+                f"⚠️ تم تنفيذ {details} بنجاح، لكن تعذر حفظ سجل التنفيذ. "
+                "توقفت قبل الخطوات المتبقية؛ تحقق من الحالة قبل إعادة الطلب."
             )
         if isinstance(failure, prime_ai_runtime.AccessDenied):
             reason = prime_ai_runtime._sandbox_reason_text(str(failure))
@@ -2918,6 +2957,28 @@ class AITools(commands.Cog):
 
         if current_is_action or pending_action:
             response_config = config.get("response", {})
+            reply_behavior = response_config.get("reply_behavior", True)
+            status_message = None
+            initial_status = (
+                f"⏳ استلمت طلب تنفيذ: «{str(prompt).strip()[:180]}»\n"
+                "جاري تحديد الأمر والتحقق من الصلاحيات؛ سأحدّث هذه الرسالة بالنتيجة المؤكدة."
+            )
+            try:
+                status_message = (
+                    await message.reply(
+                        initial_status,
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                    if reply_behavior
+                    else await message.channel.send(
+                        initial_status,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                )
+            except discord.HTTPException:
+                LOGGER.debug("[AI] Could not post natural action progress message.", exc_info=True)
+
             try:
                 action_response = await self._run_action_request(
                     message.guild,
@@ -2930,17 +2991,40 @@ class AITools(commands.Cog):
                     forced_tool=forced_tool,
                     normalized_request=normalized_action_request,
                 )
-                if response_config.get("reply_behavior", True):
-                    await message.reply(
-                        action_response,
-                        mention_author=False,
+            except Exception:
+                LOGGER.exception("[AI] Natural action request failed before returning a result.")
+                action_response = (
+                    "⚠️ تعذر تأكيد نتيجة الأمر. افحص حالة الخادم قبل إعادة الطلب؛ "
+                    "لن أفترض نجاحه أو فشله دون تحقق."
+                )
+
+            delivered = False
+            if status_message is not None:
+                try:
+                    await status_message.edit(
+                        content=action_response,
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
-                else:
-                    await message.channel.send(
-                        action_response,
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
+                    delivered = True
+                except discord.HTTPException:
+                    LOGGER.exception("[AI] Could not update natural action status message.")
+            if not delivered:
+                try:
+                    if reply_behavior:
+                        await message.reply(
+                            action_response,
+                            mention_author=False,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                    else:
+                        await message.channel.send(
+                            action_response,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                except discord.HTTPException:
+                    LOGGER.exception("[AI] Could not deliver natural action result.")
+
+            try:
                 await self._record_message_turn(
                     message.guild,
                     message.author,
@@ -2955,36 +3039,9 @@ class AITools(commands.Cog):
                     ),
                     mentioned_user_ids=[int(item.id) for item in message.mentions],
                 )
-            except discord.HTTPException:
-                LOGGER.exception("[AI] Could not deliver natural action status.")
             except Exception:
-                LOGGER.exception("[AI] Natural action request failed.")
-                fallback = (
-                    "تعذر إكمال الطلب أو تأكيد نتيجته. افحص حالة الخادم قبل إعادة "
-                    "الطلب؛ لن أفترض أنه نجح."
-                )
-                try:
-                    await message.reply(
-                        fallback,
-                        mention_author=False,
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                    await self._record_message_turn(
-                        message.guild,
-                        message.author,
-                        message.channel,
-                        turn_prompt,
-                        fallback,
-                        config,
-                        turn_key=turn_key,
-                        user_message_id=turn_message_id,
-                        reference_message_id=getattr(
-                            getattr(message, "reference", None), "message_id", None
-                        ),
-                        mentioned_user_ids=[int(item.id) for item in message.mentions],
-                    )
-                except discord.HTTPException:
-                    LOGGER.exception("[AI] Could not deliver natural action failure.")
+                # Logging/storage problems must not override a confirmed action result.
+                LOGGER.exception("[AI] Could not record the natural action conversation turn.")
             return
 
         try:
