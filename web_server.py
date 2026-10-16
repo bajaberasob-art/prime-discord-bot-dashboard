@@ -915,10 +915,10 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v40";
+    return """const CACHE = "prime-dashboard-shell-v41";
 const STATIC = [
   "./",
-  "./static/app.css?v=prime-auto-responder-state-1",
+  "./static/app.css?v=prime-auto-responder-conflicts-1",
   "./static/ai-control.css?v=prime-ai-usage-1",
   "./static/visual-refresh.css?v=visual-refresh-2",
   "./static/subscriptions.css?v=subs-1",
@@ -929,7 +929,7 @@ const STATIC = [
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
-  "./static/app.js?v=prime-auto-responder-toggle-1",
+  "./static/app.js?v=prime-auto-responder-conflicts-1",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",
@@ -2836,6 +2836,19 @@ async def api_guild_shortcut_save(req):
     command_name = _qualified_command_target(target, known)
     if known and command_name not in known:
         return json_error(400, "validation", fields={"target": "الأمر الهدف غير موجود"})
+    if utilities is not None:
+        conflicts = await utilities.find_shortcut_responder_conflicts(guild.id, trigger)
+        if conflicts:
+            return json_error(
+                400,
+                "validation",
+                fields={
+                    "trigger": (
+                        f"تعارض مع الرد التلقائي «{conflicts[0]['trigger']}». "
+                        "غيّر كلمة الاختصار أو عطّل قاعدة الرد أولاً."
+                    )
+                },
+            )
     try:
         shortcut = await save_shortcut(
             guild.id,
@@ -2870,6 +2883,13 @@ async def api_guild_shortcut_delete(req):
 async def api_guild_auto_responses(req):
     _, guild = await authorize(req)
     rules = await get_auto_responders(guild.id, include_disabled=True)
+    utilities = _utilities_cog()
+    shortcuts = await get_shortcuts(guild.id)
+    if utilities is not None:
+        for rule in rules:
+            rule["conflicts"] = utilities.find_responder_shortcut_conflicts(
+                rule, shortcuts
+            )
     meta = await guild_meta(guild)
     return web.json_response({
         "rules": rules,
@@ -2998,9 +3018,12 @@ async def api_guild_auto_responder_toggle(req):
             "validation",
             fields={"enabled": "حالة التفعيل يجب أن تكون true أو false"},
         )
-    rule = await utilities.set_auto_responder_enabled(
-        guild.id, rule_id, body["enabled"]
-    )
+    try:
+        rule = await utilities.set_auto_responder_enabled(
+            guild.id, rule_id, body["enabled"]
+        )
+    except ValueError as error:
+        return json_error(400, "validation", fields={"enabled": str(error)})
     if rule is None:
         return json_error(404, "auto_responder_not_found")
     return web.json_response({"rule": rule})

@@ -688,6 +688,21 @@ class Utilities(commands.Cog):
             raise ValueError(
                 f"الرد التلقائي يجب ألا يتجاوز {AUTO_RESPONSE_MAX_LENGTH} حرفاً"
             )
+        if enabled:
+            conflict_probe = {"trigger": trigger, "match_type": match_type}
+            if match_type == "regex":
+                conflict_probe["_compiled"] = safe_regex.compile(
+                    trigger, safe_regex.IGNORECASE
+                )
+            conflicts = self.find_responder_shortcut_conflicts(
+                conflict_probe, await get_shortcuts(guild_id)
+            )
+            if conflicts:
+                shortcut = conflicts[0]
+                raise ValueError(
+                    f"تعارض مع الاختصار النشط «{shortcut['trigger']}». "
+                    "غيّر كلمة الرد التلقائي أو عطّل الاختصار أولاً."
+                )
         target_type = str(target_type).strip().lower()
         if target_type not in {"everyone", "role", "user"}:
             raise ValueError("target_type must be one of everyone, role, user")
@@ -722,6 +737,21 @@ class Utilities(commands.Cog):
     async def set_auto_responder_enabled(
         self, guild_id: int, rule_id: int, enabled: bool
     ) -> dict[str, Any] | None:
+        if enabled:
+            rules = await get_auto_responders(guild_id, include_disabled=True)
+            current = next(
+                (item for item in rules if int(item["id"]) == int(rule_id)), None
+            )
+            if current is None:
+                return None
+            shortcuts = await get_shortcuts(guild_id)
+            conflicts = self.find_responder_shortcut_conflicts(current, shortcuts)
+            if conflicts:
+                shortcut = conflicts[0]
+                raise ValueError(
+                    f"تعارض مع الاختصار النشط «{shortcut['trigger']}». "
+                    "عطّل الاختصار أو غيّر كلمة الرد قبل تفعيل القاعدة."
+                )
         rule = await update_auto_responder_enabled(guild_id, rule_id, enabled)
         if rule is not None:
             await self.sync_auto_responders(guild_id)
@@ -739,6 +769,14 @@ class Utilities(commands.Cog):
     ) -> dict[str, Any]:
         target_type = str(target_type).strip().lower()
         trigger = str(trigger).strip()
+        if enabled:
+            conflicts = await self.find_shortcut_responder_conflicts(guild_id, trigger)
+            if conflicts:
+                responder = conflicts[0]
+                raise ValueError(
+                    f"تعارض مع الرد التلقائي «{responder['trigger']}». "
+                    "غيّر كلمة الاختصار أو عطّل قاعدة الرد أولاً."
+                )
         if target_type not in SHORTCUT_TYPES:
             raise ValueError(f"target_type must be one of {sorted(SHORTCUT_TYPES)}")
         if not trigger or len(trigger) > 100:
@@ -1837,6 +1875,49 @@ class Utilities(commands.Cog):
                 )
                 return False
         return False
+
+    @staticmethod
+    def find_responder_shortcut_conflicts(
+        responder: dict[str, Any],
+        shortcuts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Return active shortcut triggers that consume messages matching this rule."""
+        probe = dict(responder)
+        if probe.get("match_type") == "regex" and probe.get("_compiled") is None:
+            try:
+                probe["_compiled"] = safe_regex.compile(
+                    str(probe.get("trigger", "")), safe_regex.IGNORECASE
+                )
+            except safe_regex.error:
+                return []
+        conflicts = []
+        for shortcut in shortcuts:
+            if not shortcut.get("enabled", True):
+                continue
+            shortcut_trigger = str(shortcut.get("trigger", "")).strip()
+            if shortcut_trigger and Utilities._matches(probe, shortcut_trigger):
+                conflicts.append({
+                    "id": shortcut.get("id"),
+                    "trigger": shortcut_trigger,
+                    "target_type": shortcut.get("target_type", "command"),
+                    "target": shortcut.get("target", ""),
+                })
+        return conflicts
+
+    async def find_shortcut_responder_conflicts(
+        self, guild_id: int, trigger: str
+    ) -> list[dict[str, Any]]:
+        """Return active responder rules that would match a new shortcut trigger."""
+        await self.sync_auto_responders(guild_id)
+        return [
+            {
+                "id": responder.get("id"),
+                "trigger": responder.get("trigger", ""),
+                "match_type": responder.get("match_type", "exact"),
+            }
+            for responder in self.auto_responders.get(int(guild_id), [])
+            if self._matches(responder, str(trigger or ""))
+        ]
 
     @staticmethod
     def _target_matches(responder: dict[str, Any], message: discord.Message) -> bool:

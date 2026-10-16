@@ -5548,6 +5548,16 @@ body {
   color: #fcd34d;
   background: #422006;
 }
+.trigger-conflict {
+  display: block;
+  padding: 6px 8px;
+  border: 1px solid #854d0e;
+  border-radius: 8px;
+  color: #fcd34d !important;
+  background: #422006;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .icon-action {
   width: 30px;
   height: 30px;

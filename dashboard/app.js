@@ -5094,6 +5094,13 @@
           el("h4", { text: rule.trigger }),
           el("p", { text: rule.response.length > 280 ? rule.response.slice(0, 280) + "…" : rule.response }),
           el("small", { text: `${rule.channel_id ? "قناة محددة" : "كل القنوات"} · تبريد ${rule.cooldown_seconds}s` }),
+          ...(Array.isArray(rule.conflicts) && rule.conflicts.length ? [
+            el("small", {
+              class: "trigger-conflict",
+              text: "⚠️ تعارض مع اختصار: " + rule.conflicts.map((item) => item.trigger).join("، "),
+              title: "الاختصار له أولوية التنفيذ على الرد التلقائي عند تطابق الرسالة.",
+            }),
+          ] : []),
           el("div", { class: "trigger-actions" },
             el("button", { class: "icon-action", type: "button", title: "نسخ المشغل", text: "⧉", onClick: () => navigator.clipboard?.writeText(rule.trigger).then(() => toast("تم نسخ المشغل", "success", 1600)) }),
             el("button", { class: "icon-action", type: "button", title: rule.enabled === false ? "تفعيل القاعدة" : "تعطيل القاعدة", text: rule.enabled === false ? "▶" : "⏸", onClick: () => toggleAutoResponder(rule) }),

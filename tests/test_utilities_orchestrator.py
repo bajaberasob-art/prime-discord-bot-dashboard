@@ -318,6 +318,29 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.on_message(message)
         self.assertEqual(len(message.channel.sent), 1)
 
+    async def test_existing_auto_responder_blocks_conflicting_shortcut(self):
+        await self.cog.add_auto_responder(
+            700, "status", "exact", "رد تلقائي"
+        )
+        with self.assertRaisesRegex(ValueError, "تعارض مع الرد التلقائي"):
+            await self.cog.add_shortcut(
+                700, "status", "help", target="/warn"
+            )
+
+    async def test_existing_shortcut_is_reported_as_auto_responder_conflict(self):
+        await self.cog.add_shortcut(
+            700, "status", "help", target="/warn"
+        )
+        conflicts = self.cog.find_responder_shortcut_conflicts(
+            {"trigger": "status", "match_type": "exact"},
+            await database.get_shortcuts(700),
+        )
+        self.assertEqual([item["trigger"] for item in conflicts], ["status"])
+        with self.assertRaisesRegex(ValueError, "تعارض مع الاختصار"):
+            await self.cog.add_auto_responder(
+                700, "status", "exact", "رد تلقائي"
+            )
+
     async def test_disabled_auto_responder_remains_visible_and_can_be_reenabled(self):
         rule = await self.cog.add_auto_responder(
             700,
