@@ -39,6 +39,89 @@ HUB_NAME = "➕ اضغط للإنشاء"
 LOGGER = logging.getLogger("UtilitiesOrchestrator")
 MATCH_TYPES = {"exact", "contains", "regex"}
 SHORTCUT_TYPES = {"command", "help", "announcement"}
+
+MAX_AUTOMATION_RESPONSE_LENGTH = 12000
+DISCORD_TEXT_CHUNK_LIMIT = 1900
+DISCORD_EMBED_DESCRIPTION_CHUNK_LIMIT = 3500
+
+
+def _split_long_discord_text(value: str, limit: int = DISCORD_TEXT_CHUNK_LIMIT) -> list[str]:
+    """Split without dropping text, preferring paragraph, line and word boundaries."""
+    text = str(value or "")
+    if not text:
+        return [text]
+    limit = max(128, min(int(limit), 4000))
+    chunks = []
+    while len(text) > limit:
+        floor = max(1, limit // 2)
+        paragraph = text.rfind("\n\n", floor, limit)
+        newline = text.rfind("\n", floor, limit)
+        whitespace = max(text.rfind(" ", floor, limit), text.rfind("\t", floor, limit))
+        if paragraph >= floor:
+            split_at = paragraph + 2
+        elif newline >= floor:
+            split_at = newline + 1
+        elif whitespace >= floor:
+            split_at = whitespace + 1
+        else:
+            split_at = limit
+        chunks.append(text[:split_at])
+        text = text[split_at:]
+    chunks.append(text)
+    return chunks
+
+
+def _split_embed_description(embed: discord.Embed) -> list[discord.Embed]:
+    """Return valid embeds if a generated description exceeds Discord's limit."""
+    description = str(getattr(embed, "description", "") or "")
+    if len(description) <= 4096:
+        return [embed]
+    descriptions = _split_long_discord_text(
+        description, limit=DISCORD_EMBED_DESCRIPTION_CHUNK_LIMIT,
+    )
+    result = []
+    for index, part in enumerate(descriptions):
+        if index == 0:
+            data = embed.to_dict()
+            data["description"] = part
+            result.append(discord.Embed.from_dict(data))
+        else:
+            result.append(discord.Embed(description=part, color=embed.color))
+    return result
+
+
+async def _send_chunked_channel_response(channel, content=None, **kwargs):
+    """Send long command/automation text as multiple valid Discord messages."""
+    options = dict(kwargs)
+    options.pop("ephemeral", None)  # A shortcut is message-driven, not ephemeral.
+    source_embed = options.get("embed")
+    embed_parts = _split_embed_description(source_embed) if source_embed is not None else []
+    if isinstance(content, str) and len(content) > 2000:
+        content_parts = _split_long_discord_text(content)
+    else:
+        content_parts = [content]
+
+    count = max(1, len(content_parts), len(embed_parts))
+    sent = []
+    repeated_options = {
+        key: value for key, value in options.items()
+        if key in {"allowed_mentions", "delete_after", "silent", "suppress_embeds"}
+    }
+    for index in range(count):
+        send_options = dict(options) if index == 0 else dict(repeated_options)
+        if source_embed is not None:
+            if index < len(embed_parts):
+                send_options["embed"] = embed_parts[index]
+            else:
+                send_options.pop("embed", None)
+        part = content_parts[index] if index < len(content_parts) else None
+        if part is None:
+            message = await channel.send(**send_options)
+        else:
+            message = await channel.send(part, **send_options)
+        sent.append(message)
+    return sent[0] if sent else None
+
 _ARABIC_DIACRITICS = re.compile(r"[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]")
 _ROUTE_LEADERS = (
     re.compile(r"^(?:يا\s+)?(?:برايم|prime)\b[\s,:;.!؟?_-]*", re.IGNORECASE),
@@ -293,7 +376,7 @@ class ShortcutInteractionResponse:
         # Shortcut execution is a message-driven adapter, so discard this
         # interaction-only flag instead of passing it to TextChannel.send().
         kwargs.pop("ephemeral", None)
-        await self.interaction.channel.send(content, **kwargs)
+        return await _send_chunked_channel_response(self.interaction.channel, content, **kwargs)
 
 
 class ShortcutFollowup:
@@ -303,7 +386,7 @@ class ShortcutFollowup:
     async def send(self, content=None, **kwargs):
         self.interaction._record_response(content, kwargs)
         kwargs.pop("ephemeral", None)
-        return await self.interaction.channel.send(content, **kwargs)
+        return await _send_chunked_channel_response(self.interaction.channel, content, **kwargs)
 
 
 class ShortcutInteraction:
@@ -658,8 +741,10 @@ class Utilities(commands.Cog):
                 safe_regex.compile(trigger, safe_regex.IGNORECASE)
             except safe_regex.error as error:
                 raise ValueError(f"Regex غير صالح: {error}") from error
-        if len(str(response)) > 2000:
-            raise ValueError("response must contain at most 2000 characters")
+        if len(str(response)) > MAX_AUTOMATION_RESPONSE_LENGTH:
+            raise ValueError(
+                f"response must contain at most {MAX_AUTOMATION_RESPONSE_LENGTH} characters"
+            )
         target_type = str(target_type).strip().lower()
         if target_type not in {"everyone", "role", "user"}:
             raise ValueError("target_type must be one of everyone, role, user")
@@ -709,8 +794,13 @@ class Utilities(commands.Cog):
             raise ValueError("shortcut trigger must contain 1-100 characters")
         if target_type == "command" and not str(target).strip():
             raise ValueError("command shortcuts need a target command")
-        if target_type == "announcement" and not str(announcement).strip():
+        announcement = str(announcement or "")
+        if target_type == "announcement" and not announcement.strip():
             raise ValueError("announcement shortcuts need announcement text")
+        if target_type == "announcement" and len(announcement) > MAX_AUTOMATION_RESPONSE_LENGTH:
+            raise ValueError(
+                f"announcement must contain at most {MAX_AUTOMATION_RESPONSE_LENGTH} characters"
+            )
         item = await save_shortcut(
             guild_id,
             trigger,
@@ -1015,7 +1105,8 @@ class Utilities(commands.Cog):
         executed = False
         if rendered.strip():
             try:
-                await message.channel.send(
+                await _send_chunked_channel_response(
+                    message.channel,
                     rendered,
                     allowed_mentions=discord.AllowedMentions(
                         users=True, roles=False, everyone=False
@@ -1177,7 +1268,7 @@ class Utilities(commands.Cog):
                         ),
                         color=0x5865F2,
                     )
-                    await message.channel.send(embed=embed)
+                    await _send_chunked_channel_response(message.channel, embed=embed)
                     return True
                 if target_type == "help":
                     await self._send_command_help(message, shortcut.get("target", ""))
@@ -1935,7 +2026,7 @@ class Utilities(commands.Cog):
             options = [item.strip() for item in match.group(1).split("|") if item.strip()]
             return random.choice(options) if options else ""
 
-        return re.sub(r"\{random:([^{}|]+(?:\|[^{}|]+)+)\}", choose, rendered)[:2000]
+        return re.sub(r"\{random:([^{}|]+(?:\|[^{}|]+)+)\}", choose, rendered)
 
     async def _dispatch_shortcut(self, message: discord.Message) -> bool:
         trigger = _normalize_route_text(message.content)
@@ -1951,7 +2042,7 @@ class Utilities(commands.Cog):
                     description=self.render_response(shortcut["announcement"], message),
                     color=0x5865F2,
                 )
-                await message.channel.send(embed=embed)
+                await _send_chunked_channel_response(message.channel, embed=embed)
                 return True
             if shortcut["target_type"] == "help":
                 await self._send_command_help(message, shortcut["target"])

@@ -58,6 +58,8 @@
       operationsLoading: true,
       operationsError: "",
       analytics: null,
+      analyticsDays: 30,
+      analyticsProvider: "",
       analyticsLoading: true,
       analyticsError: "",
       isBotOwner: false,
@@ -1278,7 +1280,7 @@
       );
       const responseGrid = el("div", "prime-ai-control-grid");
       responseGrid.append(
-        controlInput("response.maximum_length", "أقصى طول للإجابة", response.maximum_length, { type: "number", min: 100, max: 3500, step: 50 }),
+        controlInput("response.maximum_length", "أقصى طول للإجابة", response.maximum_length, { type: "number", min: 100, max: 12000, step: 100 }),
         controlToggle("response.reply_behavior", "الرد مع اقتباس الرسالة", response.reply_behavior),
         controlSelect("response.mention_behavior", "السماح بالإشارات", response.mention_behavior, [
           { value: "none", label: "منع الإشارات" }, { value: "user", label: "صاحب الطلب فقط" }, { value: "roles", label: "رتب صاحب الطلب فقط" },
@@ -1551,7 +1553,11 @@
     function renderRuntimeCards() {
       const wrapper = el("div", "prime-ai-runtime-grid");
       const stats = el("section", "prime-ai-card");
-      const statsHeader = sectionHeader("تحليلات PRIME AI", "بيانات الاستخدام المسجلة خلال آخر 30 يوماً.", "prime-ai-analytics-title");
+      const statsHeader = sectionHeader(
+        "تحليلات PRIME AI",
+        "استخدام الفترة المحددة. الميزانية الشهرية تُحسب مستقلة عن فلاتر العرض.",
+        "prime-ai-analytics-title",
+      );
       statsHeader.append(button(
         state.analyticsLoading ? "جارٍ التحديث..." : "تحديث المؤشرات",
         "reload-analytics",
@@ -1559,6 +1565,45 @@
         state.analyticsLoading,
       ));
       stats.append(statsHeader);
+      const filters = el("div", "prime-ai-analytics-filters");
+      const periodLabel = el("label", "prime-ai-budget-field");
+      periodLabel.append(el("span", "", "الفترة"));
+      const periodSelect = el("select", "");
+      [["7", "آخر 7 أيام"], ["30", "آخر 30 يوماً"], ["90", "آخر 90 يوماً"]].forEach(([value, labelText]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = labelText;
+        option.selected = String(state.analyticsDays || 30) === value;
+        periodSelect.append(option);
+      });
+      periodSelect.addEventListener("change", () => {
+        state.analyticsDays = Number(periodSelect.value) || 30;
+        loadAnalytics();
+      });
+      periodLabel.append(periodSelect);
+      filters.append(periodLabel);
+      const providerLabel = el("label", "prime-ai-budget-field");
+      providerLabel.append(el("span", "", "مزود الذكاء الاصطناعي"));
+      const providerSelect = el("select", "");
+      const allProviders = document.createElement("option");
+      allProviders.value = "";
+      allProviders.textContent = "كل المزودين";
+      allProviders.selected = !state.analyticsProvider;
+      providerSelect.append(allProviders);
+      (state.analytics && Array.isArray(state.analytics.available_providers) ? state.analytics.available_providers : []).forEach((providerName) => {
+        const option = document.createElement("option");
+        option.value = providerName;
+        option.textContent = providerName;
+        option.selected = state.analyticsProvider === providerName;
+        providerSelect.append(option);
+      });
+      providerSelect.addEventListener("change", () => {
+        state.analyticsProvider = providerSelect.value || "";
+        loadAnalytics();
+      });
+      providerLabel.append(providerSelect);
+      filters.append(providerLabel);
+      stats.append(filters);
       if (state.analyticsError) {
         stats.append(loadError(state.analyticsError, "reload-analytics"));
       }
@@ -1569,6 +1614,9 @@
         ["الناجحة", totals.successful || 0],
         ["الفاشلة", totals.failed || 0],
         ["متوسط التأخير", `${totals.avg_latency_ms || 0} ms`],
+        ["مئين 95 للتأخير", `${totals.p95_latency_ms || 0} ms`],
+        ["معدل النجاح", `${totals.success_rate || 0}%`],
+        ["معدل الفشل", `${totals.failure_rate || 0}%`],
         ["الرموز", totals.tokens || 0],
         ["طلبات الإجراءات", state.analytics && state.analytics.actions || 0],
         ["أحداث الإشراف", state.analytics && state.analytics.moderation_events || 0],
@@ -1584,14 +1632,17 @@
       const budgetCard = el("section", "prime-ai-budget-panel");
       budgetCard.append(
         el("h3", "", "حصة الاستخدام والميزانية الشهرية"),
-        el("p", "prime-ai-budget-note", "الإعدادات مستقلة لهذا السيرفر. التكلفة تقديرية حسب معدل الرموز الذي تضبطه وليست فاتورة المزوّد الفعلية."),
+        el("p", "prime-ai-budget-note", "الإعدادات مستقلة لهذا السيرفر. التكلفة تقديرية حسب السعر الممزوج للرموز وليست فاتورة مزوّد. عمليات الصور التي لا تعيد بيانات استخدام أو سعراً موثوقاً تُعرض كتكلفة غير معروفة."),
       );
       const budgetNumbers = el("div", "prime-ai-budget-summary");
       [
-        ["استهلاك الشهر", `${Number(budget.estimated_cost_usd || 0).toFixed(4)} USD`],
-        ["الحد الشهري", `${Number(budget.monthly_limit_usd ?? 25).toFixed(2)} USD`],
-        ["الطلبات هذا الشهر", Number(budget.monthly_requests || 0).toLocaleString()],
+        ["استهلاك مسجّل", `${Number(budget.estimated_cost_usd || 0).toFixed(4)} USD`],
+        ["محجوز للطلبات الجارية", `${Number(budget.reserved_cost_usd || 0).toFixed(4)} USD`],
+        ["الحد المالي الشهري", Number(budget.monthly_limit_usd ?? 25) > 0 ? `${Number(budget.monthly_limit_usd ?? 25).toFixed(2)} USD` : "غير مفعّل"],
+        ["الطلبات هذا الشهر", `${Number(budget.monthly_requests || 0).toLocaleString()} / ${Number(budget.monthly_request_limit || 0) > 0 ? Number(budget.monthly_request_limit).toLocaleString() : "بلا حد"}`],
+        ["الطلبات المتبقية", budget.remaining_requests == null ? "بلا حد" : Number(budget.remaining_requests).toLocaleString()],
         ["الرموز هذا الشهر", Number(budget.monthly_tokens || 0).toLocaleString()],
+        ["طلبات تكلفتها مجهولة", Number(budget.unknown_cost_requests || 0).toLocaleString()],
       ].forEach(([label, value]) => {
         const item = el("div", "prime-ai-budget-number");
         item.append(el("span", "", label), el("strong", "", value));
@@ -1600,23 +1651,43 @@
       budgetCard.append(budgetNumbers);
       const progress = el("div", "prime-ai-budget-progress");
       progress.setAttribute("role", "progressbar");
-      progress.setAttribute("aria-label", "نسبة استهلاك الميزانية");
+      const requestLimit = Number(budget.monthly_request_limit || 0);
+      const requestUsage = requestLimit > 0
+        ? Math.min(100, Number(budget.projected_requests || budget.monthly_requests || 0) / requestLimit * 100)
+        : 0;
+      const combinedUsage = Math.max(Number(budget.usage_percent || 0), requestUsage);
+      progress.setAttribute("aria-label", "نسبة استخدام الحصة المالية أو الطلبات");
       progress.setAttribute("aria-valuemin", "0");
       progress.setAttribute("aria-valuemax", "100");
-      progress.setAttribute("aria-valuenow", String(Number(budget.usage_percent || 0)));
+      progress.setAttribute("aria-valuenow", String(combinedUsage));
       const progressFill = el("span", "");
-      progressFill.style.width = `${Math.max(0, Math.min(100, Number(budget.usage_percent || 0)))}%`;
+      progressFill.style.width = `${Math.max(0, Math.min(100, combinedUsage))}%`;
       if (budget.exceeded) progress.classList.add("is-over");
       progress.append(progressFill);
       budgetCard.append(progress);
       if (budget.exceeded) {
-        budgetCard.append(el("p", "prime-ai-budget-warning", "تم بلوغ الحد التقديري؛ ستُرفض طلبات الذكاء الجديدة حتى بداية الشهر التالي أو تعديل الميزانية."));
+        const enforcementMode = String(budgetSettings.enforcement_mode || "block");
+        budgetCard.append(el("p", "prime-ai-budget-warning", enforcementMode === "warn"
+          ? "تم بلوغ إحدى الحصص الشهرية. الوضع الحالي تحذيري فقط؛ ستستمر الطلبات وقد تزيد التكلفة."
+          : "تم بلوغ إحدى الحصص الشهرية؛ ستُحظر طلبات جديدة حتى بداية الشهر التالي أو تعديل الحدود."));
+      }
+      if (Number(budget.unknown_cost_requests || 0) > 0) {
+        budgetCard.append(el("p", "prime-ai-budget-note", `التكلفة غير مكتملة: ${Number(budget.unknown_cost_requests).toLocaleString()} طلبات بلا بيانات توكن موثوقة؛ لا يُعرض لها سعر مصطنع.`));
+      }
+      budgetCard.append(el("p", "prime-ai-budget-note", `مصدر التسعير: ${budgetSettings.pricing_source || "manual blended token rate"}`));
+      if (budgetSettings.updated_at) {
+        budgetCard.append(el("p", "prime-ai-budget-note", `آخر تحديث لإعدادات التسعير والحصص: ${budgetSettings.updated_at}`));
       }
       const budgetForm = el("form", "prime-ai-budget-form");
       budgetForm.dataset.form = "usage-budget";
       const budgetFields = [
-        ["monthly_limit_usd", "الحد الشهري بالدولار", budgetSettings.monthly_limit_usd ?? 25, "1", "100000", "0.5"],
-        ["cost_per_million_tokens", "السعر التقديري لكل مليون رمز ($)", budgetSettings.cost_per_million_tokens ?? 1, "0", "10000", "0.01"],
+        ["monthly_limit_usd", "الحد المالي بالدولار (0 = تعطيل الحد المالي)", budgetSettings.monthly_limit_usd ?? 25, "0", "100000", "0.5"],
+        ["monthly_request_limit", "الحد الشهري للطلبات (0 = بلا حد عددي)", budgetSettings.monthly_request_limit ?? 0, "0", "1000000", "1"],
+        ["budget_warning_percent", "عتبة التحذير (%)", budgetSettings.budget_warning_percent ?? 70, "1", "98", "1"],
+        ["budget_critical_percent", "عتبة التنبيه الحرج (%)", budgetSettings.budget_critical_percent ?? 90, "2", "99", "1"],
+        ["latency_warning_ms", "إنذار المئين 95 عند تجاوز (ms)", budgetSettings.latency_warning_ms ?? 8000, "100", "300000", "100"],
+        ["minimum_success_rate_percent", "أقل معدل نجاح مقبول (%)", budgetSettings.minimum_success_rate_percent ?? 90, "1", "99", "1"],
+        ["cost_per_million_tokens", "السعر الممزوج لكل مليون رمز ($)", budgetSettings.cost_per_million_tokens ?? 1, "0", "10000", "0.01"],
         ["request_spike_count", "تنبيه عند عدد الطلبات", budgetSettings.request_spike_count ?? 60, "1", "100000", "1"],
         ["request_spike_window_minutes", "نافذة زيادة الطلبات (دقيقة)", budgetSettings.request_spike_window_minutes ?? 10, "1", "1440", "1"],
         ["provider_failure_count", "تنبيه عند فشل المزوّد", budgetSettings.provider_failure_count ?? 5, "1", "1000", "1"],
@@ -1636,6 +1707,33 @@
         label.append(input);
         budgetForm.append(label);
       });
+      const enforcementLabel = el("label", "prime-ai-budget-field");
+      enforcementLabel.append(el("span", "", "السلوك عند تجاوز الحصة"));
+      const enforcementSelect = el("select", "");
+      enforcementSelect.name = "enforcement_mode";
+      [
+        ["block", "حظر الطلبات الجديدة عند بلوغ الحصة"],
+        ["warn", "تحذير فقط والسماح باستمرار الطلبات"],
+      ].forEach(([value, labelText]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = labelText;
+        option.selected = String(budgetSettings.enforcement_mode || "block") === value;
+        enforcementSelect.append(option);
+      });
+      enforcementLabel.append(enforcementSelect);
+      budgetForm.append(enforcementLabel);
+      const pricingSourceLabel = el("label", "prime-ai-budget-field");
+      pricingSourceLabel.append(el("span", "", "مصدر/مرجع السعر الممزوج"));
+      const pricingSourceInput = el("input", "");
+      pricingSourceInput.type = "text";
+      pricingSourceInput.name = "pricing_source";
+      pricingSourceInput.maxLength = 160;
+      pricingSourceInput.value = String(budgetSettings.pricing_source || "manual blended token rate");
+      pricingSourceInput.placeholder = "مثال: تسعيرة يدوية محدثة 2026-10-12";
+      pricingSourceInput.required = true;
+      pricingSourceLabel.append(pricingSourceInput);
+      budgetForm.append(pricingSourceLabel);
       const alertLabel = el("label", "prime-ai-budget-alert-toggle");
       const alertToggle = el("input", "");
       alertToggle.type = "checkbox";
@@ -1677,6 +1775,21 @@
       });
       stats.append(failurePanel);
 
+      const recentFailures = Array.isArray(state.analytics && state.analytics.recent_failures) ? state.analytics.recent_failures : [];
+      const recentFailurePanel = el("div", "prime-ai-analytics-breakdown");
+      recentFailurePanel.append(el("h3", "", "آخر الأخطاء مع معرّف التتبع"));
+      if (!recentFailures.length) {
+        recentFailurePanel.append(el("p", "prime-ai-budget-note", "لا توجد أخطاء حديثة مسجلة."));
+      }
+      recentFailures.forEach((failure) => {
+        const row = el("div", "prime-ai-failure-row prime-ai-action-failure");
+        row.append(el("strong", "", `${failure.error_reason || "unknown"} · ${failure.provider || "unknown"} / ${failure.model || "unknown"}`));
+        row.append(el("span", "", `${failure.mode || "UNKNOWN"} · ${Number(failure.latency_ms || 0)} ms · ${failure.created_at || ""}`));
+        if (failure.correlation_id) row.append(el("code", "", `ID: ${failure.correlation_id}`));
+        recentFailurePanel.append(row);
+      });
+      stats.append(recentFailurePanel);
+
       const failedActions = Array.isArray(state.analytics && state.analytics.failed_actions) ? state.analytics.failed_actions : [];
       const actionPanel = el("div", "prime-ai-analytics-breakdown");
       actionPanel.append(el("h3", "", "أسباب فشل الإجراءات"));
@@ -1688,6 +1801,50 @@
         actionPanel.append(row);
       });
       stats.append(actionPanel);
+
+      const providerRows = Array.isArray(state.analytics && state.analytics.providers) ? state.analytics.providers : [];
+      const modelRows = Array.isArray(state.analytics && state.analytics.models) ? state.analytics.models : [];
+      const blendedRate = Number((state.analytics && state.analytics.budget && state.analytics.budget.settings && state.analytics.budget.settings.cost_per_million_tokens) || 0);
+      [
+        ["الاستهلاك حسب المزوّد", providerRows, (item) => item.provider || "غير معروف"],
+        ["الاستهلاك حسب النموذج", modelRows, (item) => `${item.provider || "غير معروف"} / ${item.model || "غير معروف"}`],
+      ].forEach(([title, rows, labelFor]) => {
+        if (!rows.length) return;
+        const panel = el("div", "prime-ai-analytics-breakdown");
+        panel.append(el("h3", "", title));
+        const peak = Math.max(1, ...rows.map((item) => Number(item.requests) || 0));
+        rows.forEach((item) => {
+          const row = el("div", "prime-ai-analytics-row");
+          row.append(el("span", "", labelFor(item)));
+          const bar = el("span", "prime-ai-bar");
+          bar.setAttribute("aria-hidden", "true");
+          bar.style.setProperty("--share", `${Math.round((Number(item.requests || 0) / peak) * 100)}%`);
+          row.append(bar);
+          const unknownCosts = Number(item.unknown_cost_requests || 0);
+          const estimate = `${(Number(item.tokens || 0) * blendedRate / 1000000).toFixed(4)} USD تقديري`;
+          row.append(el("strong", "", `${Number(item.requests || 0).toLocaleString()} طلب · ${Number(item.tokens || 0).toLocaleString()} رمز · ${estimate}${unknownCosts ? ` · تكلفة مجهولة لـ ${unknownCosts}` : ""}`));
+          panel.append(row);
+        });
+        stats.append(panel);
+      });
+
+      const dailyRows = Array.isArray(state.analytics && state.analytics.daily) ? state.analytics.daily.slice(-14) : [];
+      if (dailyRows.length) {
+        const trend = el("div", "prime-ai-analytics-breakdown");
+        trend.append(el("h3", "", "اتجاه الاستخدام اليومي للفترة المحددة"));
+        const peak = Math.max(1, ...dailyRows.map((item) => Number(item.requests) || 0));
+        dailyRows.forEach((item) => {
+          const row = el("div", "prime-ai-analytics-row");
+          row.append(el("span", "", item.day || "—"));
+          const bar = el("span", "prime-ai-bar");
+          bar.setAttribute("aria-hidden", "true");
+          bar.style.setProperty("--share", `${Math.round((Number(item.requests || 0) / peak) * 100)}%`);
+          row.append(bar);
+          row.append(el("strong", "", `${Number(item.requests || 0)} طلب · ${Number(item.successful || 0)} ناجح · ${Number(item.failed || 0)} فاشل`));
+          trend.append(row);
+        });
+        stats.append(trend);
+      }
 
       if (!state.analyticsLoading && !state.analyticsError && !totals.requests) {
         const idle = el("div", "prime-ai-empty");
@@ -2719,7 +2876,10 @@
       state.analyticsError = "";
       render();
       try {
-        const response = ensureOk(await request("GET", `${guildPath}/analytics`));
+        const params = new URLSearchParams();
+        params.set("days", String(state.analyticsDays || 30));
+        if (state.analyticsProvider) params.set("provider", state.analyticsProvider);
+        const response = ensureOk(await request("GET", `${guildPath}/analytics` + "?" + params.toString()));
         const data = await responseJson(response);
         if (!data.totals || typeof data.totals !== "object") throw new Error("invalid_response");
         if (!state.disposed) state.analytics = data;
@@ -2740,6 +2900,13 @@
         const number = (name) => Number(form.elements.namedItem(name).value);
         const response = await request("POST", `${guildPath}/analytics/budget`, {
           monthly_limit_usd: number("monthly_limit_usd"),
+          monthly_request_limit: number("monthly_request_limit"),
+          budget_warning_percent: number("budget_warning_percent"),
+          budget_critical_percent: number("budget_critical_percent"),
+          pricing_source: String(form.elements.namedItem("pricing_source").value || "").trim(),
+          enforcement_mode: String(form.elements.namedItem("enforcement_mode").value || "block"),
+          latency_warning_ms: number("latency_warning_ms"),
+          minimum_success_rate_percent: number("minimum_success_rate_percent"),
           cost_per_million_tokens: number("cost_per_million_tokens"),
           request_spike_count: number("request_spike_count"),
           request_spike_window_minutes: number("request_spike_window_minutes"),
@@ -3284,6 +3451,8 @@
     loadControl();
     loadKnowledge();
     loadAudit();
+    loadOperations();
+    loadAnalytics();
 
     return function cleanup() {
       state.disposed = true;

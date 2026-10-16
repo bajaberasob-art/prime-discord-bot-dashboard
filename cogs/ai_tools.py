@@ -4,6 +4,9 @@ import math
 import logging
 import asyncio
 import re
+import os
+import secrets
+import time
 from pathlib import PurePosixPath
 from datetime import datetime, timezone
 
@@ -463,6 +466,7 @@ class AITools(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._retention_task: asyncio.Task | None = None
+        self._usage_alert_task: asyncio.Task | None = None
         self._registered_view_keys: set[str] = set()
         self._restore_lock = asyncio.Lock()
         self._policy_store = RuntimePolicyCache(self._load_runtime_policies)
@@ -513,10 +517,15 @@ class AITools(commands.Cog):
             self._retention_task = self._background_tasks.spawn(
                 self._retention_loop(), name="prime-ai-retention",
             )
+        if self._usage_alert_task is None or self._usage_alert_task.done():
+            self._usage_alert_task = self._background_tasks.spawn(
+                self._usage_alert_loop(), name="prime-ai-usage-alerts",
+            )
 
     async def cog_unload(self):
         await self._background_tasks.close()
         self._retention_task = None
+        self._usage_alert_task = None
         self._policy_store.clear()
 
     async def restore_pending_action_views(self):
@@ -651,6 +660,104 @@ class AITools(commands.Cog):
                 )
             except Exception:
                 LOGGER.exception("[AI] Global AI retention cleanup failed.")
+
+    async def _usage_alert_channel(self, guild: discord.Guild):
+        """Use the guild's configured logging destinations, never a global fallback."""
+        # Load routing from the database on a cold start, then use its normal cache.
+        try:
+            routing = await database.get_logging_channels(guild.id)
+        except Exception:
+            routing = {}
+        for key in ("log_server", "log_channel", "log_messages", "log_moderation"):
+            channel_id = int(routing.get(key) or 0)
+            if not channel_id:
+                continue
+            channel = guild.get_channel(channel_id)
+            if channel is None or int(getattr(getattr(channel, "guild", None), "id", 0)) != int(guild.id):
+                continue
+            member = getattr(guild, "me", None)
+            if member is None and self.bot.user is not None:
+                member = guild.get_member(self.bot.user.id)
+            if member is None:
+                continue
+            try:
+                permissions = channel.permissions_for(member)
+                if not permissions.view_channel or not permissions.send_messages:
+                    continue
+            except (AttributeError, TypeError):
+                continue
+            if callable(getattr(channel, "send", None)):
+                return channel
+        return None
+
+    @staticmethod
+    def _safe_usage_alert_text(value: object, limit: int) -> str:
+        text = discord.utils.escape_mentions(str(value or ""))
+        text = re.sub(
+            r"(?i)\b(api[_ -]?key|access[_ -]?token|authorization|bearer)"
+            r"\s*[:=]\s*[^\s,;]+",
+            r"\1=[REDACTED]",
+            text,
+        )
+        return text[:limit]
+
+    async def _usage_alert_loop(self):
+        """Dispatch persisted usage alerts using each guild's own log routing."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            for guild in list(getattr(self.bot, "guilds", ())):
+                if self.bot.is_closed():
+                    break
+                try:
+                    channel = await self._usage_alert_channel(guild)
+                    if channel is None:
+                        # Leave alerts unclaimed; a newly configured channel will
+                        # receive them on the next poll without losing the record.
+                        continue
+                    alerts = await prime_ai_control.claim_pending_usage_alerts(
+                        guild.id, limit=10, retry_after_minutes=10,
+                    )
+                    for alert in alerts:
+                        severity = (
+                            "🚨 حرج" if str(alert.get("severity")) == "critical"
+                            else "⚠️ تحذير"
+                        )
+                        title = self._safe_usage_alert_text(alert.get("title"), 180)
+                        detail = self._safe_usage_alert_text(alert.get("detail"), 700)
+                        alert_type = self._safe_usage_alert_text(alert.get("alert_type"), 48)
+                        created_at = self._safe_usage_alert_text(alert.get("created_at"), 40)
+                        content = (
+                            f"{severity} · **تنبيه استخدام PRIME AI** · "
+                            f"#{int(alert['alert_id'])}\n"
+                            f"**{title}**\n{detail}\n"
+                            f"النوع: `{alert_type}` · الوقت: `{created_at}`"
+                        )
+                        try:
+                            await channel.send(
+                                content[:1900],
+                                allowed_mentions=discord.AllowedMentions.none(),
+                            )
+                        except Exception as error:
+                            # The claim's cooldown prevents noisy permission/API retries.
+                            LOGGER.warning(
+                                "[AI] Usage alert delivery failed for guild %s "
+                                "(alert %s, %s).",
+                                guild.id, alert.get("alert_id"), type(error).__name__,
+                            )
+                            continue
+                        try:
+                            await prime_ai_control.mark_usage_alert_delivered(
+                                guild.id, int(alert["alert_id"]),
+                            )
+                        except Exception:
+                            # A later retry is possible if persisting delivery fails.
+                            LOGGER.exception(
+                                "[AI] Could not persist delivery for usage alert %s.",
+                                alert.get("alert_id"),
+                            )
+                except Exception:
+                    LOGGER.exception("[AI] Usage alert dispatch failed for guild %s.", guild.id)
+            await asyncio.sleep(60)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(
@@ -3270,6 +3377,45 @@ class AITools(commands.Cog):
             files = []
             embeds = []
             failures = []
+
+            async def record_image_outcome(
+                result: str,
+                *,
+                error_reason: str = "",
+                latency_ms: int = 0,
+                correlation_id: str = "",
+                reservation_id: str | None = None,
+                prompt_tokens: int | None = None,
+                completion_tokens: int | None = None,
+            ) -> None:
+                if not limit_guild:
+                    return
+                try:
+                    await prime_ai_control.record_request(
+                        limit_guild,
+                        int(itx.user.id),
+                        int(getattr(itx, "channel_id", 0) or 0) or None,
+                        skill="image_generation",
+                        mode="IMAGE",
+                        result=result,
+                        latency_ms=latency_ms,
+                        tokens_used=(
+                            prompt_tokens + completion_tokens
+                            if prompt_tokens is not None and completion_tokens is not None
+                            else None
+                        ),
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        error_reason=error_reason,
+                        provider="Google Gemini",
+                        model=str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image"),
+                        correlation_id=correlation_id,
+                        reservation_id=reservation_id,
+                    )
+                except Exception:
+                    # Metrics must not turn a successful image response into a failed command.
+                    LOGGER.warning("[AI] Could not record image usage metrics.", exc_info=True)
+
             for index in range(int(count)):
                 if index:
                     wait = prime_ai_service.allow_request(
@@ -3282,6 +3428,57 @@ class AITools(commands.Cog):
                     if wait:
                         failures.append("وصلت إلى حد الاستخدام؛ أنشأت بعض النتائج فقط.")
                         break
+                reservation_id = None
+                correlation_id = secrets.token_hex(10)
+                image_started = time.monotonic()
+                image_model = str(os.getenv("PRIME_IMAGE_MODEL") or "gemini-3.1-flash-image")
+                estimated_input_tokens = max(1, (len(prompt) + 3) // 4) + (
+                    560 if reference_data else 0
+                )
+                # Reserve against Google's published 4K image-output token
+                # allowance ($0.1512 at $60/M tokens); intentionally conservative.
+                estimated_output_tokens = 2520
+                if limit_guild:
+                    try:
+                        budget_status = await prime_ai_control.reserve_usage_budget(
+                            limit_guild, estimated_input_tokens + estimated_output_tokens,
+                            model=image_model,
+                            estimated_input_tokens=estimated_input_tokens,
+                            estimated_output_tokens=estimated_output_tokens,
+                            require_known_cost=True,
+                        )
+                    except Exception as error:
+                        LOGGER.error(
+                            "[AI] Image quota could not be checked (%s).",
+                            type(error).__name__,
+                            exc_info=True,
+                        )
+                        await record_image_outcome(
+                            "failed", error_reason="usage_budget_unavailable",
+                            latency_ms=int((time.monotonic() - image_started) * 1000),
+                            correlation_id=correlation_id,
+                        )
+                        failures.append("تعذر التحقق من حصة الاستخدام حالياً؛ لم يتم إرسال طلب إلى Gemini.")
+                        break
+                    reservation_id = budget_status.get("reservation_id")
+                    if not budget_status.get("allowed"):
+                        reason = (
+                            "unknown_cost_blocked"
+                            if budget_status.get("unknown_cost_blocked")
+                            else "monthly_budget_exceeded"
+                        )
+                        await record_image_outcome(
+                            "failed", error_reason=reason,
+                            latency_ms=int((time.monotonic() - image_started) * 1000),
+                            correlation_id=correlation_id,
+                        )
+                        failures.append(
+                            "لم يتم إرسال طلب الصورة لأن الحد المالي مفعّل ولا توجد تسعيرة موثوقة لهذا النموذج؛ "
+                            "عطّل الحد المالي أو اختر وضع التحذير فقط، أو استخدم حد الطلبات الشهري."
+                            if reason == "unknown_cost_blocked"
+                            else "تم بلوغ الحصة الشهرية المسموح بها؛ لم يتم إرسال طلب توليد الصورة."
+                        )
+                        break
                 try:
                     image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
                         session,
@@ -3291,13 +3488,37 @@ class AITools(commands.Cog):
                         aspect_ratio=aspect_ratio,
                     )
                 except prime_ai_service.AIProviderUnavailable as error:
+                    await record_image_outcome(
+                        "failed", error_reason=str(error)[:120],
+                        latency_ms=int((time.monotonic() - image_started) * 1000),
+                        correlation_id=correlation_id, reservation_id=reservation_id,
+                    )
                     LOGGER.warning("[AI] Gemini image generation failed (%s).", str(error)[:100])
                     failures.append(_provider_failure_message(error))
                     break
                 except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
+                    if isinstance(error, asyncio.TimeoutError):
+                        failure_reason = "timeout"
+                    elif isinstance(error, aiohttp.ClientError):
+                        failure_reason = f"transport_{type(error).__name__}"
+                    else:
+                        failure_reason = f"image_validation_{type(error).__name__}"
+                    await record_image_outcome(
+                        "failed", error_reason=failure_reason,
+                        latency_ms=int((time.monotonic() - image_started) * 1000),
+                        correlation_id=correlation_id, reservation_id=reservation_id,
+                    )
                     LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
                     failures.append("تعذر توليد إحدى الصور. تحقق من توفر Gemini وحاول مرة أخرى.")
                     break
+                else:
+                    await record_image_outcome(
+                        "success",
+                        latency_ms=int((time.monotonic() - image_started) * 1000),
+                        correlation_id=correlation_id, reservation_id=reservation_id,
+                        prompt_tokens=estimated_input_tokens,
+                        completion_tokens=estimated_output_tokens,
+                    )
 
                 extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
                 filename = f"prime-imagine-{index + 1}.{extension}"

@@ -200,9 +200,32 @@ class PrimeAIDashboardPhaseFiveContractTests(unittest.TestCase):
         self.assertNotIn('controlInput("provider.context_limit"', source)
         self.assertNotIn('controlInput("response.cooldown_seconds"', source)
         self.assertIn("function renderOverviewCard()", source)
-        self.assertIn('request("GET", `${guildPath}/analytics`)', source)
+        self.assertIn('request("GET", `${guildPath}/analytics` + "?" + params.toString())', source)
+        self.assertIn('params.set("days", String(state.analyticsDays || 30))', source)
+        self.assertIn('params.set("provider", state.analyticsProvider)', source)
+        self.assertIn(
+            "loadControl();\n    loadKnowledge();\n    loadAudit();\n    loadOperations();\n    loadAnalytics();",
+            source,
+        )
         self.assertIn('request("GET", `${guildPath}/audit`)', source)
         self.assertIn("state.events[0]", source)
+
+    def test_usage_budget_changes_are_audited_for_the_authorized_guild(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "web_server.py"
+        )
+        with open(path, encoding="utf-8") as source_file:
+            source = source_file.read()
+        start = source.index("async def api_save_prime_ai_usage_budget(req):")
+        end = source.index(
+            "\n@routes.post('/api/guild/{guild_id}/ai/settings')",
+            start,
+        )
+        handler = source[start:end]
+        self.assertIn('session, guild = await authorize(req, write=True)', handler)
+        self.assertIn("prime_ai_service.record_audit(", handler)
+        self.assertIn('int(session["id"])', handler)
+        self.assertIn("guild.id", handler)
 
     def test_control_center_navigation_exposes_safe_dry_run_sandbox(self):
         path = os.path.join(
@@ -1737,7 +1760,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value={"config": config}),
             ),
             patch.object(ai, "list_context_memories", new=AsyncMock(return_value=[])),
-            patch.object(ai, "request_with_fallback", request),
+            patch.object(ai, "request_with_provider_fallback", request),
             patch.object(ai, "record_audit", new=AsyncMock()),
             patch.object(prime_ai_control, "record_request", new=AsyncMock()),
         ):
@@ -5618,3 +5641,12 @@ class PrimeAIModerationRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     message.guild.alert_channel.send.assert_awaited_once()
                     view = message.guild.alert_channel.send.await_args.kwargs["view"]
                     self.assertIsNone(view)
+
+class PrimeAILongResponseLimitTests(unittest.TestCase):
+    def test_control_allows_answers_longer_than_the_old_3500_character_cap(self):
+        config = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
+        config["response"]["maximum_length"] = 8000
+        normalized = prime_ai_control.normalize_control_settings(config)
+        self.assertEqual(normalized["response"]["maximum_length"], 8000)
+        self.assertEqual(ai.MAX_ANSWER_LENGTH, 12000)
+

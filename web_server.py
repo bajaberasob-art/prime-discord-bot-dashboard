@@ -2774,11 +2774,11 @@ async def api_guild_command_policy(req):
     custom_template = body.get("custom_template", body.get("response_template"))
     if custom_template is not None:
         custom_template = str(custom_template)
-        if len(custom_template) > 2000:
+        if len(custom_template) > 12000:
             return json_error(
                 400,
                 "validation",
-                fields={"custom_template": "القالب يتجاوز 2000 حرف"},
+                fields={"custom_template": "القالب يتجاوز 12000 حرف"},
             )
     policy_args = {"aliases": aliases}
     if auto_delete_seconds is not None:
@@ -2901,8 +2901,8 @@ async def api_guild_auto_responses_save(req):
         return json_error(400, "validation", fields={"trigger": "المشغل يجب أن يكون بين 1 و500 حرف"})
     if match_type not in {"exact", "contains", "regex"}:
         return json_error(400, "validation", fields={"match_type": "نوع المطابقة غير صالح"})
-    if len(response) > 2000:
-        return json_error(400, "validation", fields={"response": "الرد يجب ألا يتجاوز 2000 حرف"})
+    if len(response) > 12000:
+        return json_error(400, "validation", fields={"response": "الرد يجب ألا يتجاوز 12000 حرف"})
     if target_type not in {"everyone", "role", "user"}:
         return json_error(400, "validation", fields={"target_type": "نطاق الاستهداف غير صالح"})
     try:
@@ -5630,15 +5630,38 @@ async def api_prime_ai_moderation(req):
 @routes.get('/api/guild/{guild_id}/ai/analytics')
 async def api_prime_ai_analytics(req):
     _, guild = await authorize(req)
-    return web.json_response(await prime_ai_control.get_analytics(guild.id))
+    try:
+        days = int(req.query.get("days", "30"))
+    except (TypeError, ValueError):
+        return json_error(400, "validation", message="فترة التحليل غير صالحة.")
+    if days not in {7, 30, 90}:
+        return json_error(400, "validation", message="اختر 7 أو 30 أو 90 يوماً.")
+    provider = str(req.query.get("provider", "") or "").strip()
+    if len(provider) > 80:
+        return json_error(400, "validation", message="اسم المزوّد أطول من المسموح.")
+    return web.json_response(
+        await prime_ai_control.get_analytics(guild.id, days=days, provider=provider or None)
+    )
 
 
 @routes.post('/api/guild/{guild_id}/ai/analytics/budget')
 async def api_save_prime_ai_usage_budget(req):
-    _, guild = await authorize(req, write=True)
+    session, guild = await authorize(req, write=True)
     body = await read_json_body(req)
+    body.setdefault("monthly_request_limit", 0)
+    body.setdefault("budget_warning_percent", 70)
+    body.setdefault("budget_critical_percent", 90)
+    body.setdefault("pricing_source", "manual blended token rate")
+    body.setdefault("enforcement_mode", "block")
+    body.setdefault("latency_warning_ms", 8000)
+    body.setdefault("minimum_success_rate_percent", 90)
     numeric_fields = {
-        "monthly_limit_usd": ((int, float), 1, 100000),
+        "monthly_limit_usd": ((int, float), 0, 100000),
+        "monthly_request_limit": ((int,), 0, 1000000),
+        "budget_warning_percent": ((int,), 1, 98),
+        "budget_critical_percent": ((int,), 2, 99),
+        "latency_warning_ms": ((int,), 100, 300000),
+        "minimum_success_rate_percent": ((int,), 1, 99),
         "cost_per_million_tokens": ((int, float), 0, 10000),
         "request_spike_count": ((int,), 1, 100000),
         "request_spike_window_minutes": ((int,), 1, 1440),
@@ -5655,14 +5678,47 @@ async def api_save_prime_ai_usage_budget(req):
             clean[key] = value
     if not isinstance(body.get("alerts_enabled"), bool):
         fields["alerts_enabled"] = "قيمة تفعيل التنبيهات غير صالحة."
+    pricing_source = body.get("pricing_source")
+    if not isinstance(pricing_source, str) or not pricing_source.strip() or len(pricing_source.strip()) > 160:
+        fields["pricing_source"] = "أدخل مرجعاً نصياً للسعر (حتى 160 حرفاً)."
+    else:
+        clean["pricing_source"] = pricing_source.strip()
+    enforcement_mode = body.get("enforcement_mode")
+    if enforcement_mode not in {"block", "warn"}:
+        fields["enforcement_mode"] = "اختر الحظر أو التحذير فقط."
+    else:
+        clean["enforcement_mode"] = enforcement_mode
     if fields:
         return json_error(400, "validation", fields=fields)
     try:
+        if clean["budget_warning_percent"] >= clean["budget_critical_percent"]:
+            return json_error(400, "validation", fields={
+                "budget_critical_percent": "يجب أن تكون العتبة الحرجة أعلى من عتبة التحذير."
+            })
         saved = await prime_ai_control.save_usage_settings(
             guild.id, **clean, alerts_enabled=body["alerts_enabled"],
         )
     except (ValueError, TypeError):
         return json_error(400, "validation", message="إعدادات الميزانية غير صالحة.")
+    try:
+        await prime_ai_service.record_audit(
+            guild.id,
+            int(session["id"]),
+            "ميزانية PRIME AI",
+            "عُدلت الإعدادات",
+            (
+                f"monthly_limit_usd={clean['monthly_limit_usd']}; "
+                f"monthly_request_limit={clean['monthly_request_limit']}; "
+                f"enforcement_mode={clean['enforcement_mode']}; "
+                f"alerts_enabled={body['alerts_enabled']}"
+            )[:500],
+        )
+    except Exception:
+        # Audit failure must not undo the already-saved usage policy.
+        logger.exception(
+            "Could not record PRIME AI usage-budget audit for guild %s",
+            guild.id,
+        )
     return web.json_response({"budget_settings": saved})
 
 

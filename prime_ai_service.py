@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+import secrets
 import time
 from datetime import datetime, timezone
 import aiohttp
@@ -27,8 +28,9 @@ from prime_ai.errors import (
 from prime_ai.text import sanitize_discord_text
 from prime_ai.providers import (
     GeminiImageProvider, GeminiProvider, PollinationsProvider, PROVIDER_NAME, PROVIDER_MODEL,
-    FALLBACK_PROVIDER_MODEL, RETRYABLE_PROVIDER_STATUSES,
-    FALLBACK_PROVIDER_STATUSES, complete_with_retries, request_with_fallback,
+    OPENROUTER_PROVIDER, GROQ_PROVIDER, FALLBACK_PROVIDER_MODEL,
+    RETRYABLE_PROVIDER_STATUSES, FALLBACK_PROVIDER_STATUSES,
+    complete_with_retries, request_with_fallback, request_with_provider_fallback,
 )
 from prime_ai.limits import SlidingWindowLimiter
 import runtime_diagnostics
@@ -43,7 +45,7 @@ MAX_CONTEXT_MEMORIES = 8
 MAX_CHAT_PROMPT = 2000
 MAX_TEST_PROMPT = 1200
 MAX_INTERNAL_PROMPT = 14000
-MAX_ANSWER_LENGTH = 3500
+MAX_ANSWER_LENGTH = 12000
 AUDIT_RETENTION_PER_GUILD = 500
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -68,10 +70,15 @@ async def _complete_with_retries(
     timeout_seconds: int,
     retry_count: int,
 ) -> tuple[str, int | None]:
-    return await complete_with_retries(
+    payload["_active_provider"] = PROVIDER_NAME
+    payload["_active_model"] = str(payload.get("model") or PROVIDER_MODEL)
+    answer, tokens = await complete_with_retries(
         session, payload, provider=GEMINI_PROVIDER,
         timeout_seconds=timeout_seconds, retry_count=retry_count,
     )
+    payload["_actual_provider"] = PROVIDER_NAME
+    payload["_actual_model"] = str(payload.get("model") or PROVIDER_MODEL)
+    return answer, tokens
 
 
 _RATE_LIMITER = SlidingWindowLimiter()
@@ -1671,6 +1678,10 @@ async def generate_response(
         "stream": bool(config.get("response", {}).get("streaming", False)),
     }
 
+    usage_reservation_id = None
+    request_correlation_id = secrets.token_hex(10)
+    external_fallback_providers = (OPENROUTER_PROVIDER, GROQ_PROVIDER)
+
     async def record_outcome(result: str, details: str, tokens_used=None):
         if guild_id is None:
             return
@@ -1685,26 +1696,78 @@ async def generate_response(
                 str(reason_match.group(1)).strip()[:120]
                 if reason_match else ("provider_failure" if result != "success" else "")
             )
+            actual_provider = str(
+                payload.get("_actual_provider") or payload.get("_active_provider") or PROVIDER_NAME
+            )
+            actual_model = str(
+                payload.get("_actual_model") or payload.get("_active_model")
+                or payload.get("model") or PROVIDER_MODEL
+            )
             await prime_ai_control.record_request(
                 guild_id, actor_id, channel_id, skill=skill, mode=mode,
                 result=result, latency_ms=int((time.monotonic() - started) * 1000),
-                tokens_used=tokens_used, error_reason=error_reason,
+                tokens_used=tokens_used,
+                prompt_tokens=getattr(tokens_used, "prompt_tokens", None),
+                completion_tokens=getattr(tokens_used, "completion_tokens", None),
+                error_reason=error_reason,
+                provider=actual_provider, model=actual_model,
+                correlation_id=request_correlation_id,
+                reservation_id=usage_reservation_id,
             )
         except Exception:
             LOGGER.debug("Failed to record PRIME AI request metrics.", exc_info=True)
 
     if guild_id is not None:
+        text_chars = sum(
+            len(str(item.get("content") or ""))
+            for item in messages if isinstance(item, dict)
+        )
+        media_parts_count = sum(
+            1
+            for item in messages if isinstance(item, dict)
+            for part in (item.get("media_parts") or [])
+            if isinstance(part, dict) and part.get("type") != "text"
+        )
+        estimated_input_tokens = (text_chars + 3) // 4 + media_parts_count * 2048
+        estimated_output_tokens = max(1, int(payload.get("max_tokens") or 1200))
+        estimated_tokens = estimated_input_tokens + estimated_output_tokens
         try:
-            budget_status = await prime_ai_control.check_usage_budget(guild_id)
-        except Exception:
-            LOGGER.warning("Could not check PRIME AI monthly budget; allowing request.", exc_info=True)
-            budget_status = {"exceeded": False}
-        if budget_status.get("exceeded"):
+            budget_status = await prime_ai_control.reserve_usage_budget(
+                guild_id, estimated_tokens,
+                model=str(payload.get("model") or PROVIDER_MODEL),
+                estimated_input_tokens=estimated_input_tokens,
+                estimated_output_tokens=estimated_output_tokens,
+            )
+        except Exception as error:
+            LOGGER.error(
+                "Could not reserve PRIME AI usage budget; refusing request safely (%s).",
+                type(error).__name__,
+                exc_info=True,
+            )
             await record_outcome(
                 "failed",
-                "provider=PRIME AI · reason=monthly_budget_exceeded",
+                "provider=PRIME AI · reason=usage_budget_unavailable",
             )
-            raise AIProviderUnavailable("monthly_budget_exceeded", status_code=429)
+            raise AIProviderUnavailable("usage_budget_unavailable", status_code=503) from error
+        usage_reservation_id = budget_status.get("reservation_id")
+        # The usage reservation is priced for Gemini. Do not switch to an
+        # unpriced third-party model while a monthly financial cap is active.
+        if float(budget_status.get("monthly_limit_usd") or 0) > 0:
+            external_fallback_providers = ()
+        if not budget_status.get("allowed"):
+            reason = (
+                "unknown_cost_blocked"
+                if budget_status.get("unknown_cost_blocked")
+                else "monthly_budget_exceeded"
+            )
+            await record_outcome(
+                "failed",
+                f"provider=PRIME AI · reason={reason}",
+            )
+            raise AIProviderUnavailable(
+                reason,
+                status_code=429 if reason == "monthly_budget_exceeded" else 422,
+            )
 
     tokens_used = None
     try:
@@ -1720,10 +1783,11 @@ async def generate_response(
             )
             provider_started = time.perf_counter()
             try:
-                answer, tokens_used = await request_with_fallback(
+                answer, tokens_used = await request_with_provider_fallback(
                     session, payload, timeout_seconds=timeout_seconds,
                     retry_count=retry_count, complete=_complete_with_retries,
                     logger=LOGGER,
+                    fallback_providers=external_fallback_providers,
                 )
             finally:
                 runtime_diagnostics.record_timing(
@@ -1740,7 +1804,7 @@ async def generate_response(
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · reason=timeout",
+            f"provider={payload.get('_active_provider', PROVIDER_NAME)} · model={payload.get('_active_model', payload.get('model', PROVIDER_MODEL))} · reason=timeout",
         )
         raise AIProviderUnavailable("gemini_timeout", status_code=504) from error
     except aiohttp.ClientError as error:
@@ -1755,7 +1819,7 @@ async def generate_response(
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · "
+            f"provider={payload.get('_active_provider', PROVIDER_NAME)} · model={payload.get('_active_model', payload.get('model', PROVIDER_MODEL))} · "
             f"reason=transport_{type(error).__name__}",
         )
         raise AIProviderUnavailable("gemini_connection_failed", status_code=503) from error
@@ -1768,7 +1832,7 @@ async def generate_response(
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · "
+            f"provider={payload.get('_active_provider', PROVIDER_NAME)} · model={payload.get('_active_model', payload.get('model', PROVIDER_MODEL))} · "
             f"status={error.status_code if error.status_code is not None else 'n/a'} · "
             f"reason={str(error)[:80]}",
         )
@@ -1787,7 +1851,8 @@ async def generate_response(
         )
     await record_outcome(
         "success",
-        f"provider={PROVIDER_NAME} · model={payload['model']} · "
+        f"provider={payload.get('_actual_provider', PROVIDER_NAME)} · "
+        f"model={payload.get('_actual_model', payload['model'])} · "
         f"prompt_chars={len(value)} · answer_chars={len(answer)}",
         tokens_used=tokens_used,
     )

@@ -7813,7 +7813,7 @@ async def get_command_policies(
                 except (TypeError, ValueError):
                     item["auto_delete_seconds"] = 0
                 item["response_style"] = str(item.get("response_style") or "default")
-                item["response_template"] = str(item.get("response_template") or "")[:2000]
+                item["response_template"] = str(item.get("response_template") or "")[:12000]
                 item["response_mode"] = item["response_style"]
                 item["custom_template"] = item["response_template"]
                 result[item["command_name"]] = item
@@ -7907,7 +7907,9 @@ async def save_command_policy(
     response_style = str(response_style or "default").strip().lower()
     if response_style not in {"default", "embed", "compact", "silent"}:
         response_style = "default"
-    response_template = str(response_template or "")[:2000]
+    response_template = str(response_template or "")
+    if len(response_template) > 12000:
+        raise ValueError("response_template_too_long")
     async with connect(aiosqlite.Row) as db:
         cursor = await db.execute(
             """
@@ -7961,9 +7963,9 @@ async def save_command_policy(
         "allowed_channels": _json_ids(item.get("allowed_channels")),
         "auto_delete_seconds": max(0, int(item.get("auto_delete_seconds") or 0)),
         "response_style": str(item.get("response_style") or "default"),
-        "response_template": str(item.get("response_template") or "")[:2000],
+        "response_template": str(item.get("response_template") or "")[:12000],
         "response_mode": str(item.get("response_style") or "default"),
-        "custom_template": str(item.get("response_template") or "")[:2000],
+        "custom_template": str(item.get("response_template") or "")[:12000],
         "updated_at": item.get("updated_at"),
     }
     COMMAND_CACHE.setdefault(guild_id, {})[name] = result
@@ -8026,6 +8028,9 @@ async def save_auto_responder(
         target_id = max(0, int(target_id or 0))
     except (TypeError, ValueError) as error:
         raise ValueError("target_id must be a numeric Discord ID") from error
+    response = str(response or "")
+    if len(response) > 12000:
+        raise ValueError("auto_responder_response_too_long")
     reaction_emoji = str(reaction_emoji or "").strip()[:100]
     async with connect(aiosqlite.Row) as db:
         cursor = await db.execute(
@@ -8054,7 +8059,7 @@ async def save_auto_responder(
                 int(guild_id),
                 str(trigger).strip(),
                 str(match_type).strip().lower(),
-                str(response)[:2000],
+                response,
                 int(bool(enabled)),
                 max(0.0, float(cooldown_seconds)),
                 max(1, int(bucket_capacity)),
@@ -8135,6 +8140,9 @@ async def save_shortcut(
     announcement: str = "",
     enabled: bool = True,
 ) -> dict[str, Any]:
+    announcement = str(announcement or "")
+    if len(announcement) > 12000:
+        raise ValueError("shortcut_announcement_too_long")
     async with connect(aiosqlite.Row) as db:
         cursor = await db.execute(
             """
@@ -8156,7 +8164,7 @@ async def save_shortcut(
                 str(trigger).strip(),
                 str(target_type).strip().lower(),
                 str(target)[:100],
-                str(announcement)[:2000],
+                announcement,
                 int(bool(enabled)),
             ),
         )

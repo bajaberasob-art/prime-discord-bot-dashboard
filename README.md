@@ -106,3 +106,20 @@ Manual commands include `/rank`, `/lvl`, `لفل`, and `rank`; `/rank` defaults 
 Dashboard notification settings are stored in PRIME controls and are applied through the leveling settings API. Legacy leveling fields remain as compatibility storage for existing installations.
 
 Runtime SQLite files are ignored by Git via `*.db`, `*.sqlite`, and `*.sqlite3`. Existing deployments that intentionally use a tracked legacy database should migrate that data to their persistent `DB_PATH` before removing the legacy file from the repository; do not delete a live production database blindly.
+
+## PRIME AI provider failover
+
+The AI Agent tries the configured Gemini model and its Gemini Lite fallback first.
+For text-only requests, it can then switch to independent providers when their keys
+are configured. Add either or both of these secrets to your deployment environment:
+
+- \`OPENROUTER_API_KEY\` (optional model override: \`PRIME_OPENROUTER_MODEL\`)
+- \`GROQ_API_KEY\` (optional model override: \`PRIME_GROQ_MODEL\`)
+
+Both default to \`openai/gpt-oss-20b\`. Never commit API keys to the repository.
+External-provider failover is skipped for requests with image, audio, or file
+attachments to avoid silently sending those contents to another company. It is also
+skipped whenever a monthly financial cap is active, because the external-provider
+cost is not included in the Gemini-priced reservation. That avoids evading a hard
+budget limit; a provider-specific pricing policy can enable this safely in a later
+change.

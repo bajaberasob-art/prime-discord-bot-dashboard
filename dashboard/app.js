@@ -2769,7 +2769,8 @@
     const responseTemplate = el("textarea", {
       class: "studio-textarea command-response-template",
       rows: "5",
-      placeholder: "اختياري: اكتب قالب الرد المخصص (حتى 2000 حرف)…",
+      maxlength: "12000",
+      placeholder: "اختياري: اكتب قالب الرد المخصص (حتى 12000 حرف)…",
       "aria-label": "قالب الرد المخصص",
     });
     responseTemplate.value = effectivePolicy.custom_template || effectivePolicy.response_template || "";
@@ -4993,7 +4994,7 @@
         }),
       ),
       el("label", { text: "نص الرد" }),
-      el("textarea", { name: "response", class: "studio-textarea", maxlength: "2000", placeholder: "اكتب الرد هنا…" }),
+      el("textarea", { name: "response", class: "studio-textarea", maxlength: "12000", placeholder: "اكتب الرد هنا… (حتى 12000 حرف، وسيُقسّم تلقائياً إلى رسائل)" }),
       el("div", { class: "variable-strip" },
         el("span", { text: "إدراج سريع:" }),
         ["{user}", "{channel}", "{server}", "{random:نعم|لا}"].map((variable) => {
