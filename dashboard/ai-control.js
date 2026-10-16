@@ -1280,7 +1280,7 @@
       );
       const responseGrid = el("div", "prime-ai-control-grid");
       responseGrid.append(
-        controlInput("response.maximum_length", "أقصى طول للإجابة", response.maximum_length, { type: "number", min: 100, max: 3500, step: 50 }),
+        controlInput("response.maximum_length", "أقصى طول للإجابة", response.maximum_length, { type: "number", min: 100, max: 12000, step: 100 }),
         controlToggle("response.reply_behavior", "الرد مع اقتباس الرسالة", response.reply_behavior),
         controlSelect("response.mention_behavior", "السماح بالإشارات", response.mention_behavior, [
           { value: "none", label: "منع الإشارات" }, { value: "user", label: "صاحب الطلب فقط" }, { value: "roles", label: "رتب صاحب الطلب فقط" },

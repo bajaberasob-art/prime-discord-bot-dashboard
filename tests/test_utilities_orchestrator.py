@@ -330,6 +330,60 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(message.channel.sent), 1)
         self.assertIn("Read the rules", message.channel.sent[0][1]["embed"].description)
 
+
+    async def test_long_auto_responder_sends_all_chunks_without_truncation(self):
+        response = "فقرة طويلة للاختبار " * 500
+        await self.cog.add_auto_responder(
+            700, "long", "exact", response, cooldown_seconds=0,
+        )
+        message = FakeMessage("long")
+        await self.cog.on_message(message)
+
+        self.assertGreater(len(message.channel.sent), 1)
+        chunks = [sent[0] for sent in message.channel.sent]
+        self.assertTrue(all(isinstance(chunk, str) and len(chunk) <= 2000 for chunk in chunks))
+        self.assertEqual("".join(chunks), response)
+
+    async def test_long_shortcut_announcement_splits_embed_descriptions(self):
+        announcement = "قواعد السيرفر المهمة " * 350
+        await self.cog.add_shortcut(
+            700, "long-rules", "announcement", announcement=announcement,
+        )
+        message = FakeMessage("long-rules")
+        await self.cog.on_message(message)
+
+        self.assertGreater(len(message.channel.sent), 1)
+        embeds = [kwargs["embed"] for _content, kwargs in message.channel.sent]
+        self.assertTrue(all(len(embed.description) <= 4096 for embed in embeds))
+        self.assertEqual("".join(embed.description for embed in embeds), announcement)
+
+    async def test_long_slash_callback_response_via_shortcut_is_chunked(self):
+        response = "نتيجة الأمر الطويل " * 400
+
+        async def callback(interaction):
+            await interaction.response.send_message(response)
+
+        async def check_can_run(_interaction):
+            return True
+
+        command = SimpleNamespace(
+            name="longreply",
+            qualified_name="longreply",
+            callback=callback,
+            binding=None,
+            parameters=[],
+            _check_can_run=check_can_run,
+        )
+        self.bot.tree.get_command = lambda name: command if name == "longreply" else None
+        await self.cog.add_shortcut(700, "long-command", "command", target="/longreply")
+        message = FakeMessage("long-command")
+        await self.cog.on_message(message)
+
+        self.assertGreater(len(message.channel.sent), 1)
+        chunks = [sent[0] for sent in message.channel.sent]
+        self.assertTrue(all(isinstance(chunk, str) and len(chunk) <= 2000 for chunk in chunks))
+        self.assertEqual("".join(chunks), response)
+
     async def test_command_help_shortcut_renders_a_smart_embed(self):
         command = SimpleNamespace(
             name="warn",

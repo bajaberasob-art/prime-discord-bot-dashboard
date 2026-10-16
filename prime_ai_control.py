@@ -820,10 +820,10 @@ def normalize_control_settings(
         allow_legacy_values
         and isinstance(response["maximum_length"], int)
         and not isinstance(response["maximum_length"], bool)
-        and response["maximum_length"] > 3500
+        and response["maximum_length"] > 12000
     ):
-        response["maximum_length"] = 3500
-    for key, low, high in (("maximum_length", 100, 3500), ("auto_delete_seconds", 0, 86400)):
+        response["maximum_length"] = 12000
+    for key, low, high in (("maximum_length", 100, 12000), ("auto_delete_seconds", 0, 86400)):
         number = response[key]
         if isinstance(number, bool) or not isinstance(number, int) or not low <= number <= high:
             raise ValueError(f"invalid_response_{key}")

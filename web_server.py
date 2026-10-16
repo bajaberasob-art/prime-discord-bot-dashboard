@@ -2774,11 +2774,11 @@ async def api_guild_command_policy(req):
     custom_template = body.get("custom_template", body.get("response_template"))
     if custom_template is not None:
         custom_template = str(custom_template)
-        if len(custom_template) > 2000:
+        if len(custom_template) > 12000:
             return json_error(
                 400,
                 "validation",
-                fields={"custom_template": "القالب يتجاوز 2000 حرف"},
+                fields={"custom_template": "القالب يتجاوز 12000 حرف"},
             )
     policy_args = {"aliases": aliases}
     if auto_delete_seconds is not None:
@@ -2901,8 +2901,8 @@ async def api_guild_auto_responses_save(req):
         return json_error(400, "validation", fields={"trigger": "المشغل يجب أن يكون بين 1 و500 حرف"})
     if match_type not in {"exact", "contains", "regex"}:
         return json_error(400, "validation", fields={"match_type": "نوع المطابقة غير صالح"})
-    if len(response) > 2000:
-        return json_error(400, "validation", fields={"response": "الرد يجب ألا يتجاوز 2000 حرف"})
+    if len(response) > 12000:
+        return json_error(400, "validation", fields={"response": "الرد يجب ألا يتجاوز 12000 حرف"})
     if target_type not in {"everyone", "role", "user"}:
         return json_error(400, "validation", fields={"target_type": "نطاق الاستهداف غير صالح"})
     try:

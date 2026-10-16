@@ -5641,3 +5641,12 @@ class PrimeAIModerationRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     message.guild.alert_channel.send.assert_awaited_once()
                     view = message.guild.alert_channel.send.await_args.kwargs["view"]
                     self.assertIsNone(view)
+
+class PrimeAILongResponseLimitTests(unittest.TestCase):
+    def test_control_allows_answers_longer_than_the_old_3500_character_cap(self):
+        config = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
+        config["response"]["maximum_length"] = 8000
+        normalized = prime_ai_control.normalize_control_settings(config)
+        self.assertEqual(normalized["response"]["maximum_length"], 8000)
+        self.assertEqual(ai.MAX_ANSWER_LENGTH, 12000)
+
