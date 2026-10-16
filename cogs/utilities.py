@@ -1913,10 +1913,18 @@ class Utilities(commands.Cog):
         now = time.monotonic()
         capacity = max(1, int(responder.get("bucket_capacity", 1)))
         refill = max(0.0, float(responder.get("cooldown_seconds", 5.0)))
+
+        # A configured zero explicitly disables rate limiting. Drop any older
+        # bucket too, so changing the rule back to a positive cooldown cannot
+        # revive stale state from before the zero-cooldown period.
+        if refill == 0:
+            self._cooldowns.pop(key, None)
+            return True
+
         bucket = self._cooldowns.get(key)
         if bucket is None:
             bucket = TokenBucket(float(capacity), now)
-        elif refill > 0:
+        else:
             bucket.tokens = min(
                 float(capacity),
                 bucket.tokens + ((now - bucket.updated_at) / refill),

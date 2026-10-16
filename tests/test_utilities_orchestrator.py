@@ -318,6 +318,32 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.on_message(message)
         self.assertEqual(len(message.channel.sent), 1)
 
+    async def test_zero_cooldown_allows_repeat_responses_for_same_member(self):
+        rule = await self.cog.add_auto_responder(
+            700,
+            "repeat",
+            "exact",
+            "رد تلقائي",
+            cooldown_seconds=0,
+            bucket_capacity=1,
+        )
+
+        first = FakeMessage("repeat")
+        second = FakeMessage("repeat")
+        await self.cog.on_message(first)
+        await self.cog.on_message(second)
+
+        self.assertEqual(
+            [content for content, _kwargs in first.channel.sent],
+            ["رد تلقائي"],
+        )
+        self.assertEqual(
+            [content for content, _kwargs in second.channel.sent],
+            ["رد تلقائي"],
+        )
+        bucket_key = (700, int(rule["id"]), 88)
+        self.assertNotIn(bucket_key, self.cog._cooldowns)
+
     async def test_long_auto_response_is_saved_and_sent_without_truncation(self):
         response = "نص إعلان طويل " * 350
         await self.cog.add_auto_responder(
