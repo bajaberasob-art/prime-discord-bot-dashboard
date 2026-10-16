@@ -25,6 +25,7 @@ import prime_ai_knowledge
 import prime_ai_runtime
 import guild_backup
 from database import (
+    AUTO_RESPONSE_MAX_LENGTH,
     LOG_ROUTING_ALL_KEYS,
     LOG_ROUTING_KEYS,
     SETTINGS_SCHEMA,
@@ -914,7 +915,7 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v38";
+    return """const CACHE = "prime-dashboard-shell-v39";
 const STATIC = [
   "./",
   "./static/app.css?v=prime-guild-backup-1",
@@ -928,7 +929,7 @@ const STATIC = [
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
-  "./static/app.js?v=prime-level-save-errors-2",
+  "./static/app.js?v=prime-auto-response-chunks-1",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",
@@ -2901,8 +2902,14 @@ async def api_guild_auto_responses_save(req):
         return json_error(400, "validation", fields={"trigger": "المشغل يجب أن يكون بين 1 و500 حرف"})
     if match_type not in {"exact", "contains", "regex"}:
         return json_error(400, "validation", fields={"match_type": "نوع المطابقة غير صالح"})
-    if len(response) > 2000:
-        return json_error(400, "validation", fields={"response": "الرد يجب ألا يتجاوز 2000 حرف"})
+    if len(response) > AUTO_RESPONSE_MAX_LENGTH:
+        return json_error(
+            400,
+            "validation",
+            fields={
+                "response": f"الرد يجب ألا يتجاوز {AUTO_RESPONSE_MAX_LENGTH} حرفاً"
+            },
+        )
     if target_type not in {"everyone", "role", "user"}:
         return json_error(400, "validation", fields={"target_type": "نطاق الاستهداف غير صالح"})
     try:

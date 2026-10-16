@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import database
-from cogs.utilities import Utilities, dynamic_prefix
+from cogs.utilities import Utilities, dynamic_prefix, split_discord_message
 
 
 class FakeChannel:
@@ -317,6 +317,33 @@ class UtilitiesOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.on_message(message)
         await self.cog.on_message(message)
         self.assertEqual(len(message.channel.sent), 1)
+
+    async def test_long_auto_response_is_saved_and_sent_without_truncation(self):
+        response = "نص إعلان طويل " * 350
+        await self.cog.add_auto_responder(
+            700,
+            "إعلان",
+            "exact",
+            response,
+        )
+
+        stored_rules = await database.get_auto_responders(700)
+        self.assertEqual(stored_rules[0]["response"], response)
+
+        message = FakeMessage("إعلان")
+        await self.cog.on_message(message)
+        chunks = [content for content, _kwargs in message.channel.sent]
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(0 < len(chunk) <= 2000 for chunk in chunks))
+        self.assertEqual("".join(chunks), response)
+
+    def test_discord_message_split_preserves_content_and_limits_each_chunk(self):
+        source = ("سطر أول\n" + ("كلمة " * 850) + "\nنهاية")
+        chunks = split_discord_message(source)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk) <= 2000 for chunk in chunks))
+        self.assertEqual("".join(chunks), source)
 
     async def test_shortcut_announcement_is_cached_and_rendered(self):
         await self.cog.add_shortcut(

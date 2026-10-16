@@ -18,6 +18,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from database import (
+    AUTO_RESPONSE_MAX_LENGTH,
     add_warning,
     get_auto_responders,
     get_command_controls,
@@ -39,6 +40,30 @@ HUB_NAME = "➕ اضغط للإنشاء"
 LOGGER = logging.getLogger("UtilitiesOrchestrator")
 MATCH_TYPES = {"exact", "contains", "regex"}
 SHORTCUT_TYPES = {"command", "help", "announcement"}
+DISCORD_MESSAGE_LIMIT = 2000
+
+
+def split_discord_message(content: Any, limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:
+    """Split text into Discord-sized messages, preferring line and word boundaries."""
+    text = str(content or "")
+    if not text:
+        return []
+    if limit < 1:
+        raise ValueError("limit must be a positive integer")
+
+    chunks: list[str] = []
+    while len(text) > limit:
+        boundary = text.rfind("\n", 0, limit)
+        if boundary < limit // 2:
+            boundary = text.rfind(" ", 0, limit)
+        end = boundary + 1 if boundary >= limit // 2 else limit
+        if end <= 0 or end > limit:
+            end = limit
+        chunks.append(text[:end])
+        text = text[end:]
+    if text:
+        chunks.append(text)
+    return chunks
 _ARABIC_DIACRITICS = re.compile(r"[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]")
 _ROUTE_LEADERS = (
     re.compile(r"^(?:يا\s+)?(?:برايم|prime)\b[\s,:;.!؟?_-]*", re.IGNORECASE),
@@ -658,8 +683,10 @@ class Utilities(commands.Cog):
                 safe_regex.compile(trigger, safe_regex.IGNORECASE)
             except safe_regex.error as error:
                 raise ValueError(f"Regex غير صالح: {error}") from error
-        if len(str(response)) > 2000:
-            raise ValueError("response must contain at most 2000 characters")
+        if len(str(response)) > AUTO_RESPONSE_MAX_LENGTH:
+            raise ValueError(
+                f"الرد التلقائي يجب ألا يتجاوز {AUTO_RESPONSE_MAX_LENGTH} حرفاً"
+            )
         target_type = str(target_type).strip().lower()
         if target_type not in {"everyone", "role", "user"}:
             raise ValueError("target_type must be one of everyone, role, user")
@@ -1015,16 +1042,17 @@ class Utilities(commands.Cog):
         executed = False
         if rendered.strip():
             try:
-                await message.channel.send(
-                    rendered,
-                    allowed_mentions=discord.AllowedMentions(
-                        users=True, roles=False, everyone=False
-                    ),
-                )
-                executed = True
+                for part in split_discord_message(rendered):
+                    await message.channel.send(
+                        part,
+                        allowed_mentions=discord.AllowedMentions(
+                            users=True, roles=False, everyone=False
+                        ),
+                    )
+                    executed = True
             except (discord.Forbidden, discord.HTTPException):
                 LOGGER.warning(
-                    "[AUTORESPONDER] تعذر إرسال رد في السيرفر %s",
+                    "[AUTORESPONDER] تعذر إرسال أحد أجزاء الرد في السيرفر %s",
                     guild_id, exc_info=True,
                 )
         if reaction is not None:
@@ -1935,7 +1963,7 @@ class Utilities(commands.Cog):
             options = [item.strip() for item in match.group(1).split("|") if item.strip()]
             return random.choice(options) if options else ""
 
-        return re.sub(r"\{random:([^{}|]+(?:\|[^{}|]+)+)\}", choose, rendered)[:2000]
+        return re.sub(r"\{random:([^{}|]+(?:\|[^{}|]+)+)\}", choose, rendered)
 
     async def _dispatch_shortcut(self, message: discord.Message) -> bool:
         trigger = _normalize_route_text(message.content)

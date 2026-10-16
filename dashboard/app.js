@@ -4993,7 +4993,8 @@
         }),
       ),
       el("label", { text: "نص الرد" }),
-      el("textarea", { name: "response", class: "studio-textarea", maxlength: "2000", placeholder: "اكتب الرد هنا…" }),
+      el("textarea", { name: "response", class: "studio-textarea", maxlength: "8000", rows: "6", placeholder: "اكتب الرد هنا… (حتى 8000 حرف)" }),
+      el("small", { class: "hint auto-response-count", text: "0 / 8000 حرف · سيتم تقسيم الرد تلقائياً إلى رسائل" }),
       el("div", { class: "variable-strip" },
         el("span", { text: "إدراج سريع:" }),
         ["{user}", "{channel}", "{server}", "{random:نعم|لا}"].map((variable) => {
@@ -5034,6 +5035,8 @@
     const updateAutoPreview = () => {
       const trigger = form.elements.trigger.value.trim() || "المشغل";
       const response = form.elements.response.value.trim() || "اكتب نص الرد هنا…";
+      const responseCount = form.querySelector(".auto-response-count");
+      if (responseCount) responseCount.textContent = form.elements.response.value.length.toLocaleString("ar") + " / 8000 حرف · سيتم تقسيم الرد تلقائياً إلى رسائل";
       autoPreview.querySelector(".auto-preview-message").replaceChildren(
         el("span", { class: "preview-trigger", text: trigger }),
         el("span", { text: response }),
@@ -5064,7 +5067,7 @@
             el("span", { class: "trigger-count", text: `${rule.execution_count || 0} تنفيذ` }),
           ),
           el("h4", { text: rule.trigger }),
-          el("p", { text: rule.response }),
+          el("p", { text: rule.response.length > 280 ? rule.response.slice(0, 280) + "…" : rule.response }),
           el("small", { text: `${rule.channel_id ? "قناة محددة" : "كل القنوات"} · تبريد ${rule.cooldown_seconds}s` }),
           el("div", { class: "trigger-actions" },
             el("button", { class: "icon-action", type: "button", title: "نسخ المشغل", text: "⧉", onClick: () => navigator.clipboard?.writeText(rule.trigger).then(() => toast("تم نسخ المشغل", "success", 1600)) }),

@@ -27,6 +27,7 @@ DB_NAME = (
 )
 logger = logging.getLogger("DatabaseEngine")
 DB_TIMEOUT = 30.0
+AUTO_RESPONSE_MAX_LENGTH = 8000
 WAL_CHECKPOINT_INTERVAL = 30 * 60
 STREAK_TIMEZONE = ZoneInfo("Asia/Riyadh")
 STREAK_DEFAULT_REMINDER_TIME = "21:00"
@@ -8027,6 +8028,11 @@ async def save_auto_responder(
     except (TypeError, ValueError) as error:
         raise ValueError("target_id must be a numeric Discord ID") from error
     reaction_emoji = str(reaction_emoji or "").strip()[:100]
+    response_text = str(response)
+    if len(response_text) > AUTO_RESPONSE_MAX_LENGTH:
+        raise ValueError(
+            f"الرد التلقائي يجب ألا يتجاوز {AUTO_RESPONSE_MAX_LENGTH} حرفاً"
+        )
     async with connect(aiosqlite.Row) as db:
         cursor = await db.execute(
             """
@@ -8054,7 +8060,7 @@ async def save_auto_responder(
                 int(guild_id),
                 str(trigger).strip(),
                 str(match_type).strip().lower(),
-                str(response)[:2000],
+                response_text,
                 int(bool(enabled)),
                 max(0.0, float(cooldown_seconds)),
                 max(1, int(bucket_capacity)),
