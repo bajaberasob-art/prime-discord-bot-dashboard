@@ -16,6 +16,7 @@ from prime_games.engine import (
     list_active_sessions,
 )
 from prime_games.registry import registry
+from cogs.card_generator import generate_xo_game_card
 
 logger = logging.getLogger("PrimeGamesCog")
 
@@ -55,6 +56,52 @@ def _game_embed(session: dict, *, reward: int = 0) -> discord.Embed:
     )
     embed.set_footer(text=f"PRIME GAME #{session['id']} • ثلاث علامات متتالية للفوز")
     return embed
+
+
+async def _game_presentation(
+    session: dict,
+    interaction: discord.Interaction,
+    *,
+    reward: int = 0,
+) -> tuple[discord.Embed, discord.File | None]:
+    """Prepare an embed and an optional custom board image without blocking Discord."""
+    guild = interaction.guild
+    players = list(session.get("players") or [])
+    names: list[str] = []
+    for index, user_id in enumerate(players[:2]):
+        member = guild.get_member(int(user_id)) if guild is not None else None
+        if member is None:
+            names.append(f"Player {index + 1}")
+        else:
+            names.append(str(member.display_name))
+    while len(names) < 2:
+        names.append(f"Player {len(names) + 1}")
+
+    winner_id = session.get("winner_id")
+    winner_name = None
+    if winner_id is not None:
+        winner_name = names[players.index(int(winner_id))] if int(winner_id) in players else "Winner"
+    current_id = session.get("current_player_id")
+    current_name = names[players.index(int(current_id))] if current_id in players else "Waiting"
+
+    state = session.get("state") or {}
+    try:
+        image = await generate_xo_game_card(
+            names[0],
+            names[1],
+            list(state.get("board") or [None] * 9),
+            current_name,
+            game_id=int(session["id"]),
+            winner_name=winner_name,
+            is_draw=bool(session.get("status") == "finished" and session.get("result") == "draw"),
+            reward=int(reward),
+        )
+        embed = _game_embed(session, reward=reward)
+        embed.set_image(url="attachment://prime-xo.png")
+        return embed, discord.File(image, filename="prime-xo.png")
+    except Exception:
+        logger.exception("Could not render XO card for session %s; using embed fallback", session.get("id"))
+        return _game_embed(session, reward=reward), None
 
 
 class GameBoardView(discord.ui.View):
@@ -110,8 +157,14 @@ class GameBoardView(discord.ui.View):
             if not session:
                 await interaction.followup.send("تم حفظ الحركة لكن تعذر تحميل اللوحة.", ephemeral=True)
                 return
+            embed, image_file = await _game_presentation(
+                session,
+                interaction,
+                reward=int(outcome.get("reward") or 0),
+            )
             await interaction.edit_original_response(
-                embed=_game_embed(session, reward=int(outcome.get("reward") or 0)),
+                embed=embed,
+                attachments=[image_file] if image_file is not None else [],
                 view=GameBoardView(session),
             )
 
@@ -157,12 +210,16 @@ class Games(commands.Cog):
                 game_key="xo",
                 players=[interaction.user.id, opponent.id],
             )
-            message = await interaction.channel.send(
-                content=f"⚔️ {interaction.user.mention} تحدّى {opponent.mention} في XO!",
-                embed=_game_embed(session),
-                view=GameBoardView(session),
-                allowed_mentions=discord.AllowedMentions(users=[interaction.user, opponent]),
-            )
+            embed, image_file = await _game_presentation(session, interaction)
+            send_options = {
+                "content": f"⚔️ {interaction.user.mention} تحدّى {opponent.mention} في XO!",
+                "embed": embed,
+                "view": GameBoardView(session),
+                "allowed_mentions": discord.AllowedMentions(users=[interaction.user, opponent]),
+            }
+            if image_file is not None:
+                send_options["file"] = image_file
+            message = await interaction.channel.send(**send_options)
             if not await attach_message(int(session["id"]), int(message.id)):
                 await message.edit(view=None)
                 await cancel_session(int(session["id"]), guild_id=interaction.guild.id)
