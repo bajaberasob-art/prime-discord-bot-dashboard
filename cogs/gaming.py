@@ -309,8 +309,7 @@ class Gaming(commands.Cog):
         if not changed:
             return False
 
-        # The database's saved channel/message IDs are authoritative. Never scan
-        # every text channel and a moving window of recent messages to find it.
+        # The saved channel/message IDs are authoritative; never scan recent messages.
         channel_id = int(scrim.get("channel_id") or 0)
         message_id = int(scrim.get("message_id") or 0)
         channel = guild.get_channel(channel_id) if channel_id else None
@@ -318,7 +317,31 @@ class Gaming(commands.Cog):
             try:
                 channel = await guild.fetch_channel(channel_id)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                chann    @app_commands.command(name="scrim_open", description="فتح لوحة تسجيل سكريم للفرق")
+                channel = None
+        if channel is None or not hasattr(channel, "fetch_message") or message_id <= 0:
+            logger.warning(
+                "Scrim %s closed in the database but its Discord message could not be resolved.",
+                scrim_id,
+            )
+            return True
+        try:
+            message = await channel.fetch_message(message_id)
+            embed = message.embeds[0] if message.embeds else await _scrim_embed(scrim)
+            title = str(embed.title or scrim.get("title") or "سكريم").removeprefix("🎮 ")
+            if not title.startswith("🔒"):
+                title = title.removesuffix(" (مغلق)")
+                embed.title = f"🔒 {title} (مغلق)"
+            embed.color = 0x667085
+            await message.edit(embed=embed, view=None)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            logger.warning(
+                "Scrim %s closed in the database but its Discord message edit failed.",
+                scrim_id,
+                exc_info=True,
+            )
+        return True
+
+    @app_commands.command(name="scrim_open", description="فتح لوحة تسجيل سكريم للفرق")
     @app_commands.checks.has_permissions(manage_events=True)
     @app_commands.describe(title="عنوان السكريم", game_type="اسم اللعبة", team_size="حجم الفريق", max_slots="عدد المقاعد")
     async def scrim_open(
@@ -349,7 +372,6 @@ class Gaming(commands.Cog):
         await interaction.followup.send(
             f"✅ تم فتح لوحة السكريم رقم {scrim['id']}.", ephemeral=True
         )
-
 
 
 async def get_active_scrims_for_restore():
