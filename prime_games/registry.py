@@ -156,6 +156,52 @@ def _reduce_connect_four_action(
     return GameTransition(next_state, next_player)
 
 
+def _initial_rps_state(players: list[int]) -> dict[str, Any]:
+    return {"choices": {}}
+
+
+def _reduce_rps_action(
+    state: dict[str, Any],
+    players: list[int],
+    actor_id: int,
+    action: dict[str, Any],
+) -> GameTransition:
+    """Collect each player's choice without revealing it until both have chosen."""
+    choice = str(action.get("choice") or "").strip().lower()
+    if choice not in {"rock", "paper", "scissors"}:
+        raise ValueError("invalid_choice")
+
+    choices = dict(state.get("choices") or {})
+    actor_key = str(int(actor_id))
+    if actor_key in choices:
+        raise ValueError("already_chose")
+    if actor_id not in players:
+        raise ValueError("not_a_player")
+
+    choices[actor_key] = choice
+    next_state = {**state, "choices": choices}
+    if len(choices) < 2:
+        next_player = players[1] if actor_id == players[0] else players[0]
+        return GameTransition(next_state, next_player)
+
+    first_choice = choices.get(str(players[0]))
+    second_choice = choices.get(str(players[1]))
+    if first_choice not in {"rock", "paper", "scissors"} or second_choice not in {
+        "rock", "paper", "scissors"
+    }:
+        raise ValueError("invalid_game_state")
+    if first_choice == second_choice:
+        return GameTransition(next_state, None, is_draw=True)
+
+    defeats = {
+        "rock": "scissors",
+        "paper": "rock",
+        "scissors": "paper",
+    }
+    winner_id = players[0] if defeats[first_choice] == second_choice else players[1]
+    return GameTransition(next_state, None, winner_id=winner_id)
+
+
 registry = GameRegistry()
 registry.register(
     GameDefinition(
@@ -177,5 +223,17 @@ registry.register(
         reward_coins=25,
         initial_state=_initial_connect_four_state,
         reduce_action=_reduce_connect_four_action,
+    )
+)
+
+registry.register(
+    GameDefinition(
+        key="rps",
+        name="Rock Paper Scissors · حجر ورقة مقص",
+        min_players=2,
+        max_players=2,
+        reward_coins=25,
+        initial_state=_initial_rps_state,
+        reduce_action=_reduce_rps_action,
     )
 )
