@@ -1,13 +1,16 @@
 import asyncio
+import io
 import os
 import tempfile
 import unittest
 
 import aiosqlite
+from PIL import Image
 
 import database
 from cogs.games import GameBoardView
 from cogs.gaming import _members, _scrim_embed
+from cogs.card_generator import generate_xo_game_card
 from prime_games.engine import (
     apply_action,
     attach_message,
@@ -259,6 +262,21 @@ class PrimeGamesEngineTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertLessEqual(len(embed.description or ""), 4096)
         self.assertIn("إخفاء", embed.description or "")
+
+    async def test_xo_card_uses_existing_shared_image_renderer(self):
+        image_data = await generate_xo_game_card(
+            "PRIME Alpha",
+            "PRIME Beta",
+            ["X", "O", None, None, "X", None, "O", None, None],
+            "PRIME Alpha",
+            game_id=15,
+        )
+        self.assertIsInstance(image_data, io.BytesIO)
+        self.assertTrue(image_data.getvalue().startswith(b"\x89PNG\r\n\x1a\n"))
+        with Image.open(image_data) as image:
+            self.assertEqual(image.format, "PNG")
+            self.assertEqual(image.size, (960, 560))
+            image.verify()
 
 if __name__ == "__main__":
     unittest.main()
