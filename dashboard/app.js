@@ -6602,8 +6602,11 @@
     if (!credentials?.trim()) return;
     try {
       const response = await writeApi(`api/guild/${state.guild.id}/gaming/credentials`, { scrim_id: scrimId, credentials: credentials.trim() });
-      if (response.ok) toast("تم إرسال بيانات الغرفة إلى قناة السكريم", "success", 3000);
-      else toast("تعذر إرسال بيانات الغرفة", "warn");
+      const data = await readJson(response, {});
+      if (response.ok) {
+        const suffix = data.failed_count ? `، وتعذر الوصول إلى ${data.failed_count}` : "";
+        toast(`تم إرسال بيانات الغرفة برسائل خاصة إلى ${data.sent_count || 0} مشارك${suffix}`, "success", 3500);
+      } else toast("تعذر إرسال البيانات الخاصة للمشاركين", "warn");
     } catch (error) {
       if (error.message !== "unauth") toast("تعذر إرسال بيانات الغرفة", "warn");
     }
