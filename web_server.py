@@ -2480,7 +2480,25 @@ def _gaming_cog():
 @routes.get('/api/guild/{guild_id}/gaming')
 async def api_guild_gaming(req):
     _, guild = await authorize(req)
-    return web.json_response({"scrims": await get_scrims(guild.id)})
+    from prime_games.engine import list_active_sessions
+
+    sessions = await list_active_sessions(guild.id)
+    games = [
+        {
+            "id": int(session["id"]),
+            "game_key": str(session["game_key"]),
+            "players": [int(value) for value in session.get("players", [])],
+            "current_player_id": session.get("current_player_id"),
+            "channel_id": int(session["channel_id"]),
+            "created_at": session.get("created_at"),
+            "version": int(session.get("version") or 0),
+        }
+        for session in sessions
+    ]
+    return web.json_response({
+        "scrims": await get_scrims(guild.id),
+        "games": games,
+    })
 
 
 @routes.post('/api/guild/{guild_id}/gaming/deploy')
