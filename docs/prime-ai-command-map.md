@@ -40,16 +40,16 @@ The names below are the actual keys in prime_ai_control.ACTION_REGISTRY. The arg
 | rename_channel | channel_id, name | manage_channels | MEDIUM | No | Checks the per-guild policy for rename_channel, then uses the validated native executor |
 | set_member_nickname | user_id, nickname | manage_nicknames | MEDIUM | No | Checks the per-guild policy for setnick, then uses the validated native executor |
 | delete_channel | channel_id, optional reason | manage_channels | CRITICAL | Yes | Checks the per-guild policy for delete_channel, then uses the validated native executor |
-| set_channel_mode | channel_id, mode (open or read_only) | manage_channels and manage_roles | HIGH | No | Uses ChatJailCog's lock/unlock execution methods and checks the matching policy |
+| set_channel_mode | channel_id, mode (open or read_only) | manage_channels and manage_roles | HIGH | Yes | Uses ChatJailCog's lock/unlock execution methods and checks the matching policy |
 | create_role | name, optional color | manage_roles | MEDIUM | No | Native AI executor |
-| edit_role | role_id, optional name, optional color | manage_roles | HIGH | No | Native AI executor |
+| edit_role | role_id, optional name, optional color | manage_roles | HIGH | Yes | Native AI executor |
 | delete_role | role_id | manage_roles | CRITICAL | Yes | Native AI executor |
-| assign_role | user_id, role_id | manage_roles | HIGH | No | Checks the per-guild policy for give_role, then uses the validated native executor |
-| remove_role | user_id, role_id | manage_roles | HIGH | No | Checks the per-guild policy for take_role, then uses the validated native executor |
+| assign_role | user_id, role_id | manage_roles | HIGH | Yes | Checks the per-guild policy for give_role, then uses the validated native executor |
+| remove_role | user_id, role_id | manage_roles | HIGH | Yes | Checks the per-guild policy for take_role, then uses the validated native executor |
 | timeout_member | user_id, minutes, optional reason | moderate_members | HIGH | Yes | Reuses Moderation.execute_timeout_command after policy checks |
 | kick_member | user_id, optional reason | kick_members | CRITICAL | Yes | Reuses SanctionsVoiceCog.execute_kick_command after policy checks |
 | ban_member | user_id, optional reason | ban_members | CRITICAL | Yes | Reuses SanctionsVoiceCog.execute_ban_command after policy checks |
-| unban_member | user_id, optional reason | ban_members | HIGH | No | Reuses SanctionsVoiceCog's ban lookup/unban handler after policy checks |
+| unban_member | user_id, optional reason | ban_members | HIGH | Yes | Reuses SanctionsVoiceCog's ban lookup/unban handler after policy checks |
 
 ### Read-only intent and skill families
 
@@ -110,7 +110,7 @@ Modules such as analytics, levels, announcement reactions, temporary voice, card
 - AI action steps are schema-validated; unexpected fields, malformed IDs, invalid enums and invalid lengths are rejected.
 - Targets are resolved in the current guild. The planner is instructed to use exact IDs from locally built candidates and ask for clarification when the target or meaning is ambiguous.
 - Execution re-loads current AI settings, checks access/roles/channels and Discord permissions for both the actor and bot, validates role/member hierarchy, and verifies several write outcomes against Discord state.
-- Destructive actions in the explicit confirmation set are delete_message, delete_channel, delete_role, timeout_member, kick_member and ban_member. The action setting normalization forces confirmation policy to this fixed set.
+- All registered HIGH/CRITICAL AI actions require requester-only confirmation before execution: delete_message, delete_channel, set_channel_mode, edit_role, delete_role, assign_role, remove_role, timeout_member, kick_member, ban_member and unban_member. The dashboard cannot disable this invariant.
 - Utilities has a separate saved per-guild command policy for enablement, allowed roles and channels. The shared command-policy bridge applies it only to explicitly mapped action/skill routes above, not to every similarly named command.
 
 ## Findings to carry into Phase 2
@@ -133,3 +133,8 @@ The follow-up implementation adds `prime_ai/command_catalog.py`, which reads met
 The AI action planner receives only the catalog entries that correspond to already-enabled `ACTION_REGISTRY` tools. The action schema in `available_tools` remains authoritative; the catalog does not grant permission, change argument validation, bypass confirmation, or replace the fresh policy and Discord permission checks. The read-only `fetch_channel` route additionally checks the saved `channelinfo` enabled/role/channel policy and returns a clear policy-denial message. Unit tests cover allowlist-only discovery, missing command trees, matching policy enforcement, route short-circuit on policy denial, and user-facing denial handling.
 
 The generic adapter gap remains intentional: commands such as `massban`, `nuke`, `emergency`, or arbitrary economy/subscription commands are not exposed just because they exist in Discord.
+
+
+## Phase 3 implementation — high-impact confirmation invariant
+
+The fixed confirmation registry now includes every action whose registry risk is HIGH or CRITICAL. This closes the previous mismatch where set_channel_mode, edit_role, assign_role, remove_role and unban_member were labeled HIGH but could skip the requester's confirmation. A unit-test invariant compares the full HIGH/CRITICAL set against the confirmation registry so newly added high-impact tools cannot be exposed without an explicit confirmation decision.

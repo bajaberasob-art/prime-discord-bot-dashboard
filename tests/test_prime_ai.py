@@ -4232,6 +4232,15 @@ class PrimeAIActionEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             all(policy["enabled"] for policy in config["actions"].values())
         )
+        high_critical_tools = {
+            tool for tool, metadata in prime_ai_control.ACTION_REGISTRY.items()
+            if metadata.get("risk") in {"HIGH", "CRITICAL"}
+        }
+        self.assertEqual(
+            high_critical_tools,
+            prime_ai_control.DANGEROUS_CONFIRMATION_TOOLS,
+            "Every HIGH/CRITICAL AI action must require requester confirmation.",
+        )
         for tool in prime_ai_control.ACTION_REGISTRY:
             self.assertEqual(
                 prime_ai_runtime.action_requires_confirmation({"tool": tool}, config),

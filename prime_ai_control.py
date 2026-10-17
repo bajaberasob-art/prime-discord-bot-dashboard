@@ -64,13 +64,19 @@ def _default_rate(limit: int, window: int) -> dict:
     return {"limit": limit, "window_seconds": window}
 
 
+# All HIGH/CRITICAL operations require requester-only confirmation before side effects.
 DANGEROUS_CONFIRMATION_TOOLS = {
     "delete_message",
     "delete_channel",
+    "set_channel_mode",
+    "edit_role",
     "delete_role",
+    "assign_role",
+    "remove_role",
     "timeout_member",
     "kick_member",
     "ban_member",
+    "unban_member",
 }
 
 # This is the authoritative inventory for Phase 4 actions. Runtime handlers,
@@ -657,8 +663,8 @@ def normalize_control_settings(
             policy.get("confirmation_required"), bool
         ):
             raise ValueError("invalid_action_policy")
-        # Confirmation policy is fixed by the explicit dangerous-action registry;
-        # normal privileged actions do not ask for a second confirmation.
+        # HIGH/CRITICAL operations use the fixed confirmation registry;
+        # dashboard settings cannot disable their requester confirmation.
         policy["confirmation_required"] = action_id in DANGEROUS_CONFIRMATION_TOOLS
         for key in ("allowed_channels", "allowed_roles"):
             policy[key] = _ids(policy.get(key), f"{action_id}_{key}")
