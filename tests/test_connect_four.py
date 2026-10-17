@@ -102,6 +102,7 @@ class ConnectFourTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(view.children[0].disabled)
         self.assertTrue(all(not item.disabled for item in view.children[1:]))
+        self.assertEqual([item.row for item in view.children], [0, 0, 0, 0, 0, 1, 1])
 
         embed = _game_embed(session)
         self.assertIn("Connect Four", embed.title)
