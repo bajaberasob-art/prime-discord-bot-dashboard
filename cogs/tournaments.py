@@ -167,8 +167,17 @@ class TournamentEntryView(discord.ui.View):
                 await itx.message.edit(view=None)
         except (discord.Forbidden, discord.HTTPException):
             logger.exception("Bracket saved but public announcement failed for tournament %s", self.tournament_id)
+            if itx.message is not None:
+                try:
+                    await itx.message.edit(view=None)
+                except (discord.Forbidden, discord.HTTPException):
+                    logger.warning(
+                        "Could not remove stale registration controls for tournament %s",
+                        self.tournament_id,
+                        exc_info=True,
+                    )
             return await itx.followup.send(
-                f"تم حفظ القرعة في قاعدة البيانات، لكن تعذر نشر الإعلان. استخدم /tournament_bracket "
+                f"تم حفظ القرعة في قاعدة البيانات، لكن تعذر نشر الإعلان. استخدم /tournament bracket "
                 f"برقم البطولة {self.tournament_id} لعرض المواجهات.",
                 ephemeral=True,
             )
