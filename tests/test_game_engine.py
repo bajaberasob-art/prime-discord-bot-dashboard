@@ -278,5 +278,39 @@ class PrimeGamesEngineTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(image.size, (960, 560))
             image.verify()
 
+    async def test_game_reward_respects_existing_wallet_daily_budget(self):
+        async with database.connect() as db:
+            await db.executemany(
+                """
+                INSERT INTO prime_game_reward_claims
+                    (session_id, guild_id, user_id, amount)
+                VALUES (?, ?, ?, ?)
+                """,
+                [(91001, 706, 71, 120), (91002, 706, 71, 125)],
+            )
+            await db.commit()
+
+        session = await create_session(
+            guild_id=706,
+            channel_id=306,
+            game_key="xo",
+            players=[71, 72],
+        )
+        await attach_message(session["id"], 8860)
+        final = None
+        for player_id, square in [(71, 0), (72, 3), (71, 1), (72, 4), (71, 2)]:
+            final = await apply_action(session["id"], player_id, {"index": square})
+        self.assertTrue(final["ok"])
+        self.assertEqual(final["reward"], 5)
+        self.assertTrue(final["reward_capped"])
+        account = await database.get_or_create_user(71, 706)
+        self.assertEqual(account["balance"], 105)
+
+    async def test_team_score_rejects_a_score_where_selected_winner_lost(self):
+        with self.assertRaisesRegex(ValueError, "الفائز"):
+            await database.record_tournament_score(
+                707, "Alpha", "Beta", score="2-3", match_ref="wrong-winner", recorded_by=88
+            )
+
 if __name__ == "__main__":
     unittest.main()
