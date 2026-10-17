@@ -11,20 +11,69 @@ from typing import Any
 
 _REVIEWED_COMMAND_ADAPTERS: dict[str, dict[str, str]] = {
     "channelinfo": {
-        "tool": "fetch_channel",
-        "execution_path": "read_skill",
-        "operation": "read",
-        "risk": "LOW",
-        "required_permission": "view_channel",
-        "policy_command": "channelinfo",
+        "tool": "fetch_channel", "execution_path": "read_skill",
+        "operation": "read", "risk": "LOW",
+        "required_permission": "view_channel", "policy_command": "channelinfo",
     },
     "create_channel": {
-        "tool": "create_channel",
-        "execution_path": "native_action",
-        "operation": "write",
-        "risk": "MEDIUM",
-        "required_permission": "manage_channels",
-        "policy_command": "create_channel",
+        "tool": "create_channel", "execution_path": "native_action",
+        "operation": "write", "risk": "MEDIUM",
+        "required_permission": "manage_channels", "policy_command": "create_channel",
+    },
+    "rename_channel": {
+        "tool": "rename_channel", "execution_path": "native_action",
+        "operation": "write", "risk": "MEDIUM",
+        "required_permission": "manage_channels", "policy_command": "rename_channel",
+    },
+    "delete_channel": {
+        "tool": "delete_channel", "execution_path": "native_action",
+        "operation": "write", "risk": "CRITICAL",
+        "required_permission": "manage_channels", "policy_command": "delete_channel",
+    },
+    "setnick": {
+        "tool": "set_member_nickname", "execution_path": "native_action",
+        "operation": "write", "risk": "MEDIUM",
+        "required_permission": "manage_nicknames", "policy_command": "setnick",
+    },
+    "give_role": {
+        "tool": "assign_role", "execution_path": "native_action",
+        "operation": "write", "risk": "HIGH",
+        "required_permission": "manage_roles", "policy_command": "give_role",
+    },
+    "take_role": {
+        "tool": "remove_role", "execution_path": "native_action",
+        "operation": "write", "risk": "HIGH",
+        "required_permission": "manage_roles", "policy_command": "take_role",
+    },
+    "timeout": {
+        "tool": "timeout_member", "execution_path": "linked_handler",
+        "operation": "write", "risk": "HIGH",
+        "required_permission": "moderate_members", "policy_command": "timeout",
+    },
+    "kick": {
+        "tool": "kick_member", "execution_path": "linked_handler",
+        "operation": "write", "risk": "CRITICAL",
+        "required_permission": "kick_members", "policy_command": "kick",
+    },
+    "ban": {
+        "tool": "ban_member", "execution_path": "linked_handler",
+        "operation": "write", "risk": "CRITICAL",
+        "required_permission": "ban_members", "policy_command": "ban",
+    },
+    "unban": {
+        "tool": "unban_member", "execution_path": "linked_handler",
+        "operation": "write", "risk": "HIGH",
+        "required_permission": "ban_members", "policy_command": "unban",
+    },
+    "lock": {
+        "tool": "set_channel_mode", "execution_path": "linked_handler",
+        "operation": "write", "risk": "HIGH",
+        "required_permission": "manage_channels", "policy_command": "lock",
+    },
+    "unlock": {
+        "tool": "set_channel_mode", "execution_path": "linked_handler",
+        "operation": "write", "risk": "HIGH",
+        "required_permission": "manage_channels", "policy_command": "unlock",
     },
 }
 
