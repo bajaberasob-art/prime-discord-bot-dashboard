@@ -79,7 +79,7 @@ prime_ai/linked_commands.py deliberately links only selected actions to existing
 - Channel mode: set_channel_mode uses ChatJailCog's lock method for read_only and unlock method for open.
 - Policy-only links, followed by PRIME's validated native executor: create_channel → create_channel; rename_channel → rename_channel; delete_channel → delete_channel; set_member_nickname → setnick; assign_role → give_role; remove_role → take_role.
 
-A visually similar command is not automatically equivalent to an AI action. For example, role_color is not silently treated as edit_role, and a bulk command such as massban is not silently exposed as ban_member. New links must explicitly define argument conversion, exact target semantics, permission requirements, command-policy behavior, action logging, confirmation and verification of the outcome.
+A visually similar command is not automatically equivalent to an AI action. For example, role_color is not silently treated as edit_role, and a bulk command such as massban is not silently exposed as ban_member. Read-only policy bridge: fetch_channel → channelinfo (keeps the read-only skill executor but honors the saved Slash command policy). New links must explicitly define argument conversion, exact target semantics, permission requirements, command-policy behavior, action logging, confirmation and verification of the outcome.
 
 ## Command inventory by COG
 
@@ -111,7 +111,7 @@ Modules such as analytics, levels, announcement reactions, temporary voice, card
 - Targets are resolved in the current guild. The planner is instructed to use exact IDs from locally built candidates and ask for clarification when the target or meaning is ambiguous.
 - Execution re-loads current AI settings, checks access/roles/channels and Discord permissions for both the actor and bot, validates role/member hierarchy, and verifies several write outcomes against Discord state.
 - Destructive actions in the explicit confirmation set are delete_message, delete_channel, delete_role, timeout_member, kick_member and ban_member. The action setting normalization forces confirmation policy to this fixed set.
-- Utilities has a separate saved per-guild command policy for enablement, allowed roles and channels. The shared command-policy bridge applies it only to the explicitly mapped actions above, not to every similarly named command.
+- Utilities has a separate saved per-guild command policy for enablement, allowed roles and channels. The shared command-policy bridge applies it only to explicitly mapped action/skill routes above, not to every similarly named command.
 
 ## Findings to carry into Phase 2
 
@@ -124,3 +124,12 @@ Modules such as analytics, levels, announcement reactions, temporary voice, card
 ## Recommended next step
 
 Build a tested adapter contract for one low-risk read operation and one narrowly scoped write operation first. Generate candidate command metadata from the actual loaded Discord command tree, but keep execution opt-in through explicit reviewed schemas. Add per-action tests for argument conversion, command enabled/role/channel policies, actor/bot permissions, ambiguous targets, mandatory confirmation, idempotency and post-execution verification before adding additional COG commands.
+
+
+## Phase 2 implementation — reviewed command adapter contract
+
+The follow-up implementation adds `prime_ai/command_catalog.py`, which reads metadata from the **currently loaded Slash command tree** but only emits the two reviewed bridges (`channelinfo` → the read-only `fetch_channel` skill, and `create_channel` → the registered `create_channel` action). It never returns callbacks and never makes arbitrary COG commands executable.
+
+The AI action planner receives only the catalog entries that correspond to already-enabled `ACTION_REGISTRY` tools. The action schema in `available_tools` remains authoritative; the catalog does not grant permission, change argument validation, bypass confirmation, or replace the fresh policy and Discord permission checks. The read-only `fetch_channel` route additionally checks the saved `channelinfo` enabled/role/channel policy and returns a clear policy-denial message. Unit tests cover allowlist-only discovery, missing command trees, matching policy enforcement, route short-circuit on policy denial, and user-facing denial handling.
+
+The generic adapter gap remains intentional: commands such as `massban`, `nuke`, `emergency`, or arbitrary economy/subscription commands are not exposed just because they exist in Discord.
