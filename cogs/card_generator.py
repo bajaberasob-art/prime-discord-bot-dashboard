@@ -504,6 +504,107 @@ async def should_use_animated_card(settings):
     return (animation_enabled and has_motion) or await has_animated_background(settings)
 
 
+def _render_xo_game_card(
+    player_one: str,
+    player_two: str,
+    board: list[str | None],
+    current_player_name: str,
+    *,
+    game_id: int,
+    winner_name: str | None = None,
+    is_draw: bool = False,
+    reward: int = 0,
+) -> io.BytesIO:
+    """Render XO using PRIME's shared Card class, fonts, panels and glow system."""
+    if len(board) != 9 or any(value not in (None, "X", "O") for value in board):
+        raise ValueError("invalid XO board")
+    design = {
+        "glowStrength": 58,
+        "bgBlur": 0,
+        "bgOverlay": 10,
+    }
+    card = Card((960, 560), "#8B5CF6", None, "none", design)
+    card.panel((28, 26, 932, 534), radius=28, fill="#090D19", outline="#2C3150")
+    card.text((52, 42), "PRIME / MINI-GAMES", 13, "#9D8CFF", True)
+    card.text((52, 66), f"XO MATCH  #{int(game_id)}", 10, "#7E8AA8", True)
+
+    card.panel((48, 112, 436, 232), radius=20, fill="#11182A", outline="#3D4769")
+    card.text((72, 132), "PLAYER X", 11, "#8A9AB8", True)
+    card.text((72, 158), player_one or "Player X", 19, "#41D9FF", True, width=328)
+
+    card.panel((48, 248, 436, 368), radius=20, fill="#11182A", outline="#3D4769")
+    card.text((72, 266), "PLAYER O", 11, "#8A9AB8", True)
+    card.text((72, 293), player_two or "Player O", 19, "#D18AFF", True, width=328)
+
+    if winner_name is not None:
+        card.text((54, 402), "WINNER", 12, "#8D9AB6", True)
+        card.text((54, 426), winner_name, 20, "#5EE7A8", True, width=350)
+        if reward > 0:
+            card.text((54, 458), f"+{int(reward)} PRIME COINS", 13, "#F8CF6A", True, width=340)
+    elif is_draw:
+        card.text((54, 413), "DRAW", 24, "#CBD5E1", True)
+        card.text((54, 451), "A perfectly matched game", 11, "#8D9AB6", width=340)
+    else:
+        card.text((54, 413), "YOUR TURN", 11, "#8D9AB6", True)
+        card.text((54, 438), current_player_name or "Waiting for player", 17, "#FFFFFF", True, width=345)
+        card.text((54, 475), "Three in a row wins", 11, "#8D9AB6")
+
+    start_x, start_y, cell, gap = 486, 104, 132, 12
+    for row in range(3):
+        for column in range(3):
+            index = row * 3 + column
+            left = start_x + column * (cell + gap)
+            top = start_y + row * (cell + gap)
+            right, bottom = left + cell, top + cell
+            mark = board[index]
+            if mark == "X":
+                fill, outline, color = "#102A3A", "#2AAECF", "#41D9FF"
+            elif mark == "O":
+                fill, outline, color = "#291A3C", "#9C63C7", "#D18AFF"
+            else:
+                fill, outline, color = "#11182A", "#2E3857", "#53627F"
+            card.panel((left, top, right, bottom), radius=18, fill=fill, outline=outline)
+            card.text(
+                ((left + right) // 2, top + 32),
+                mark if mark else str(index + 1),
+                44 if mark else 25,
+                color,
+                True,
+                center=True,
+            )
+
+    output = io.BytesIO()
+    card.image.resize((card.w, card.h), Image.Resampling.LANCZOS).save(output, format="PNG")
+    output.seek(0)
+    return output
+
+
+async def generate_xo_game_card(
+    player_one: str,
+    player_two: str,
+    board: list[str | None],
+    current_player_name: str,
+    *,
+    game_id: int,
+    winner_name: str | None = None,
+    is_draw: bool = False,
+    reward: int = 0,
+) -> io.BytesIO:
+    """Generate a compact match graphic through PRIME's existing card renderer."""
+    async with _animation_gate():
+        return await asyncio.to_thread(
+            _render_xo_game_card,
+            str(player_one or "")[:100],
+            str(player_two or "")[:100],
+            list(board),
+            str(current_player_name or "")[:100],
+            game_id=int(game_id),
+            winner_name=str(winner_name)[:100] if winner_name else None,
+            is_draw=bool(is_draw),
+            reward=max(0, int(reward)),
+        )
+
+
 async def generate_rank_card(
     user: discord.Member, text_level, text_xp, next_level_xp,
     rank_pos, total_members, settings,
