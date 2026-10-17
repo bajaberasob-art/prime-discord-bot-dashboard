@@ -31,19 +31,27 @@ def _game_embed(
     state = session.get("state") or {}
     game_key = str(session.get("game_key") or "xo")
     is_connect_four = game_key == "connect4"
+    is_rps = game_key == "rps"
     board = state.get("board") or ([None] * 42 if is_connect_four else [None] * 9)
 
-    if is_connect_four:
+    if is_rps:
         description = (
-            f"🔴 **X:** <@{players[0]}>\n"
-            f"🟡 **O:** <@{players[1]}>\n\n"
+            f"👤 **اللاعب الأول:** <@{players[0]}>\\n"
+            f"👤 **اللاعب الثاني:** <@{players[1]}>\\n\\n"
+        )
+        title = "🎮 PRIME · حجر ورقة مقص"
+        footer = f"PRIME GAME #{session['id']} • الاختيارات تبقى سرية حتى يختار اللاعبان"
+    elif is_connect_four:
+        description = (
+            f"🔴 **X:** <@{players[0]}>\\n"
+            f"🟡 **O:** <@{players[1]}>\\n\\n"
         )
         title = "🎮 PRIME · Connect Four"
         footer = f"PRIME GAME #{session['id']} • أربعة متتالية للفوز"
     else:
         description = (
-            f"❎ **X:** <@{players[0]}>\n"
-            f"⭕ **O:** <@{players[1]}>\n\n"
+            f"❎ **X:** <@{players[0]}>\\n"
+            f"⭕ **O:** <@{players[1]}>\\n\\n"
         )
         title = "🎮 PRIME · XO"
         footer = f"PRIME GAME #{session['id']} • ثلاث علامات متتالية للفوز"
@@ -52,9 +60,9 @@ def _game_embed(
         if session.get("winner_id") is not None:
             description += f"🏆 الفائز: <@{session['winner_id']}>"
             if reward:
-                description += f"\n💰 أضيفت مكافأة **{reward}** عملة إلى محفظته."
+                description += f"\\n💰 أضيفت مكافأة **{reward}** عملة إلى محفظته."
             elif reward_capped:
-                description += "\n🛡️ وصلت إلى حد مكافآت الألعاب خلال آخر 24 ساعة؛ لم تُصرف عملات إضافية."
+                description += "\\n🛡️ وصلت إلى حد مكافآت الألعاب خلال آخر 24 ساعة؛ لم تُصرف عملات إضافية."
         else:
             description += "🤝 انتهت المباراة بالتعادل."
         color = 0x22C55E if session.get("winner_id") is not None else 0x64748B
@@ -63,20 +71,43 @@ def _game_embed(
         color = 0x64748B
     else:
         description += f"🎯 الدور الآن على <@{session['current_player_id']}>"
+        if is_rps and (state.get("choices") or {}):
+            description += "\\n🔒 تم حفظ اختيار سري؛ بانتظار اللاعب الآخر."
         color = 0x7C3AED
 
     embed = discord.Embed(title=title, description=description, color=color)
-    if is_connect_four:
+    if is_rps:
+        embed.add_field(
+            name="طريقة اللعب",
+            value="اختر حجر 🪨 أو ورقة 📄 أو مقص ✂️. لن يظهر اختيارك للخصم حتى يختار هو أيضًا.",
+            inline=False,
+        )
+        if session["status"] == "finished":
+            labels = {
+                "rock": "🪨 حجر",
+                "paper": "📄 ورقة",
+                "scissors": "✂️ مقص",
+            }
+            choices = state.get("choices") or {}
+            embed.add_field(
+                name="الاختيارات المكشوفة",
+                value=(
+                    f"<@{players[0]}>: {labels.get(choices.get(str(players[0])), 'غير متاح')}\\n"
+                    f"<@{players[1]}>: {labels.get(choices.get(str(players[1])), 'غير متاح')}"
+                ),
+                inline=False,
+            )
+    elif is_connect_four:
         cells = {"X": "🔴", "O": "🟡", None: "⚪"}
         if len(board) != 42:
             board = [None] * 42
-        rendered_board = "1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣\n" + "\n".join(
+        rendered_board = "1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣\\n" + "\\n".join(
             "".join(cells.get(board[row * 7 + col], "⚪") for col in range(7))
             for row in range(6)
         )
         embed.add_field(
             name="اللوحة",
-            value=rendered_board + "\n\nاضغط رقم العمود لإسقاط القطعة فيه.",
+            value=rendered_board + "\\n\\nاضغط رقم العمود لإسقاط القطعة فيه.",
             inline=False,
         )
     else:
@@ -87,7 +118,6 @@ def _game_embed(
         )
     embed.set_footer(text=footer)
     return embed
-
 
 async def _game_presentation(
     session: dict,
@@ -148,6 +178,24 @@ class GameBoardView(discord.ui.View):
         board = state.get("board") or []
         terminal = session.get("status") != "active"
 
+        if game_key == "rps":
+            options = (
+                ("rock", "🪨 حجر", discord.ButtonStyle.secondary),
+                ("paper", "📄 ورقة", discord.ButtonStyle.primary),
+                ("scissors", "✂️ مقص", discord.ButtonStyle.danger),
+            )
+            for choice, label, style in options:
+                button = discord.ui.Button(
+                    label=label,
+                    style=style,
+                    row=0,
+                    disabled=terminal,
+                    custom_id=f"primegame:rps:{self.session_id}:{choice}",
+                )
+                button.callback = self._move({"choice": choice})
+                self.add_item(button)
+            return
+
         if game_key == "connect4":
             if len(board) != 42:
                 board = [None] * 42
@@ -202,6 +250,8 @@ class GameBoardView(discord.ui.View):
                     "invalid_square": "المربع المحدد غير صالح.",
                     "invalid_column": "رقم العمود المحدد غير صالح.",
                     "column_full": "هذا العمود ممتلئ؛ اختر عمودًا آخر.",
+                    "invalid_choice": "اختر حجرًا أو ورقة أو مقصًا.",
+                    "already_chose": "لقد سجلت اختيارك بالفعل.",
                     "invalid_game_state": "تعذر التحقق من حالة المباراة.",
                 }
                 await interaction.followup.send(
@@ -318,6 +368,11 @@ class Games(commands.Cog):
     async def connect4(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
         await self._start_game(interaction, opponent, "connect4")
 
+    @game.command(name="rps", description="تحدّ لاعبًا في حجر ورقة مقص")
+    @app_commands.guild_only()
+    async def rps(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_game(interaction, opponent, "rps")
+
     @game.command(name="list", description="عرض الألعاب المتاحة في PRIME")
     async def list_games(self, interaction: discord.Interaction) -> None:
         lines = [
@@ -329,7 +384,7 @@ class Games(commands.Cog):
             description="\n".join(lines) or "لا توجد ألعاب مسجلة.",
             color=0x7C3AED,
         )
-        embed.set_footer(text="ابدأ XO عبر /game xo، أو Connect Four عبر /game connect4")
+        embed.set_footer(text="الألعاب: /game xo، /game connect4، /game rps")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
