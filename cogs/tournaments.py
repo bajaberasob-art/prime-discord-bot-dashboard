@@ -41,7 +41,7 @@ def _bracket_embed(
         lines.append(line)
     description = "\n".join(lines).strip() or "لا توجد مواجهات محفوظة."
     if len(description) > 3900:
-        description = description[:3700] + "\n… بقية المواجهات محفوظة. استخدم /tournament_bracket لعرض الجدول."
+        description = description[:3700] + "\n… بقية المواجهات محفوظة. استخدم /tournament bracket لعرض الجدول."
     embed = discord.Embed(
         title=f"🏆 شجرة بطولة: {discord.utils.escape_mentions(title)}",
         description=description,
@@ -173,7 +173,7 @@ class TournamentEntryView(discord.ui.View):
                 ephemeral=True,
             )
         await itx.followup.send(
-            f"✅ بدأت البطولة {self.tournament_id} وحُفظت المواجهات. سجّل النتائج بالأمر /tournament_result.",
+            f"✅ بدأت البطولة {self.tournament_id} وحُفظت المواجهات. سجّل النتائج بالأمر /tournament result.",
             ephemeral=True,
         )
 
@@ -467,7 +467,7 @@ class Tournaments(commands.Cog):
         await itx.response.send_message(embed=embed)
 
     @app_commands.command(
-        name="tournament_bracket",
+        name="bracket",
         description="عرض شجرة المواجهات المحفوظة لبطولة",
     )
     @app_commands.describe(tournament_id="رقم البطولة")
@@ -486,7 +486,7 @@ class Tournaments(commands.Cog):
         )
 
     @app_commands.command(
-        name="tournament_result",
+        name="result",
         description="توثيق نتيجة جولة وتحريك الفائز إلى الجولة التالية",
     )
     @app_commands.describe(
