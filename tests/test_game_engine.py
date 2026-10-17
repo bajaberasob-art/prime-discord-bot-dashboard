@@ -138,7 +138,7 @@ class PrimeGamesEngineTests(unittest.IsolatedAsyncioTestCase):
         tournament_id = await database.create_tournament(
             703, 303, "Knockout", 3, 99
         )
-        for player_id in (51, 52, 53):
+        for player_id in (53, 51, 52):
             added, _, _ = await database.add_tournament_entry(tournament_id, player_id)
             self.assertTrue(added)
 
