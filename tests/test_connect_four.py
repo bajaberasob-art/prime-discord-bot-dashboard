@@ -4,7 +4,7 @@ import unittest
 
 import database
 from cogs.games import GameBoardView, _game_embed
-from prime_games.engine import apply_action, create_session, ensure_game_schema
+from prime_games.engine import apply_action, create_session, ensure_game_schema, get_session
 from prime_games.registry import registry
 
 
@@ -84,7 +84,7 @@ class ConnectFourTests(unittest.IsolatedAsyncioTestCase):
         unchanged = await apply_action(session["id"], 11, {"column": 0})
         self.assertFalse(unchanged["ok"])
         self.assertEqual(unchanged["reason"], "column_full")
-        self.assertEqual(before, (await database.get_session(session["id"]))["state"]["board"])
+        self.assertEqual(before, (await get_session(session["id"]))["state"]["board"])
 
     async def test_persistent_view_has_seven_column_controls_and_disables_full_column(self):
         session = await self._session()
