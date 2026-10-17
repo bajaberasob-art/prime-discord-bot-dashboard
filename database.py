@@ -7320,10 +7320,14 @@ async def start_tournament_with_bracket(
         bracket_size = 1
         while bracket_size < len(participants):
             bracket_size *= 2
-        padded = participants + [None] * (bracket_size - len(participants))
-        for index in range(0, len(padded), 2):
-            player_one = padded[index]
-            player_two = padded[index + 1]
+        bye_count = bracket_size - len(participants)
+        byes = [(player_id, None) for player_id in participants[:bye_count]]
+        remaining = participants[bye_count:]
+        first_round_pairs = byes + [
+            (remaining[index], remaining[index + 1])
+            for index in range(0, len(remaining), 2)
+        ]
+        for match_index, (player_one, player_two) in enumerate(first_round_pairs, 1):
             status = "completed" if player_two is None else "scheduled"
             await db.execute(
                 """
@@ -7333,7 +7337,7 @@ async def start_tournament_with_bracket(
                 VALUES (?, ?, 1, ?, ?, ?, ?, ?, CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
                 """,
                 (
-                    int(tournament_id), int(tournament["guild_id"]), index // 2 + 1,
+                    int(tournament_id), int(tournament["guild_id"]), match_index,
                     int(player_one), int(player_two) if player_two is not None else None,
                     int(player_one) if player_two is None else None, status, status,
                 ),
