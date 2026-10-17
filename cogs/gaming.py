@@ -256,7 +256,14 @@ class ScrimBoardView(discord.ui.View):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 message = None
         if message is not None:
-            await message.edit(embed=await _scrim_embed(scrim), view=self)
+            try:
+                await message.edit(embed=await _scrim_embed(scrim), view=self)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                logger.warning(
+                    "Could not refresh scrim board %s after a database update.",
+                    self.scrim_id,
+                    exc_info=True,
+                )
 
 
 class Gaming(commands.Cog):
