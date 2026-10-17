@@ -21,14 +21,33 @@ from cogs.card_generator import generate_xo_game_card
 logger = logging.getLogger("PrimeGamesCog")
 
 
-def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) -> discord.Embed:
+def _game_embed(
+    session: dict,
+    *,
+    reward: int = 0,
+    reward_capped: bool = False,
+) -> discord.Embed:
     players = session["players"]
     state = session.get("state") or {}
-    board = state.get("board") or [None] * 9
-    description = (
-        f"❎ **X:** <@{players[0]}>\n"
-        f"⭕ **O:** <@{players[1]}>\n\n"
-    )
+    game_key = str(session.get("game_key") or "xo")
+    is_connect_four = game_key == "connect4"
+    board = state.get("board") or ([None] * 42 if is_connect_four else [None] * 9)
+
+    if is_connect_four:
+        description = (
+            f"🔴 **X:** <@{players[0]}>\n"
+            f"🟡 **O:** <@{players[1]}>\n\n"
+        )
+        title = "🎮 PRIME · Connect Four"
+        footer = f"PRIME GAME #{session['id']} • أربعة متتالية للفوز"
+    else:
+        description = (
+            f"❎ **X:** <@{players[0]}>\n"
+            f"⭕ **O:** <@{players[1]}>\n\n"
+        )
+        title = "🎮 PRIME · XO"
+        footer = f"PRIME GAME #{session['id']} • ثلاث علامات متتالية للفوز"
+
     if session["status"] == "finished":
         if session.get("winner_id") is not None:
             description += f"🏆 الفائز: <@{session['winner_id']}>"
@@ -46,17 +65,27 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
         description += f"🎯 الدور الآن على <@{session['current_player_id']}>"
         color = 0x7C3AED
 
-    embed = discord.Embed(
-        title="🎮 PRIME · XO",
-        description=description,
-        color=color,
-    )
-    embed.add_field(
-        name="اللوحة",
-        value="اضغط المربع الذي تريد اللعب فيه. لا يمكن تغيير حركة بعد تسجيلها.",
-        inline=False,
-    )
-    embed.set_footer(text=f"PRIME GAME #{session['id']} • ثلاث علامات متتالية للفوز")
+    embed = discord.Embed(title=title, description=description, color=color)
+    if is_connect_four:
+        cells = {"X": "🔴", "O": "🟡", None: "⚪"}
+        if len(board) != 42:
+            board = [None] * 42
+        rendered_board = "1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣\n" + "\n".join(
+            "".join(cells.get(board[row * 7 + col], "⚪") for col in range(7))
+            for row in range(6)
+        )
+        embed.add_field(
+            name="اللوحة",
+            value=rendered_board + "\n\nاضغط رقم العمود لإسقاط القطعة فيه.",
+            inline=False,
+        )
+    else:
+        embed.add_field(
+            name="اللوحة",
+            value="اضغط المربع الذي تريد اللعب فيه. لا يمكن تغيير حركة بعد تسجيلها.",
+            inline=False,
+        )
+    embed.set_footer(text=footer)
     return embed
 
 
@@ -67,7 +96,10 @@ async def _game_presentation(
     reward: int = 0,
     reward_capped: bool = False,
 ) -> tuple[discord.Embed, discord.File | None]:
-    """Prepare an embed and an optional custom board image without blocking Discord."""
+    """Prepare an embed and use the existing custom renderer where available."""
+    if str(session.get("game_key") or "xo") != "xo":
+        return _game_embed(session, reward=reward, reward_capped=reward_capped), None
+
     guild = interaction.guild
     players = list(session.get("players") or [])
     names: list[str] = []
@@ -111,9 +143,29 @@ class GameBoardView(discord.ui.View):
     def __init__(self, session: dict):
         super().__init__(timeout=None)
         self.session_id = int(session["id"])
+        game_key = str(session.get("game_key") or "xo")
         state = session.get("state") or {}
-        board = state.get("board") or [None] * 9
+        board = state.get("board") or []
         terminal = session.get("status") != "active"
+
+        if game_key == "connect4":
+            if len(board) != 42:
+                board = [None] * 42
+            for column in range(7):
+                full = all(board[row * 7 + column] is not None for row in range(6))
+                button = discord.ui.Button(
+                    label=str(column + 1),
+                    style=discord.ButtonStyle.primary,
+                    row=0,
+                    disabled=terminal or full,
+                    custom_id=f"primegame:connect4:{self.session_id}:{column}",
+                )
+                button.callback = self._move({"column": column})
+                self.add_item(button)
+            return
+
+        if len(board) != 9:
+            board = [None] * 9
         for index, value in enumerate(board):
             label = str(value) if value else str(index + 1)
             if value == "X":
@@ -129,16 +181,16 @@ class GameBoardView(discord.ui.View):
                 disabled=terminal or value is not None,
                 custom_id=f"primegame:xo:{self.session_id}:{index}",
             )
-            button.callback = self._move(index)
+            button.callback = self._move({"index": index})
             self.add_item(button)
 
-    def _move(self, index: int):
+    def _move(self, action: dict):
         async def callback(interaction: discord.Interaction) -> None:
             await interaction.response.defer()
             outcome = await apply_action(
                 self.session_id,
                 interaction.user.id,
-                {"index": index},
+                action,
             )
             if not outcome.get("ok"):
                 messages = {
@@ -148,6 +200,8 @@ class GameBoardView(discord.ui.View):
                     "not_your_turn": "انتظر دور اللاعب الآخر.",
                     "square_taken": "هذا المربع محجوز؛ اختر مربعًا آخر.",
                     "invalid_square": "المربع المحدد غير صالح.",
+                    "invalid_column": "رقم العمود المحدد غير صالح.",
+                    "column_full": "هذا العمود ممتلئ؛ اختر عمودًا آخر.",
                     "invalid_game_state": "تعذر التحقق من حالة المباراة.",
                 }
                 await interaction.followup.send(
@@ -189,9 +243,12 @@ class Games(commands.Cog):
                 message_id=int(session["message_id"]),
             )
 
-    @game.command(name="xo", description="تحدّ لاعبًا في لعبة XO التفاعلية")
-    @app_commands.guild_only()
-    async def xo(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+    async def _start_game(
+        self,
+        interaction: discord.Interaction,
+        opponent: discord.Member,
+        game_key: str,
+    ) -> None:
         if interaction.guild is None or interaction.channel is None:
             return await interaction.response.send_message(
                 "هذه اللعبة متاحة داخل السيرفرات فقط.", ephemeral=True
@@ -204,6 +261,8 @@ class Games(commands.Cog):
             return await interaction.response.send_message(
                 "اللعب ضد البوت غير متاح في هذه النسخة.", ephemeral=True
             )
+
+        game = registry.get(game_key)
         await interaction.response.defer(ephemeral=True, thinking=True)
         session = None
         message = None
@@ -211,12 +270,12 @@ class Games(commands.Cog):
             session = await create_session(
                 guild_id=interaction.guild.id,
                 channel_id=interaction.channel.id,
-                game_key="xo",
+                game_key=game_key,
                 players=[interaction.user.id, opponent.id],
             )
             embed, image_file = await _game_presentation(session, interaction)
             send_options = {
-                "content": f"⚔️ {interaction.user.mention} تحدّى {opponent.mention} في XO!",
+                "content": f"⚔️ {interaction.user.mention} تحدّى {opponent.mention} في {game.name}!",
                 "embed": embed,
                 "view": GameBoardView(session),
                 "allowed_mentions": discord.AllowedMentions(users=[interaction.user, opponent]),
@@ -231,7 +290,7 @@ class Games(commands.Cog):
             restored = {**session, "message_id": int(message.id)}
             self.bot.add_view(GameBoardView(restored), message_id=int(message.id))
         except (discord.Forbidden, discord.HTTPException, RuntimeError, ValueError):
-            logger.exception("Could not create XO session in guild %s", interaction.guild.id)
+            logger.exception("Could not create %s session in guild %s", game_key, interaction.guild.id)
             if session is not None:
                 await cancel_session(int(session["id"]), guild_id=interaction.guild.id)
             if message is not None:
@@ -245,9 +304,19 @@ class Games(commands.Cog):
             )
             return
         await interaction.followup.send(
-            f"✅ نُشرت مباراة XO رقم {session['id']} في القناة. يبدأ الدور معك.",
+            f"✅ نُشرت مباراة {game.name} رقم {session['id']} في القناة. يبدأ الدور معك.",
             ephemeral=True,
         )
+
+    @game.command(name="xo", description="تحدّ لاعبًا في لعبة XO التفاعلية")
+    @app_commands.guild_only()
+    async def xo(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_game(interaction, opponent, "xo")
+
+    @game.command(name="connect4", description="تحدّ لاعبًا في Connect Four")
+    @app_commands.guild_only()
+    async def connect4(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_game(interaction, opponent, "connect4")
 
     @game.command(name="list", description="عرض الألعاب المتاحة في PRIME")
     async def list_games(self, interaction: discord.Interaction) -> None:
@@ -260,7 +329,7 @@ class Games(commands.Cog):
             description="\n".join(lines) or "لا توجد ألعاب مسجلة.",
             color=0x7C3AED,
         )
-        embed.set_footer(text="يمكن بدء XO من الأمر /game xo")
+        embed.set_footer(text="ابدأ XO عبر /game xo، أو Connect Four عبر /game connect4")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
