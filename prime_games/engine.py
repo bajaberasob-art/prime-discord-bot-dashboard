@@ -172,19 +172,26 @@ async def get_session(session_id: int) -> dict[str, Any] | None:
     return _session(row)
 
 
-async def list_active_sessions(guild_id: int | None = None) -> list[dict[str, Any]]:
-    """List published live sessions, optionally scoped to one Discord server."""
+async def list_active_sessions(
+    guild_id: int | None = None,
+    *,
+    limit: int | None = 100,
+) -> list[dict[str, Any]]:
+    """List published live sessions; pass limit=None when restoring persistent views."""
     query = """
         SELECT * FROM prime_game_sessions
         WHERE status = 'active' AND message_id > 0
     """
-    params: tuple[int, ...] = ()
+    params: list[int] = []
     if guild_id is not None:
         query += " AND guild_id = ?"
-        params = (int(guild_id),)
-    query += " ORDER BY created_at DESC, id DESC LIMIT 100"
+        params.append(int(guild_id))
+    query += " ORDER BY created_at DESC, id DESC"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(max(1, int(limit)))
     async with connect(aiosqlite.Row) as db:
-        async with db.execute(query, params) as cur:
+        async with db.execute(query, tuple(params)) as cur:
             rows = await cur.fetchall()
     return [value for value in (_session(row) for row in rows) if value is not None]
 
