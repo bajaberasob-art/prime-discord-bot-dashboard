@@ -7306,7 +7306,10 @@ async def start_tournament_with_bracket(
             (int(tournament_id),),
         ) as cur:
             current_entries = [int(row[0]) for row in await cur.fetchall()]
-        if current_entries != expected:
+        if (
+            len(expected) != len(set(expected))
+            or set(current_entries) != set(expected)
+        ):
             await db.rollback()
             return None
 
