@@ -126,7 +126,7 @@ class Games(commands.Cog):
 
     async def cog_load(self) -> None:
         await ensure_game_schema()
-        for session in await list_active_sessions():
+        for session in await list_active_sessions(limit=None):
             self.bot.add_view(
                 GameBoardView(session),
                 message_id=int(session["message_id"]),
