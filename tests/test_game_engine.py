@@ -6,6 +6,8 @@ import unittest
 import aiosqlite
 
 import database
+from cogs.games import GameBoardView
+from cogs.gaming import _members, _scrim_embed
 from prime_games.engine import (
     apply_action,
     attach_message,
@@ -207,6 +209,56 @@ class PrimeGamesEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["score"], "3-2")
         self.assertEqual(result["recorded_by"], 88)
 
+
+    async def test_persistent_xo_view_uses_stable_unique_component_ids(self):
+        session = await create_session(
+            guild_id=705,
+            channel_id=305,
+            game_key="xo",
+            players=[61, 62],
+        )
+        view = GameBoardView(session)
+        self.assertIsNone(view.timeout)
+        self.assertEqual(len(view.children), 9)
+        self.assertEqual(
+            [item.custom_id for item in view.children],
+            [f"primegame:xo:{session['id']}:{index}" for index in range(9)],
+        )
+        next_state = {**session, "state": {"board": ["X"] + [None] * 8}}
+        restored = GameBoardView(next_state)
+        self.assertTrue(restored.children[0].disabled)
+        self.assertFalse(restored.children[1].disabled)
+
+    async def test_scrim_roster_parser_rejects_invalid_and_repeated_members(self):
+        self.assertEqual(_members("22, 33", 11), [11, 22, 33])
+        with self.assertRaises(ValueError):
+            _members("22, not-an-id", 11)
+        with self.assertRaises(ValueError):
+            _members("22, 22", 11)
+        with self.assertRaises(ValueError):
+            _members("11", 11)
+
+    async def test_scrim_embed_stays_inside_discord_description_limit(self):
+        registrations = [
+            {
+                "slot_number": index,
+                "team_name": "T" * 100,
+                "leader_id": 100000 + index,
+                "checked_in": index % 2 == 0,
+            }
+            for index in range(1, 129)
+        ]
+        embed = await _scrim_embed({
+            "id": 90,
+            "title": "Tournament scrim",
+            "game_type": "Valorant",
+            "team_size": 5,
+            "max_slots": 128,
+            "occupied_slots": 128,
+            "registrations": registrations,
+        })
+        self.assertLessEqual(len(embed.description or ""), 4096)
+        self.assertIn("إخفاء", embed.description or "")
 
 if __name__ == "__main__":
     unittest.main()
