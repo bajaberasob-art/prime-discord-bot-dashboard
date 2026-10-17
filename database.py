@@ -6559,8 +6559,12 @@ async def record_tournament_score(
     match_ref = str(match_ref or "").strip()[:64]
     if not winner_team or not loser_team or winner_team.casefold() == loser_team.casefold():
         raise ValueError("الفريقان يجب أن يكونا مختلفين")
-    if score and not re.fullmatch(r"\d{1,3}\s*[-:]\s*\d{1,3}", score):
-        raise ValueError("النتيجة يجب أن تكون مثل 3-2")
+    if score:
+        score_match = re.fullmatch(r"(\d{1,3})\s*[-:]\s*(\d{1,3})", score)
+        if not score_match:
+            raise ValueError("النتيجة يجب أن تكون مثل 3-2")
+        if int(score_match.group(1)) <= int(score_match.group(2)):
+            raise ValueError("اكتب نتيجة الفائز أولاً، مثل 3-2")
     if match_ref and (not score or recorded_by is None):
         raise ValueError("رقم المباراة والمنظم والنتيجة مطلوبة لحفظ نتيجة موثقة")
 
@@ -7385,8 +7389,11 @@ async def record_tournament_bracket_result(
 ) -> Optional[Dict[str, Any]]:
     """Resolve one scheduled match once and atomically advance its round."""
     score = str(score or "").strip()
-    if not re.fullmatch(r"\d{1,3}\s*[-:]\s*\d{1,3}", score):
+    score_match = re.fullmatch(r"(\d{1,3})\s*[-:]\s*(\d{1,3})", score)
+    if not score_match:
         raise ValueError("النتيجة يجب أن تكون مثل 3-2")
+    if int(score_match.group(1)) <= int(score_match.group(2)):
+        raise ValueError("اكتب نتيجة الفائز أولاً، مثل 3-2")
 
     async with connect(aiosqlite.Row) as db:
         await db.execute("BEGIN IMMEDIATE")
