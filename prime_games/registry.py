@@ -97,6 +97,111 @@ def _reduce_xo_action(
     return GameTransition(next_state, next_player)
 
 
+def _initial_connect_four_state(players: list[int]) -> dict[str, Any]:
+    return {"board": [None] * 42}
+
+
+def _reduce_connect_four_action(
+    state: dict[str, Any],
+    players: list[int],
+    actor_id: int,
+    action: dict[str, Any],
+) -> GameTransition:
+    """Drop one checker into a 7-column, 6-row board."""
+    board = list(state.get("board") or [])
+    if len(board) != 42:
+        raise ValueError("invalid_game_state")
+    try:
+        column = int(action.get("column"))
+    except (TypeError, ValueError):
+        raise ValueError("invalid_column") from None
+    if not 0 <= column < 7:
+        raise ValueError("invalid_column")
+    if actor_id not in players:
+        raise ValueError("not_a_player")
+
+    landing_index = None
+    for row in range(5, -1, -1):
+        candidate = row * 7 + column
+        if board[candidate] is None:
+            landing_index = candidate
+            break
+    if landing_index is None:
+        raise ValueError("column_full")
+
+    mark = "X" if actor_id == players[0] else "O"
+    board[landing_index] = mark
+    next_state = {**state, "board": board}
+
+    def count_direction(row_delta: int, column_delta: int) -> int:
+        count = 0
+        row = landing_index // 7 + row_delta
+        col = landing_index % 7 + column_delta
+        while 0 <= row < 6 and 0 <= col < 7 and board[row * 7 + col] == mark:
+            count += 1
+            row += row_delta
+            col += column_delta
+        return count
+
+    row_delta = landing_index // 7
+    col_delta = landing_index % 7
+    for row_step, col_step in ((0, 1), (1, 0), (1, 1), (1, -1)):
+        streak = 1 + count_direction(row_step, col_step) + count_direction(-row_step, -col_step)
+        if streak >= 4:
+            return GameTransition(next_state, None, winner_id=actor_id)
+
+    if all(cell is not None for cell in board):
+        return GameTransition(next_state, None, is_draw=True)
+    next_player = players[1] if actor_id == players[0] else players[0]
+    return GameTransition(next_state, next_player)
+
+
+def _initial_rps_state(players: list[int]) -> dict[str, Any]:
+    return {"choices": {}}
+
+
+def _reduce_rps_action(
+    state: dict[str, Any],
+    players: list[int],
+    actor_id: int,
+    action: dict[str, Any],
+) -> GameTransition:
+    """Collect each player's choice without revealing it until both have chosen."""
+    choice = str(action.get("choice") or "").strip().lower()
+    if choice not in {"rock", "paper", "scissors"}:
+        raise ValueError("invalid_choice")
+
+    choices = dict(state.get("choices") or {})
+    actor_key = str(int(actor_id))
+    if actor_key in choices:
+        raise ValueError("already_chose")
+    if actor_id not in players:
+        raise ValueError("not_a_player")
+
+    choices[actor_key] = choice
+    next_state = {**state, "choices": choices}
+    if len(choices) < 2:
+        next_player = players[1] if actor_id == players[0] else players[0]
+        return GameTransition(next_state, next_player)
+
+    first_choice = choices.get(str(players[0]))
+    second_choice = choices.get(str(players[1]))
+    if first_choice not in {"rock", "paper", "scissors"} or second_choice not in {
+        "rock", "paper", "scissors"
+    }:
+        raise ValueError("invalid_game_state")
+    if first_choice == second_choice:
+        return GameTransition(next_state, None, is_draw=True)
+
+    defeats = {
+        "rock": "scissors",
+        "paper": "rock",
+        "scissors": "paper",
+    }
+    winner_id = players[0] if defeats[first_choice] == second_choice else players[1]
+    return GameTransition(next_state, None, winner_id=winner_id)
+
+
 registry = GameRegistry()
 registry.register(
     GameDefinition(
@@ -107,5 +212,28 @@ registry.register(
         reward_coins=25,
         initial_state=_initial_xo_state,
         reduce_action=_reduce_xo_action,
+    )
+)
+registry.register(
+    GameDefinition(
+        key="connect4",
+        name="Connect Four · أربعة على التوالي",
+        min_players=2,
+        max_players=2,
+        reward_coins=25,
+        initial_state=_initial_connect_four_state,
+        reduce_action=_reduce_connect_four_action,
+    )
+)
+
+registry.register(
+    GameDefinition(
+        key="rps",
+        name="Rock Paper Scissors · حجر ورقة مقص",
+        min_players=2,
+        max_players=2,
+        reward_coins=25,
+        initial_state=_initial_rps_state,
+        reduce_action=_reduce_rps_action,
     )
 )
