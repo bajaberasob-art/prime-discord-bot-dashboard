@@ -2546,28 +2546,65 @@ async def api_guild_gaming_credentials(req):
     credentials = str(body.get("credentials") or "").strip()
     if not credentials or len(credentials) > 1500:
         return json_error(400, "validation", fields={"credentials": "أدخل بيانات الغرفة"})
+
     scrim = next(
         (item for item in await get_scrims(guild.id) if int(item["id"]) == scrim_id),
         None,
     )
     if not scrim:
         return json_error(404, "scrim_not_found")
-    channel = guild.get_channel(int(scrim["channel_id"]))
-    if channel is None:
-        return json_error(404, "channel_not_found")
+    if not bool(scrim.get("is_active")):
+        return json_error(409, "scrim_closed")
+    recipients = set()
+    for registration in scrim.get("registrations", []):
+        try:
+            leader_id = int(registration["leader_id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if leader_id > 0:
+            recipients.add(leader_id)
+        members = registration.get("members", [])
+        if isinstance(members, list):
+            for member_id in members:
+                try:
+                    member_id = int(member_id)
+                except (TypeError, ValueError):
+                    continue
+                if member_id > 0:
+                    recipients.add(member_id)
+    if not recipients:
+        return json_error(409, "no_registered_participants")
+
     embed = discord.Embed(
-        title=f"🔐 بيانات غرفة السكريم: {scrim['title']}",
+        title=f"🔐 بيانات غرفة السكريم: {discord.utils.escape_mentions(str(scrim['title']))}",
         description=credentials,
         color=0x8B5CF6,
     )
-    embed.set_footer(text=f"SCRIM:{scrim_id} • أرسلها فقط للمشاركين")
-    try:
-        message = await channel.send(embed=embed)
-    except discord.Forbidden:
-        return json_error(403, "discord_forbidden")
-    except discord.HTTPException:
-        return json_error(502, "discord_unavailable")
-    return web.json_response({"ok": True, "message_id": str(message.id)})
+    embed.set_footer(text=f"SCRIM:{scrim_id} • رسالة خاصة للمشاركين المسجلين")
+    sent_count = 0
+    failed_count = 0
+    for user_id in sorted(recipients):
+        member = guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                failed_count += 1
+                continue
+        try:
+            await member.send(embed=embed)
+            sent_count += 1
+        except (discord.Forbidden, discord.HTTPException):
+            failed_count += 1
+
+    if sent_count == 0:
+        return json_error(502, "participant_dm_unavailable")
+    return web.json_response({
+        "ok": True,
+        "sent_count": sent_count,
+        "failed_count": failed_count,
+    })
+
 
 
 def _command_roles(guild, role_ids):
