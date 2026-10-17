@@ -156,7 +156,7 @@ class GameBoardView(discord.ui.View):
                 button = discord.ui.Button(
                     label=str(column + 1),
                     style=discord.ButtonStyle.primary,
-                    row=0,
+                    row=0 if column < 5 else 1,
                     disabled=terminal or full,
                     custom_id=f"primegame:connect4:{self.session_id}:{column}",
                 )
