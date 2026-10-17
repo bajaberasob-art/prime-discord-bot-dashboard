@@ -218,3 +218,23 @@ def test_logging_routes_and_category_settings_round_trip_in_fresh_database(
     finally:
         database.LOG_ROUTING_CACHE.clear()
         database.LOG_CATEGORY_SETTINGS_CACHE.clear()
+
+def test_audit_embeds_use_consistent_summary_category_and_full_width_details():
+    guild = SimpleNamespace(id=91, name="PRIME Test", icon=None)
+
+    embed = _make_analytics()._embed(
+        guild,
+        "log_member",
+        "👤 تحديث عضو",
+        "تم تحديث معلومات العضو.",
+        fields=[
+            ("👤 العضو", "<@123>", True),
+            ("📝 التفاصيل", "تغيير وصف العضو: " + ("معلومة " * 20), True),
+        ],
+    )
+
+    assert embed.description.startswith("**ملخص الحدث**\n")
+    assert "سجل الأعضاء" in embed.footer.text
+    assert "PRIME Test" in embed.footer.text
+    assert embed.fields[0].inline is True
+    assert embed.fields[1].inline is False

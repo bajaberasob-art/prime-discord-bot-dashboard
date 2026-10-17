@@ -314,7 +314,18 @@ def create_elite_log_embed(
         else:
             name, value, *rest = item
             inline = rest[0] if rest else True
-        embed.add_field(name=_safe(name, 256), value=_safe(value), inline=bool(inline))
+        field_name = _safe(name, 256)
+        field_value = _safe(value)
+        field_name_folded = str(name or "").casefold()
+        full_width_labels = (
+            "التفاصيل", "التغييرات", "المحتوى", "المرفقات", "السبب",
+            "الوصف", "الملاحظات", "الرسالة", "الإجراء", "الأمر",
+        )
+        if len(field_value) > 100 or any(
+            marker in field_name_folded for marker in full_width_labels
+        ):
+            inline = False
+        embed.add_field(name=field_name, value=field_value, inline=bool(inline))
     return embed
 
 
@@ -672,23 +683,34 @@ class Analytics(commands.Cog):
         return None
 
     def _embed(self, guild, category, title, description, *, author=None, fields=None, thumbnail=None, color=None):
+        canonical = CATEGORY_ALIASES.get(category, category)
+        category_color, category_label = COLORS.get(
+            canonical,
+            COLORS.get(category, (0x5865F2, "📋 سجل الأحداث")),
+        )
         formatted_fields, member_thumbnail = _format_log_fields(
             guild, category, fields or [],
         )
+        summary = _safe(description, 3950).strip()
+        if not summary:
+            summary = "تم رصد الحدث، ولا توجد تفاصيل إضافية متاحة."
+        if not summary.startswith("**ملخص الحدث**"):
+            summary = f"**ملخص الحدث**\n{summary}"
         embed = create_elite_log_embed(
             title,
-            description,
-            f"#{color or COLORS[category][0]:06X}",
+            summary,
+            f"#{color or category_color:06X}",
             author_user=author,
             fields=formatted_fields,
             thumbnail_url=thumbnail or member_thumbnail,
         )
         icon = getattr(getattr(guild, "icon", None), "url", None)
         guild_name = _safe(getattr(guild, "name", "سيرفر Discord"), 128)
+        footer = f"PRIME • {category_label} • {guild_name}"
         if icon:
-            embed.set_footer(text=f"PRIME • سجل التدقيق • {guild_name}", icon_url=str(icon))
+            embed.set_footer(text=footer, icon_url=str(icon))
         else:
-            embed.set_footer(text=f"PRIME • سجل التدقيق • {guild_name}")
+            embed.set_footer(text=footer)
         return embed
 
     async def _log(
