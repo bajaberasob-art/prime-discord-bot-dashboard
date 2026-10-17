@@ -6548,8 +6548,37 @@ async def record_tournament_score(
     guild_id: int,
     winner_team: str,
     loser_team: str,
-) -> None:
+    score: str | None = None,
+    match_ref: str | None = None,
+    recorded_by: int | None = None,
+) -> bool:
+    """Record the score and standings in one transaction; a match reference is idempotent."""
+    winner_team = str(winner_team or "").strip()[:100]
+    loser_team = str(loser_team or "").strip()[:100]
+    score = str(score or "").strip()[:32]
+    match_ref = str(match_ref or "").strip()[:64]
+    if not winner_team or not loser_team or winner_team.casefold() == loser_team.casefold():
+        raise ValueError("الفريقان يجب أن يكونا مختلفين")
+    if score and not re.fullmatch(r"\d{1,3}\s*[-:]\s*\d{1,3}", score):
+        raise ValueError("النتيجة يجب أن تكون مثل 3-2")
+    if match_ref and (not score or recorded_by is None):
+        raise ValueError("رقم المباراة والمنظم والنتيجة مطلوبة لحفظ نتيجة موثقة")
+
     async with connect() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        if match_ref:
+            cur = await db.execute(
+                """
+                INSERT OR IGNORE INTO tournament_score_results
+                    (guild_id, match_ref, winner_team, loser_team, score, recorded_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (int(guild_id), match_ref, winner_team, loser_team, score, int(recorded_by)),
+            )
+            if cur.rowcount != 1:
+                await db.rollback()
+                return False
+
         for team, won in ((winner_team, True), (loser_team, False)):
             await db.execute(
                 """
@@ -6564,13 +6593,14 @@ async def record_tournament_score(
                 """,
                 (
                     int(guild_id),
-                    str(team)[:100],
+                    team,
                     3 if won else 0,
                     1 if won else 0,
                     0 if won else 1,
                 ),
             )
         await db.commit()
+    return True
 
 
 async def get_tournament_scores(
@@ -7233,9 +7263,12 @@ async def _create_next_tournament_round(
                 status, status,
             ),
         )
-    return await _create_next_tournament_round(
+    # Starting a new round is itself the meaningful result of this completion.
+    # It is scheduled, so the recursive helper returns False for completion status.
+    await _create_next_tournament_round(
         db, int(tournament_id), int(guild_id), next_round
     )
+    return True, False
 
 
 async def start_tournament_with_bracket(
