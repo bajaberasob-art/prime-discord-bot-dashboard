@@ -389,9 +389,17 @@ class EnterpriseBot(commands.Bot):
             logger.info("⏭️ تم تخطي مزامنة أوامر Slash؛ فعّل SYNC_COMMANDS=true عند الحاجة.")
             from cogs.rank_commands import publish_rank_commands
             from cogs.subscription_commands import publish_subscription_commands
+            from command_registration import publish_command_groups
 
             await publish_rank_commands(self, guild=self.sync_guild)
             await publish_subscription_commands(self, guild=self.sync_guild)
+            # Broad sync is intentionally disabled by default; explicitly upsert
+            # only the two new command groups so unrelated Discord commands stay untouched.
+            await publish_command_groups(
+                self,
+                ("game", "tournament"),
+                guild=self.sync_guild,
+            )
 
         self.rotate_status.start()
         self._is_initialized = True
