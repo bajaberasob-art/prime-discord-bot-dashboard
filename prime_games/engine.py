@@ -12,6 +12,8 @@ from prime_games.registry import GameTransition, registry
 
 logger = logging.getLogger("PrimeGames")
 
+MAX_DAILY_GAME_REWARD_COINS = 250
+
 
 async def ensure_game_schema() -> None:
     """Create additive game tables in PRIME's existing SQLite database."""
@@ -261,7 +263,23 @@ async def apply_action(
             return _failure("stale_game_state")
 
         reward = 0
+        reward_capped = False
         if transition.winner_id is not None and game.reward_coins:
+            async with db.execute(
+                """
+                SELECT COALESCE(SUM(amount), 0)
+                FROM prime_game_reward_claims
+                WHERE guild_id = ? AND user_id = ?
+                  AND created_at >= datetime('now', '-24 hours')
+                """,
+                (session["guild_id"], int(transition.winner_id)),
+            ) as cur:
+                paid_last_24h = int((await cur.fetchone())[0] or 0)
+            remaining_daily_budget = max(
+                0,
+                MAX_DAILY_GAME_REWARD_COINS - paid_last_24h,
+            )
+            payout = min(int(game.reward_coins), remaining_daily_budget)
             reward_cur = await db.execute(
                 """
                 INSERT OR IGNORE INTO prime_game_reward_claims
@@ -270,10 +288,10 @@ async def apply_action(
                 """,
                 (
                     int(session_id), session["guild_id"],
-                    int(transition.winner_id), int(game.reward_coins),
+                    int(transition.winner_id), int(payout),
                 ),
             )
-            if reward_cur.rowcount == 1:
+            if reward_cur.rowcount == 1 and payout > 0:
                 # Use PRIME's existing wallet and ledger, not a second economy.
                 await db.execute(
                     "INSERT OR IGNORE INTO users (user_id, guild_id) VALUES (?, ?)",
@@ -281,7 +299,7 @@ async def apply_action(
                 )
                 await db.execute(
                     "UPDATE users SET balance = balance + ? WHERE user_id = ? AND guild_id = ?",
-                    (int(game.reward_coins), int(transition.winner_id), session["guild_id"]),
+                    (payout, int(transition.winner_id), session["guild_id"]),
                 )
                 await db.execute(
                     """
@@ -289,9 +307,10 @@ async def apply_action(
                         (guild_id, from_user_id, to_user_id, amount, kind)
                     VALUES (?, NULL, ?, ?, 'game_reward')
                     """,
-                    (session["guild_id"], int(transition.winner_id), int(game.reward_coins)),
+                    (session["guild_id"], int(transition.winner_id), payout),
                 )
-                reward = int(game.reward_coins)
+                reward = payout
+            reward_capped = payout < int(game.reward_coins)
 
         await db.commit()
     updated = await get_session(int(session_id))
@@ -299,6 +318,7 @@ async def apply_action(
         "ok": True,
         "session": updated,
         "reward": reward,
+        "reward_capped": reward_capped,
         "finished": finished,
         "winner_id": transition.winner_id,
         "is_draw": transition.is_draw,
