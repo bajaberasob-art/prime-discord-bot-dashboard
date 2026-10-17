@@ -90,6 +90,9 @@ SLASH_COMMAND_GROUPS = {
             "member_stats", "reset_nicks",
         },
     },
+    "Tournaments": {
+        "tournament": {"bracket", "result"},
+    },
     "ToolsChannelsCog": {
         "tools": {
             "avatar", "banner", "userinfo", "serverinfo", "roleinfo", "ping",
@@ -113,6 +116,7 @@ SLASH_GROUP_DESCRIPTIONS = {
     "admin": "الإدارة المتقدمة",
     "tools": "معلومات وأدوات الأعضاء",
     "channels": "إدارة القنوات والإحصائيات",
+    "tournament": "إدارة جولات البطولات",
 }
 
 
