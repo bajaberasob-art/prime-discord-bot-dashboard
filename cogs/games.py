@@ -21,7 +21,7 @@ from cogs.card_generator import generate_xo_game_card
 logger = logging.getLogger("PrimeGamesCog")
 
 
-def _game_embed(session: dict, *, reward: int = 0) -> discord.Embed:
+def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) -> discord.Embed:
     players = session["players"]
     state = session.get("state") or {}
     board = state.get("board") or [None] * 9
@@ -34,6 +34,8 @@ def _game_embed(session: dict, *, reward: int = 0) -> discord.Embed:
             description += f"🏆 الفائز: <@{session['winner_id']}>"
             if reward:
                 description += f"\n💰 أضيفت مكافأة **{reward}** عملة إلى محفظته."
+            elif reward_capped:
+                description += "\n🛡️ وصلت إلى حد مكافآت الألعاب خلال آخر 24 ساعة؛ لم تُصرف عملات إضافية."
         else:
             description += "🤝 انتهت المباراة بالتعادل."
         color = 0x22C55E if session.get("winner_id") is not None else 0x64748B
@@ -63,6 +65,7 @@ async def _game_presentation(
     interaction: discord.Interaction,
     *,
     reward: int = 0,
+    reward_capped: bool = False,
 ) -> tuple[discord.Embed, discord.File | None]:
     """Prepare an embed and an optional custom board image without blocking Discord."""
     guild = interaction.guild
@@ -96,12 +99,12 @@ async def _game_presentation(
             is_draw=bool(session.get("status") == "finished" and session.get("result") == "draw"),
             reward=int(reward),
         )
-        embed = _game_embed(session, reward=reward)
+        embed = _game_embed(session, reward=reward, reward_capped=reward_capped)
         embed.set_image(url="attachment://prime-xo.png")
         return embed, discord.File(image, filename="prime-xo.png")
     except Exception:
         logger.exception("Could not render XO card for session %s; using embed fallback", session.get("id"))
-        return _game_embed(session, reward=reward), None
+        return _game_embed(session, reward=reward, reward_capped=reward_capped), None
 
 
 class GameBoardView(discord.ui.View):
@@ -161,6 +164,7 @@ class GameBoardView(discord.ui.View):
                 session,
                 interaction,
                 reward=int(outcome.get("reward") or 0),
+                reward_capped=bool(outcome.get("reward_capped")),
             )
             await interaction.edit_original_response(
                 embed=embed,
