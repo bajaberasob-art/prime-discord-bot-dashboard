@@ -292,6 +292,8 @@ class EnterpriseBot(commands.Bot):
 
         try:
             await init_db()
+            from prime_games.engine import ensure_game_schema
+            await ensure_game_schema()
             await prime_ai_intelligence.ensure_schema()
             durable_enabled = await prime_ai_persistence.start_durable_store()
             if durable_enabled:
