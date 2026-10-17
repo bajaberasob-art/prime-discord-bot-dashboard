@@ -335,6 +335,7 @@ class EnterpriseBot(commands.Bot):
             "cogs.temp_voice",
             "cogs.tournaments",
             "cogs.gaming",
+            "cogs.games",
             "cogs.community",
             "cogs.announcement_reactions",
             "cogs.ai_tools",
