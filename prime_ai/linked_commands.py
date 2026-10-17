@@ -26,6 +26,36 @@ _COMMAND_POLICY_BINDINGS = {
     "remove_role": "take_role",
 }
 
+# Read-only AI routes share the saved policy of the equivalent Slash command,
+# but keep their own bounded, read-only data implementation.
+_READ_SKILL_POLICY_BINDINGS = {
+    "fetch_channel": "channelinfo",
+}
+
+
+async def ensure_command_policy_binding(
+    guild: Any, actor: Any, channel: Any, command_name: str,
+) -> None:
+    """Apply the saved per-guild policy for one explicitly reviewed command."""
+    from command_policy_service import CommandPolicyDenied, ensure_command_policy
+
+    try:
+        await ensure_command_policy(
+            guild.id, command_name, actor, getattr(channel, "id", None),
+        )
+    except CommandPolicyDenied as error:
+        raise AccessDenied(str(error)) from error
+
+
+async def ensure_read_skill_command_policy(
+    guild: Any, actor: Any, channel: Any, tool: str | None,
+) -> None:
+    """Apply a Slash policy only to read skills with an explicit reviewed link."""
+    command_name = _READ_SKILL_POLICY_BINDINGS.get(str(tool or ""))
+    if command_name is None:
+        return
+    await ensure_command_policy_binding(guild, actor, channel, command_name)
+
 
 async def execute_linked_command(
     bot: Any, guild: Any, actor: Any, channel: Any, step: dict, checked: dict,
@@ -45,14 +75,7 @@ async def execute_linked_command(
     if linked is None and policy_command is None:
         return None
 
-    from command_policy_service import CommandPolicyDenied, ensure_command_policy
-
-    try:
-        await ensure_command_policy(
-            guild.id, policy_command, actor, getattr(channel, "id", None),
-        )
-    except CommandPolicyDenied as error:
-        raise AccessDenied(str(error)) from error
+    await ensure_command_policy_binding(guild, actor, channel, policy_command)
 
     # Some PRIME AI tools have no equivalent Slash handler. For those with a
     # matching command above, return to the validated native executor only after

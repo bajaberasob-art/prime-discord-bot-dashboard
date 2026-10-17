@@ -25,6 +25,7 @@ from prime_ai.cache import RuntimePolicyCache
 from prime_ai.tasks import TaskSupervisor
 from prime_ai.errors import ActionOutcomeTrackingError
 from prime_ai import dialogue
+from prime_ai import command_catalog as prime_ai_command_catalog
 import runtime_diagnostics
 
 LOGGER = logging.getLogger("AITools")
@@ -1722,6 +1723,9 @@ class AITools(commands.Cog):
                 context=conversation,
                 config=config,
                 forced_tools=[forced_tool] if forced_tool else None,
+                reviewed_command_adapters=prime_ai_command_catalog.build_reviewed_command_catalog(
+                    self.bot
+                ),
             )
         except prime_ai_runtime.InvalidToolPlan as error:
             LOGGER.info("[AI] Rejected invalid action plan (%s).", str(error)[:100])
