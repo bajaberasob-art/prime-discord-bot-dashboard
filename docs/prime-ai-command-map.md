@@ -79,7 +79,7 @@ prime_ai/linked_commands.py deliberately links only selected actions to existing
 - Channel mode: set_channel_mode uses ChatJailCog's lock method for read_only and unlock method for open.
 - Policy-only links, followed by PRIME's validated native executor: create_channel → create_channel; rename_channel → rename_channel; delete_channel → delete_channel; set_member_nickname → setnick; assign_role → give_role; remove_role → take_role.
 
-A visually similar command is not automatically equivalent to an AI action. For example, role_color is not silently treated as edit_role, and a bulk command such as massban is not silently exposed as ban_member. Read-only policy bridge: fetch_channel → channelinfo (keeps the read-only skill executor but honors the saved Slash command policy). New links must explicitly define argument conversion, exact target semantics, permission requirements, command-policy behavior, action logging, confirmation and verification of the outcome.
+A visually similar command is not automatically equivalent to an AI action. For example, role_color is not silently treated as edit_role, and a bulk command such as massban is not silently exposed as ban_member. Read-only policy bridges: fetch_channel → channelinfo, fetch_server_data → serverinfo, fetch_roles → roles, fetch_role → roleinfo, and fetch_member → userinfo. These retain PRIME's bounded read-skill executor while honoring each matching saved Slash command policy. New links must explicitly define argument conversion, exact target semantics, permission requirements, command-policy behavior, action logging, confirmation and verification of the outcome.
 
 ## Command inventory by COG
 
@@ -138,3 +138,8 @@ The generic adapter gap remains intentional: commands such as `massban`, `nuke`,
 ## Phase 3 implementation — high-impact confirmation invariant
 
 The fixed confirmation registry now includes every action whose registry risk is HIGH or CRITICAL. This closes the previous mismatch where set_channel_mode, edit_role, assign_role, remove_role and unban_member were labeled HIGH but could skip the requester's confirmation. A unit-test invariant compares the full HIGH/CRITICAL set against the confirmation registry so newly added high-impact tools cannot be exposed without an explicit confirmation decision.
+
+
+## Phase 4 implementation — read-skill command-policy parity
+
+The reviewed read-only policy bridge now also covers the direct equivalents `serverinfo`, `roles`, `roleinfo`, and `userinfo`. PRIME continues to use its bounded read-only skill handlers rather than directly invoking command callbacks, but a saved disabled/role/channel policy on the matching Slash command blocks the corresponding AI read too. Listing all server members and listing all channels remain unlinked because there is no exact one-to-one command equivalent in the reviewed set. Tests verify each mapping and confirm the read does not occur when the matching command is disabled.

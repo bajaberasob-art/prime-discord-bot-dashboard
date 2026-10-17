@@ -30,6 +30,10 @@ _COMMAND_POLICY_BINDINGS = {
 # but keep their own bounded, read-only data implementation.
 _READ_SKILL_POLICY_BINDINGS = {
     "fetch_channel": "channelinfo",
+    "fetch_server_data": "serverinfo",
+    "fetch_roles": "roles",
+    "fetch_role": "roleinfo",
+    "fetch_member": "userinfo",
 }
 
 

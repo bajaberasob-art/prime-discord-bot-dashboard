@@ -81,6 +81,30 @@ class AICommandPolicyBridgeTests(unittest.IsolatedAsyncioTestCase):
             guild.id, "channelinfo", actor, channel.id,
         )
 
+    async def test_other_information_read_skills_honor_equivalent_slash_command_policies(self):
+        guild = SimpleNamespace(id=100000000000000001)
+        actor = SimpleNamespace(id=100000000000000010)
+        channel = SimpleNamespace(id=100000000000000020)
+        bindings = {
+            "fetch_server_data": "serverinfo",
+            "fetch_roles": "roles",
+            "fetch_role": "roleinfo",
+            "fetch_member": "userinfo",
+        }
+
+        for tool, command_name in bindings.items():
+            with self.subTest(tool=tool):
+                with patch(
+                    "command_policy_service.ensure_command_policy",
+                    new=AsyncMock(return_value=None),
+                ) as ensure:
+                    await ensure_read_skill_command_policy(
+                        guild, actor, channel, tool,
+                    )
+                ensure.assert_awaited_once_with(
+                    guild.id, command_name, actor, channel.id,
+                )
+
     async def test_disabled_channelinfo_policy_blocks_ai_channel_read(self):
         guild = SimpleNamespace(id=100000000000000001)
         actor = SimpleNamespace(id=100000000000000010)
@@ -96,6 +120,48 @@ class AICommandPolicyBridgeTests(unittest.IsolatedAsyncioTestCase):
         ensure.assert_awaited_once_with(
             guild.id, "channelinfo", actor, channel.id,
         )
+
+    async def test_equivalent_read_policies_block_skill_data_before_read(self):
+        cases = (
+            ("server_information", "SERVER_INFO", "fetch_server_data", "serverinfo"),
+            ("roles", "ROLE_INFO", "fetch_roles", "roles"),
+            ("roles", "ROLE_INFO", "fetch_role", "roleinfo"),
+            ("members", "MEMBER_INFO", "fetch_member", "userinfo"),
+        )
+        guild = SimpleNamespace(id=100000000000000001)
+        actor = SimpleNamespace(id=100000000000000010, roles=[])
+        channel = SimpleNamespace(id=300000000000000020)
+
+        for skill_key, skill_id, tool, command_name in cases:
+            skill = {"key": skill_key, "skill_id": skill_id, "enabled": True}
+            with self.subTest(tool=tool):
+                with (
+                    patch.object(
+                        prime_ai_runtime.control,
+                        "get_skills",
+                        new=AsyncMock(return_value=[skill]),
+                    ),
+                    patch.object(prime_ai_runtime, "skill_policy", new=AsyncMock()),
+                    patch(
+                        "command_policy_service.ensure_command_policy",
+                        new=AsyncMock(side_effect=CommandPolicyDenied("command_disabled")),
+                    ) as ensure,
+                    patch.object(
+                        prime_ai_runtime,
+                        "get_skill_data",
+                        new=AsyncMock(return_value={"should_not_read": True}),
+                    ) as read_skill,
+                ):
+                    result = await prime_ai_runtime.route_skill_request(
+                        guild, actor, channel,
+                        {"skill_key": skill_key, "tool": tool, "intent": skill_id},
+                    )
+
+                self.assertEqual(result["error"], "command_disabled")
+                ensure.assert_awaited_once_with(
+                    guild.id, command_name, actor, channel.id,
+                )
+                read_skill.assert_not_awaited()
 
     async def test_fetch_channel_route_stops_before_read_when_command_disabled(self):
         guild = SimpleNamespace(id=100000000000000001)
