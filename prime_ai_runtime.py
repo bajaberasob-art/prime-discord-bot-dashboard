@@ -259,7 +259,8 @@ _ACTION_ADVICE_INTENT = re.compile(
     r"\bis\s+it\s+(?:okay|safe|wise)\s+to\b|"
     r"\bwhat\s+permission(?:s)?\s+do\s+i\s+need\b|"
     r"كيف\s+(?:اقدر|يمكنني|اسوي|انشئ|اغير|احذف|اعطي|اقفل|افتح)|"
-    r"هل\s+(?:اقدر|يمكنني|ينبغي|لازم|احذف|ارسل|احظر|اطرد|اقفل|افتح)|"
+    r"هل\s+(?:اقدر|يمكنني|ينبغي|لازم|اعط(?:ي|ه|ها|هم)?|عط(?:ي|ه|ها|هم)?|"
+    r"امنح|عين|انشئ|سوي|سو|غير|بدل|عدل|احذف|ارسل|احظر|اطرد|اقفل|افتح)|"
     r"طريقة\s+(?:انشاء|تغيير|حذف|اعطاء|فتح|قفل)|"
     r"اشرح\s+(?:كيف|طريقة))",
     re.I,
@@ -286,7 +287,11 @@ _ACTION_REQUEST_PATTERNS = {
     "add_reaction": re.compile(r"(?:\b(?:add|put)\s+(?:a\s+)?reaction\b|\breact\b|اضف\s+تفاعل|حط\s+تفاعل)", re.I),
     "edit_message": re.compile(r"(?:\bedit\s+(?:(?:the|this|that)\s+)?message\b|عدل\s+الرسالة)", re.I),
     "delete_message": re.compile(r"(?:\b(?:delete|remove)\s+(?:(?:the|this|that)\s+)?message\b|احذف\s+الرسالة|حذف\s+الرسالة)", re.I),
-    "create_channel": re.compile(r"(?:\b(?:create|make)\s+(?:a\s+)?(?:text\s+)?channel\b|انشئ\s+قناة|سوي\s+(?:روم|قناة))", re.I),
+    "create_channel": re.compile(
+        r"(?:\b(?:create|make)\s+(?:a\s+)?(?:text\s+)?channel\b|"
+        r"انشئ\s+(?:لي\s+)?(?:قناة|روم)|سوي\s+(?:لي\s+)?(?:روم|قناة))",
+        re.I,
+    ),
     "rename_channel": re.compile(
         r"(?:\brename\s+(?:(?:the|this|that)\s+)?channel\b|"
         r"\b(?:change|set)\s+(?:(?:the|this|that)\s+)?channel\s+name\b|"
@@ -328,15 +333,31 @@ _ACTION_REQUEST_PATTERNS = {
         r"مفتوحة|مفتوحه|مفتوحة للكتابة|للكتابة|كتابة))",
         re.I,
     ),
-    "create_role": re.compile(r"(?:\bcreate\s+(?:a\s+)?role\b|انشئ\s+رتبة|سوي\s+رتبة)", re.I),
+    "create_role": re.compile(
+        r"(?:\bcreate\s+(?:a\s+)?role\b|انشئ\s+(?:لي\s+)?رتبة|سوي\s+(?:لي\s+)?رتبة)",
+        re.I,
+    ),
     "edit_role": re.compile(r"(?:\bedit\s+(?:the\s+)?role\b|عدل\s+الرتبة)", re.I),
     "delete_role": re.compile(
         r"(?:\b(?:delete|remove)\s+(?:(?:the|this|that)\s+)?role\b|"
         r"احذف\s+(?:(?:هذه|هذي)\s+)?الرتبة|حذف\s+(?:(?:هذه|هذي)\s+)?الرتبة)",
         re.I,
     ),
-    "assign_role": re.compile(r"(?:\b(?:assign|give|grant)\s+(?:the\s+)?role\b|اعط(?:ي)?\s+رتبة|امنح\s+رتبة|عين\s+رتبة)", re.I),
-    "remove_role": re.compile(r"(?:\b(?:remove|revoke)\s+(?:the\s+)?role\b|اسحب\s+الرتبة|ازل\s+الرتبة)", re.I),
+    "assign_role": re.compile(
+        r"(?:\b(?:assign|give|grant)\s+(?:the\s+)?role\b|"
+        r"\b(?:assign|give|grant)\s+[\w.-]+\s+(?:(?:the|a)\s+)?(?:[\w.-]+\s+)?role\b|"
+        r"اعط(?:ي|ه|ها|هم)?\s+رتبة|امنح\s+رتبة|عين\s+رتبة|"
+        r"(?:اعط|عط|امنح|عين)\s+(?:[\w\u0600-\u06ff.-]+\s+){1,5}(?:ال)?رتبة)",
+        re.I,
+    ),
+    "remove_role": re.compile(
+        r"(?:\b(?:remove|revoke)\s+(?:the\s+)?role\b|"
+        r"\b(?:remove|revoke)\s+[\w.-]+\s+(?:(?:the|a)\s+)?(?:[\w.-]+\s+)?role\b|"
+        r"اسحب\s+الرتبة|ازل\s+الرتبة|"
+        r"(?:اسحب|شيل|ازل)\s+(?:ال)?رتبة(?:\s+[\w\u0600-\u06ff.-]+)?"
+        r"(?:\s+من\s+[\w\u0600-\u06ff.-]+)?)",
+        re.I,
+    ),
     "timeout_member": re.compile(r"(?:\b(?:timeout|mute)\b|اسكت|اسكت\s+عضو|مهلة\s+للعضو)", re.I),
     "kick_member": re.compile(r"(?:\bkick\b|اطرد|طرد\s+عضو)", re.I),
     "ban_member": re.compile(r"(?:\bban\b|احظر|حظر\s+عضو)", re.I),
@@ -362,7 +383,8 @@ _ACTION_VERB_MENTION = re.compile(
     r"\b(?:send|post|reply|respond|edit|delete|remove|create|make|rename|change|"
     r"lock|unlock|open|set|assign|give|grant|revoke|timeout|mute|kick|ban|unban)\b|"
     r"(?:ارسل|انشر|اكتب|رد|اضف|حط|عدل|احذف|تحذف|حذف|انشئ|سوي|غير|اقفل|قفل|"
-    r"اغلق|افتح|اجعل|خلي|اسكت|اطرد|تطرد|احظر|تحظر|حظر|الغاء|فك)",
+    r"اغلق|افتح|اجعل|خلي|اعط|اعطي|عط|عطي|تعط|تعطي|تعطيني|تعطيه|تعطيها|تعطيهم|امنح|عين|شيل|اسحب|اسكت|اطرد|تطرد|"
+    r"احظر|تحظر|حظر|الغاء|فك)",
     re.I,
 )
 _WAKE_PREFIX = re.compile(

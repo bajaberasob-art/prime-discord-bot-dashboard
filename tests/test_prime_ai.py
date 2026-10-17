@@ -1158,6 +1158,36 @@ class PrimeAIUnderstandingTests(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertIn("set_member_nickname", prime_ai_runtime.ACTION_TOOL_SCHEMAS)
 
+    def test_common_arabic_action_phrases_route_locally_and_questions_stay_safe(self):
+        cases = (
+            ("أنشئ لي روم الدعم", "create_channel"),
+            ("سوي لي قناة الإعلانات", "create_channel"),
+            ("أنشئ لي رتبة مشرف", "create_role"),
+            ("أعط خالد رتبة مشرف", "assign_role"),
+            ("عط خالد الرتبة مشرف", "assign_role"),
+            ("شيل رتبة مشرف من خالد", "remove_role"),
+        )
+        for prompt, tool in cases:
+            with self.subTest(prompt=prompt):
+                request = prime_ai_runtime.detect_skill_request(prompt)
+                self.assertEqual(request["intent"], "SERVER_ACTION")
+                self.assertTrue(
+                    prime_ai_runtime._action_pattern_matches(tool, prompt)
+                )
+
+        for prompt in (
+            "كيف أسوي روم للدعم؟",
+            "هل أعطي خالد رتبة مشرف؟",
+            "لا تعط خالد رتبة مشرف",
+        ):
+            with self.subTest(prompt=prompt):
+                request = prime_ai_runtime.detect_skill_request(prompt)
+                self.assertNotEqual(request["intent"], "SERVER_ACTION")
+
+        self.assertTrue(
+            prime_ai_runtime.is_negated_action_request("لا تعط خالد رتبة مشرف")
+        )
+
     def test_natural_skill_routing_extracts_arabic_and_english_parameters(self):
         cases = [
             ("كم لفل خالد؟", "leveling", "query_leveling", "خالد"),
