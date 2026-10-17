@@ -380,7 +380,7 @@ _ACTION_VERB_MENTION = re.compile(
     r"\b(?:send|post|reply|respond|edit|delete|remove|create|make|rename|change|"
     r"lock|unlock|open|set|assign|give|grant|revoke|timeout|mute|kick|ban|unban)\b|"
     r"(?:ارسل|انشر|اكتب|رد|اضف|حط|عدل|احذف|تحذف|حذف|انشئ|سوي|غير|اقفل|قفل|"
-    r"اغلق|افتح|اجعل|خلي|اعط|اعطي|عط|عطي|امنح|عين|شيل|اسحب|اسكت|اطرد|تطرد|"
+    r"اغلق|افتح|اجعل|خلي|اعط|اعطي|عط|عطي|تعط|تعطي|تعطيني|تعطيه|تعطيها|تعطيهم|امنح|عين|شيل|اسحب|اسكت|اطرد|تطرد|"
     r"احظر|تحظر|حظر|الغاء|فك)",
     re.I,
 )
