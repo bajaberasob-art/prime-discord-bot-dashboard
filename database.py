@@ -1936,6 +1936,23 @@ async def init_db() -> None:
                 );
             """)
             await db.execute("""
+                CREATE TABLE IF NOT EXISTS tournament_score_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    match_ref TEXT NOT NULL,
+                    winner_team TEXT NOT NULL,
+                    loser_team TEXT NOT NULL,
+                    score TEXT NOT NULL,
+                    recorded_by INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, match_ref)
+                );
+            """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournament_results_guild_time "
+                "ON tournament_score_results(guild_id, created_at DESC);"
+            )
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS giveaways (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     guild_id INTEGER NOT NULL,
@@ -1984,6 +2001,28 @@ async def init_db() -> None:
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tournaments_open "
                 "ON tournaments(status, guild_id);"
+            )
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS tournament_bracket_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tournament_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    match_number INTEGER NOT NULL,
+                    player_one_id INTEGER NOT NULL,
+                    player_two_id INTEGER,
+                    winner_id INTEGER,
+                    score TEXT,
+                    status TEXT NOT NULL DEFAULT 'scheduled',
+                    recorded_by INTEGER,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at DATETIME,
+                    UNIQUE(tournament_id, round_number, match_number)
+                );
+            """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournament_bracket_round "
+                "ON tournament_bracket_matches(tournament_id, round_number, match_number);"
             )
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS invite_stats (
@@ -6509,8 +6548,41 @@ async def record_tournament_score(
     guild_id: int,
     winner_team: str,
     loser_team: str,
-) -> None:
+    score: str | None = None,
+    match_ref: str | None = None,
+    recorded_by: int | None = None,
+) -> bool:
+    """Record the score and standings in one transaction; a match reference is idempotent."""
+    winner_team = str(winner_team or "").strip()[:100]
+    loser_team = str(loser_team or "").strip()[:100]
+    score = str(score or "").strip()[:32]
+    match_ref = str(match_ref or "").strip()[:64]
+    if not winner_team or not loser_team or winner_team.casefold() == loser_team.casefold():
+        raise ValueError("الفريقان يجب أن يكونا مختلفين")
+    if score:
+        score_match = re.fullmatch(r"(\d{1,3})\s*[-:]\s*(\d{1,3})", score)
+        if not score_match:
+            raise ValueError("النتيجة يجب أن تكون مثل 3-2")
+        if int(score_match.group(1)) <= int(score_match.group(2)):
+            raise ValueError("اكتب نتيجة الفائز أولاً، مثل 3-2")
+    if match_ref and (not score or recorded_by is None):
+        raise ValueError("رقم المباراة والمنظم والنتيجة مطلوبة لحفظ نتيجة موثقة")
+
     async with connect() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        if match_ref:
+            cur = await db.execute(
+                """
+                INSERT OR IGNORE INTO tournament_score_results
+                    (guild_id, match_ref, winner_team, loser_team, score, recorded_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (int(guild_id), match_ref, winner_team, loser_team, score, int(recorded_by)),
+            )
+            if cur.rowcount != 1:
+                await db.rollback()
+                return False
+
         for team, won in ((winner_team, True), (loser_team, False)):
             await db.execute(
                 """
@@ -6525,13 +6597,14 @@ async def record_tournament_score(
                 """,
                 (
                     int(guild_id),
-                    str(team)[:100],
+                    team,
                     3 if won else 0,
                     1 if won else 0,
                     0 if won else 1,
                 ),
             )
         await db.commit()
+    return True
 
 
 async def get_tournament_scores(
@@ -6874,52 +6947,56 @@ async def get_active_scrims(guild_id: int) -> list[Dict[str, Any]]:
 
 
 async def get_scrims(guild_id: int) -> list[Dict[str, Any]]:
-    """Return active and closed scrims using the same dashboard payload shape."""
+    """Fetch active and closed scrims in one indexed query for the dashboard."""
     async with connect(aiosqlite.Row) as db:
         async with db.execute(
-            "SELECT id FROM scrim_configs WHERE guild_id = ? ORDER BY id DESC",
+            """
+            SELECT c.*,
+                   COUNT(r.id) AS occupied_slots,
+                   COALESCE(
+                     json_group_array(
+                       CASE WHEN r.id IS NULL THEN NULL ELSE json_object(
+                         'id', r.id,
+                         'slot_number', r.slot_number,
+                         'team_name', r.team_name,
+                         'leader_id', r.leader_id,
+                         'members_json', r.members_json,
+                         'checked_in', r.checked_in
+                       ) END
+                     ),
+                     '[]'
+                   ) AS registrations_json
+            FROM scrim_configs AS c
+            LEFT JOIN scrim_registrations AS r ON r.scrim_id = c.id
+            WHERE c.guild_id = ?
+            GROUP BY c.id
+            ORDER BY c.created_at DESC, c.id DESC
+            """,
             (int(guild_id),),
         ) as cur:
-            ids = [int(row[0]) for row in await cur.fetchall()]
-    # Keep one response contract and avoid duplicating roster decoding logic.
-    result = []
-    for scrim_id in ids:
-        async with connect(aiosqlite.Row) as db:
-            async with db.execute(
-                """
-                SELECT c.*, COUNT(r.id) AS occupied_slots
-                FROM scrim_configs c
-                LEFT JOIN scrim_registrations r ON r.scrim_id = c.id
-                WHERE c.id = ? GROUP BY c.id
-                """,
-                (scrim_id,),
-            ) as cur:
-                row = await cur.fetchone()
-            if row is None:
+            rows = [dict(row) for row in await cur.fetchall()]
+
+    for item in rows:
+        try:
+            raw_registrations = json.loads(item.pop("registrations_json") or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw_registrations = []
+        registrations = []
+        for registration in raw_registrations if isinstance(raw_registrations, list) else []:
+            if not isinstance(registration, dict) or registration.get("id") is None:
                 continue
-            item = dict(row)
-            async with db.execute(
-                """
-                SELECT id, slot_number, team_name, leader_id,
-                       members_json, checked_in
-                FROM scrim_registrations
-                WHERE scrim_id = ? ORDER BY slot_number ASC
-                """,
-                (scrim_id,),
-            ) as cur:
-                registrations = []
-                for registration in await cur.fetchall():
-                    value = dict(registration)
-                    try:
-                        value["members"] = json.loads(value.pop("members_json") or "[]")
-                    except (TypeError, ValueError, json.JSONDecodeError):
-                        value["members"] = []
-                    value["checked_in"] = bool(value.get("checked_in"))
-                    registrations.append(value)
-            item["occupied_slots"] = int(item.get("occupied_slots") or 0)
-            item["registrations"] = registrations
-            result.append(item)
-    return result
+            try:
+                registration["members"] = json.loads(
+                    registration.pop("members_json") or "[]"
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                registration["members"] = []
+            registration["checked_in"] = bool(registration.get("checked_in"))
+            registrations.append(registration)
+        item["occupied_slots"] = int(item.get("occupied_slots") or 0)
+        item["is_active"] = bool(item.get("is_active"))
+        item["registrations"] = registrations
+    return rows
 
 
 async def reserve_scrim_slot(
@@ -6928,46 +7005,92 @@ async def reserve_scrim_slot(
     leader_id: int,
     members_json: str | list[int] | None = None,
 ) -> Optional[Dict[str, Any]]:
-    """Atomically reserve the first free slot, or return None if unavailable."""
+    """Atomically reserve a slot only for a complete, non-overlapping team."""
     if isinstance(members_json, list):
-        members_json = json.dumps(
-            [int(member_id) for member_id in members_json if str(member_id).isdigit()]
-        )
-    members_json = str(members_json or "[]")
+        try:
+            member_ids = [int(value) for value in members_json]
+        except (TypeError, ValueError):
+            return None
+    else:
+        try:
+            parsed = json.loads(str(members_json or "[]"))
+            if not isinstance(parsed, list):
+                return None
+            member_ids = [int(value) for value in parsed]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+    leader_id = int(leader_id)
+    if (
+        not str(team_name or "").strip()
+        or not member_ids
+        or any(member_id <= 0 for member_id in member_ids)
+        or len(member_ids) != len(set(member_ids))
+        or member_ids[0] != leader_id
+    ):
+        return None
+    serialized_members = json.dumps(member_ids)
+
     async with connect(aiosqlite.Row) as db:
         await db.execute("BEGIN IMMEDIATE")
         async with db.execute(
-            "SELECT max_slots, is_active FROM scrim_configs WHERE id = ?",
+            "SELECT max_slots, team_size, is_active FROM scrim_configs WHERE id = ?",
             (int(scrim_id),),
         ) as cur:
             scrim = await cur.fetchone()
         if scrim is None or not bool(scrim["is_active"]):
+            await db.rollback()
             return None
+        if len(member_ids) != int(scrim["team_size"]):
+            await db.rollback()
+            return None
+
         async with db.execute(
             "SELECT slot_number FROM scrim_registrations WHERE scrim_id = ?",
             (int(scrim_id),),
         ) as cur:
-            used = {int(row[0]) for row in await cur.fetchall()}
+            used_slots = {int(row[0]) for row in await cur.fetchall()}
         slot = next(
             (candidate for candidate in range(1, int(scrim["max_slots"]) + 1)
-             if candidate not in used),
+             if candidate not in used_slots),
             None,
         )
         if slot is None:
+            await db.rollback()
             return None
+
+        async with db.execute(
+            "SELECT leader_id, members_json FROM scrim_registrations WHERE scrim_id = ?",
+            (int(scrim_id),),
+        ) as cur:
+            existing = await cur.fetchall()
+        taken_user_ids: set[int] = set()
+        for row in existing:
+            taken_user_ids.add(int(row["leader_id"]))
+            try:
+                old_members = json.loads(row["members_json"] or "[]")
+                if isinstance(old_members, list):
+                    taken_user_ids.update(int(value) for value in old_members)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        if taken_user_ids.intersection(member_ids):
+            await db.rollback()
+            return None
+
         cur = await db.execute(
             """
             INSERT INTO scrim_registrations
                 (scrim_id, slot_number, team_name, leader_id, members_json)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (int(scrim_id), slot, str(team_name).strip()[:100], int(leader_id), members_json),
+            (int(scrim_id), slot, str(team_name).strip()[:100], leader_id, serialized_members),
         )
         await db.commit()
         async with db.execute(
             "SELECT * FROM scrim_registrations WHERE id = ?", (int(cur.lastrowid),)
         ) as row_cursor:
             row = await row_cursor.fetchone()
+
     result = dict(row)
     try:
         result["members"] = json.loads(result.pop("members_json") or "[]")
@@ -7038,6 +7161,25 @@ async def toggle_scrim_checkin(
     return result
 
 
+async def set_scrim_checkin_all(scrim_id: int, checked_in: bool = True) -> bool:
+    """Set all booked teams' check-in state idempotently in one transaction."""
+    async with connect() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            "SELECT is_active FROM scrim_configs WHERE id = ?", (int(scrim_id),)
+        ) as cur:
+            scrim = await cur.fetchone()
+        if scrim is None or not bool(scrim[0]):
+            await db.rollback()
+            return False
+        await db.execute(
+            "UPDATE scrim_registrations SET checked_in = ? WHERE scrim_id = ?",
+            (int(bool(checked_in)), int(scrim_id)),
+        )
+        await db.commit()
+    return True
+
+
 async def get_tournament_entries(tournament_id: int) -> list[int]:
     async with connect() as db:
         async with db.execute(
@@ -7051,6 +7193,7 @@ async def get_tournament_entries(tournament_id: int) -> list[int]:
 
 
 async def start_tournament(tournament_id: int) -> Optional[Dict[str, Any]]:
+    """Legacy status transition. New bracket-based flows should use start_tournament_with_bracket."""
     async with connect(aiosqlite.Row) as db:
         await db.execute("BEGIN IMMEDIATE")
         async with db.execute(
@@ -7059,13 +7202,15 @@ async def start_tournament(tournament_id: int) -> Optional[Dict[str, Any]]:
         ) as cur:
             tournament = await cur.fetchone()
         if tournament is None:
+            await db.rollback()
             return None
         async with db.execute(
-            "SELECT user_id FROM tournament_entries WHERE tournament_id = ? ORDER BY created_at ASC",
+            "SELECT user_id FROM tournament_entries WHERE tournament_id = ? ORDER BY created_at ASC, user_id ASC",
             (int(tournament_id),),
         ) as cur:
             entries = [int(row[0]) for row in await cur.fetchall()]
         if len(entries) < 2:
+            await db.rollback()
             return None
         await db.execute(
             "UPDATE tournaments SET status = 'started' WHERE id = ? AND status = 'open'",
@@ -7075,6 +7220,265 @@ async def start_tournament(tournament_id: int) -> Optional[Dict[str, Any]]:
         result = dict(tournament)
         result["entries"] = entries
         return result
+
+
+async def _create_next_tournament_round(
+    db, tournament_id: int, guild_id: int, round_number: int
+) -> tuple[bool, bool]:
+    """Advance completed winners into the next persisted round; caller owns transaction."""
+    async with db.execute(
+        """
+        SELECT match_number, player_one_id, player_two_id, winner_id, status
+        FROM tournament_bracket_matches
+        WHERE tournament_id = ? AND round_number = ?
+        ORDER BY match_number ASC
+        """,
+        (int(tournament_id), int(round_number)),
+    ) as cur:
+        matches = [dict(row) for row in await cur.fetchall()]
+    if not matches or any(row["status"] != "completed" for row in matches):
+        return False, False
+
+    winners = [int(row["winner_id"]) for row in matches if row["winner_id"] is not None]
+    if len(winners) == 1:
+        await db.execute(
+            "UPDATE tournaments SET status = 'completed' WHERE id = ? AND guild_id = ? AND status = 'started'",
+            (int(tournament_id), int(guild_id)),
+        )
+        return True, True
+    if len(winners) < 2:
+        return True, False
+
+    next_round = int(round_number) + 1
+    for index in range(0, len(winners), 2):
+        player_one = winners[index]
+        player_two = winners[index + 1] if index + 1 < len(winners) else None
+        status = "completed" if player_two is None else "scheduled"
+        await db.execute(
+            """
+            INSERT INTO tournament_bracket_matches
+                (tournament_id, guild_id, round_number, match_number,
+                 player_one_id, player_two_id, winner_id, status, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
+            """,
+            (
+                int(tournament_id), int(guild_id), next_round, index // 2 + 1,
+                player_one, player_two, player_one if player_two is None else None,
+                status, status,
+            ),
+        )
+    # Starting a new round is itself the meaningful result of this completion.
+    # It is scheduled, so the recursive helper returns False for completion status.
+    await _create_next_tournament_round(
+        db, int(tournament_id), int(guild_id), next_round
+    )
+    return True, False
+
+
+async def start_tournament_with_bracket(
+    tournament_id: int,
+    expected_entries: list[int],
+    participant_ids: list[int],
+) -> Optional[Dict[str, Any]]:
+    """Atomically lock a tournament roster and persist its first knockout round."""
+    expected = [int(value) for value in expected_entries]
+    participants = [int(value) for value in participant_ids]
+    if (
+        len(expected) < 2
+        or len(participants) < 2
+        or len(participants) != len(set(participants))
+        or not set(participants).issubset(set(expected))
+    ):
+        return None
+
+    async with connect(aiosqlite.Row) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            "SELECT * FROM tournaments WHERE id = ? AND status = 'open'",
+            (int(tournament_id),),
+        ) as cur:
+            tournament = await cur.fetchone()
+        if tournament is None:
+            await db.rollback()
+            return None
+        async with db.execute(
+            "SELECT user_id FROM tournament_entries WHERE tournament_id = ? ORDER BY created_at ASC, user_id ASC",
+            (int(tournament_id),),
+        ) as cur:
+            current_entries = [int(row[0]) for row in await cur.fetchall()]
+        if (
+            len(expected) != len(set(expected))
+            or set(current_entries) != set(expected)
+        ):
+            await db.rollback()
+            return None
+
+        stale_entries = set(current_entries) - set(participants)
+        for user_id in stale_entries:
+            await db.execute(
+                "DELETE FROM tournament_entries WHERE tournament_id = ? AND user_id = ?",
+                (int(tournament_id), user_id),
+            )
+        await db.execute(
+            "UPDATE tournaments SET status = 'started' WHERE id = ? AND guild_id = ? AND status = 'open'",
+            (int(tournament_id), int(tournament["guild_id"])),
+        )
+
+        bracket_size = 1
+        while bracket_size < len(participants):
+            bracket_size *= 2
+        bye_count = bracket_size - len(participants)
+        byes = [(player_id, None) for player_id in participants[:bye_count]]
+        remaining = participants[bye_count:]
+        first_round_pairs = byes + [
+            (remaining[index], remaining[index + 1])
+            for index in range(0, len(remaining), 2)
+        ]
+        for match_index, (player_one, player_two) in enumerate(first_round_pairs, 1):
+            status = "completed" if player_two is None else "scheduled"
+            await db.execute(
+                """
+                INSERT INTO tournament_bracket_matches
+                    (tournament_id, guild_id, round_number, match_number,
+                     player_one_id, player_two_id, winner_id, status, resolved_at)
+                VALUES (?, ?, 1, ?, ?, ?, ?, ?, CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                """,
+                (
+                    int(tournament_id), int(tournament["guild_id"]), match_index,
+                    int(player_one), int(player_two) if player_two is not None else None,
+                    int(player_one) if player_two is None else None, status, status,
+                ),
+            )
+
+        await _create_next_tournament_round(
+            db, int(tournament_id), int(tournament["guild_id"]), 1
+        )
+        await db.commit()
+
+    result = dict(tournament)
+    result["entries"] = participants
+    result["status"] = "started"
+    result["removed_entries"] = sorted(stale_entries)
+    result["matches"] = await get_tournament_bracket(
+        int(tournament["guild_id"]), int(tournament_id)
+    )
+    return result
+
+
+async def get_tournament_bracket(guild_id: int, tournament_id: int) -> list[Dict[str, Any]]:
+    """Return the persisted bracket, scoped to the current server."""
+    async with connect(aiosqlite.Row) as db:
+        async with db.execute(
+            """
+            SELECT m.*
+            FROM tournament_bracket_matches AS m
+            JOIN tournaments AS t ON t.id = m.tournament_id
+            WHERE m.guild_id = ? AND m.tournament_id = ? AND t.guild_id = ?
+            ORDER BY m.round_number ASC, m.match_number ASC
+            """,
+            (int(guild_id), int(tournament_id), int(guild_id)),
+        ) as cur:
+            return [dict(row) for row in await cur.fetchall()]
+
+
+async def record_tournament_bracket_result(
+    guild_id: int,
+    tournament_id: int,
+    round_number: int,
+    match_number: int,
+    winner_id: int,
+    score: str,
+    recorded_by: int,
+) -> Optional[Dict[str, Any]]:
+    """Resolve one scheduled match once and atomically advance its round."""
+    score = str(score or "").strip()
+    score_match = re.fullmatch(r"(\d{1,3})\s*[-:]\s*(\d{1,3})", score)
+    if not score_match:
+        raise ValueError("النتيجة يجب أن تكون مثل 3-2")
+    if int(score_match.group(1)) <= int(score_match.group(2)):
+        raise ValueError("اكتب نتيجة الفائز أولاً، مثل 3-2")
+
+    async with connect(aiosqlite.Row) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            """
+            SELECT m.*, t.status AS tournament_status
+            FROM tournament_bracket_matches AS m
+            JOIN tournaments AS t ON t.id = m.tournament_id
+            WHERE m.guild_id = ? AND m.tournament_id = ?
+              AND m.round_number = ? AND m.match_number = ?
+              AND t.guild_id = ?
+            """,
+            (
+                int(guild_id), int(tournament_id), int(round_number),
+                int(match_number), int(guild_id),
+            ),
+        ) as cur:
+            match = await cur.fetchone()
+        if match is None or match["tournament_status"] != "started":
+            await db.rollback()
+            return None
+        if match["status"] != "scheduled":
+            await db.rollback()
+            return None
+        participants = {int(match["player_one_id"])}
+        if match["player_two_id"] is not None:
+            participants.add(int(match["player_two_id"]))
+        if int(winner_id) not in participants or len(participants) < 2:
+            await db.rollback()
+            return None
+
+        await db.execute(
+            """
+            UPDATE tournament_bracket_matches
+            SET winner_id = ?, score = ?, status = 'completed',
+                recorded_by = ?, resolved_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'scheduled'
+            """,
+            (
+                int(winner_id), score[:32], int(recorded_by), int(match["id"]),
+            ),
+        )
+        round_completed, tournament_completed = await _create_next_tournament_round(
+            db, int(tournament_id), int(guild_id), int(round_number)
+        )
+        await db.commit()
+
+    return {
+        "tournament_id": int(tournament_id),
+        "round_number": int(round_number),
+        "match_number": int(match_number),
+        "winner_id": int(winner_id),
+        "score": score[:32],
+        "round_completed": round_completed,
+        "tournament_completed": tournament_completed,
+    }
+
+
+async def remove_tournament_entries(tournament_id: int, user_ids: list[int]) -> int:
+    """Remove unavailable users from an open roster so they can be replaced."""
+    ids = list(dict.fromkeys(int(value) for value in user_ids))
+    if not ids:
+        return 0
+    async with connect() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        changed = 0
+        for user_id in ids:
+            cur = await db.execute(
+                """
+                DELETE FROM tournament_entries
+                WHERE tournament_id = ?
+                  AND user_id = ?
+                  AND EXISTS (
+                    SELECT 1 FROM tournaments
+                    WHERE id = ? AND status = 'open'
+                  )
+                """,
+                (int(tournament_id), user_id, int(tournament_id)),
+            )
+            changed += max(0, int(cur.rowcount))
+        await db.commit()
+    return changed
 
 
 # -------------------------------------------------------------

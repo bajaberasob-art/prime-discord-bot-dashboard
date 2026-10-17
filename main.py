@@ -90,6 +90,9 @@ SLASH_COMMAND_GROUPS = {
             "member_stats", "reset_nicks",
         },
     },
+    "Tournaments": {
+        "tournament": {"bracket", "result"},
+    },
     "ToolsChannelsCog": {
         "tools": {
             "avatar", "banner", "userinfo", "serverinfo", "roleinfo", "ping",
@@ -113,6 +116,7 @@ SLASH_GROUP_DESCRIPTIONS = {
     "admin": "الإدارة المتقدمة",
     "tools": "معلومات وأدوات الأعضاء",
     "channels": "إدارة القنوات والإحصائيات",
+    "tournament": "إدارة جولات البطولات",
 }
 
 
@@ -288,6 +292,8 @@ class EnterpriseBot(commands.Bot):
 
         try:
             await init_db()
+            from prime_games.engine import ensure_game_schema
+            await ensure_game_schema()
             await prime_ai_intelligence.ensure_schema()
             durable_enabled = await prime_ai_persistence.start_durable_store()
             if durable_enabled:
@@ -335,6 +341,7 @@ class EnterpriseBot(commands.Bot):
             "cogs.temp_voice",
             "cogs.tournaments",
             "cogs.gaming",
+            "cogs.games",
             "cogs.community",
             "cogs.announcement_reactions",
             "cogs.ai_tools",

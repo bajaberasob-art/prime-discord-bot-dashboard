@@ -64,6 +64,7 @@
     ticketSettings: null,
     ticketPermissions: {},
     gaming: [],
+    gameSessions: [],
     clanOps: {
       applications: [],
       roster: [],
@@ -6548,11 +6549,38 @@
         ));
       });
     }
+    const gameList = el("div", { class: "gaming-list" });
+    if (!state.gameSessions.length) {
+      gameList.append(el("div", {
+        class: "empty studio-empty",
+        text: "لا توجد مباريات تفاعلية جارية. شغّل /game xo من Discord لبدء مباراة.",
+      }));
+    } else {
+      state.gameSessions.forEach((session) => {
+        const gameLabel = String(session.game_key || "game").toLowerCase() === "xo" ? "XO" : String(session.game_key || "GAME").toUpperCase();
+        const players = (session.players || []).map((id, index) => `لاعب ${index + 1}: ${id}`).join(" · ");
+        const turn = session.current_player_id
+          ? `الدور الحالي: ${session.current_player_id}`
+          : "لا يوجد دور نشط";
+        gameList.append(el("article", { class: "overview-panel gaming-card" },
+          el("div", { class: "gaming-card-head" },
+            el("div", {},
+              el("span", { class: "eyebrow", text: `${gameLabel} / LIVE` }),
+              el("h3", { text: `مباراة تفاعلية #${session.id}` }),
+            ),
+            el("strong", { text: `${(session.players || []).length} لاعب` }),
+          ),
+          el("p", { class: "muted", text: `${players} · ${turn}` }),
+        ));
+      });
+    }
     return el("section", { id: "view-gaming", class: "gaming-view" },
       el("div", { class: "section-intro" }, el("div", { class: "eyebrow", text: `${state.guild.name} / GAMING OPS` }), el("h1", { text: "Gaming, Scrims & Esports" }), el("p", { text: "أنشئ لوحات سكريم تفاعلية، راقب الحجوزات، وأرسل بيانات الغرف من مكان واحد." })),
       card("نشر لوحة جديدة", form),
       el("div", { class: "section-intro compact-intro" }, el("h2", { text: "اللوحات المحفوظة" }), el("p", { text: "الحجوزات تُحفظ وتستمر بعد إعادة تشغيل البوت." })),
       list,
+      el("div", { class: "section-intro compact-intro" }, el("h2", { text: "مباريات الألعاب التفاعلية" }), el("p", { text: "جلسات الألعاب محفوظة وتُستعاد أزرارها بعد إعادة تشغيل البوت." })),
+      gameList,
     );
   }
   async function refreshGaming() {
@@ -6560,7 +6588,9 @@
     try {
       const response = await api(`api/guild/${state.guild.id}/gaming`);
       if (response.ok) {
-        state.gaming = (await readJson(response, { scrims: [] })).scrims || [];
+        const payload = await readJson(response, { scrims: [], games: [] });
+        state.gaming = payload.scrims || [];
+        state.gameSessions = payload.games || [];
         if (state.activeView === "gaming") renderPage();
       }
     } catch (error) {
@@ -6572,8 +6602,11 @@
     if (!credentials?.trim()) return;
     try {
       const response = await writeApi(`api/guild/${state.guild.id}/gaming/credentials`, { scrim_id: scrimId, credentials: credentials.trim() });
-      if (response.ok) toast("تم إرسال بيانات الغرفة إلى قناة السكريم", "success", 3000);
-      else toast("تعذر إرسال بيانات الغرفة", "warn");
+      const data = await readJson(response, {});
+      if (response.ok) {
+        const suffix = data.failed_count ? `، وتعذر الوصول إلى ${data.failed_count}` : "";
+        toast(`تم إرسال بيانات الغرفة برسائل خاصة إلى ${data.sent_count || 0} مشارك${suffix}`, "success", 3500);
+      } else toast("تعذر إرسال البيانات الخاصة للمشاركين", "warn");
     } catch (error) {
       if (error.message !== "unauth") toast("تعذر إرسال بيانات الغرفة", "warn");
     }

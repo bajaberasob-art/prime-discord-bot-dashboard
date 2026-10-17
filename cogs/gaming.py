@@ -14,7 +14,7 @@ from database import (
     get_active_scrims,
     reserve_scrim_slot,
     set_scrim_message,
-    toggle_scrim_checkin,
+    set_scrim_checkin_all,
 )
 
 logger = logging.getLogger("GamingCog")
@@ -26,37 +26,59 @@ def _admin(member: discord.Member) -> bool:
 
 
 def _members(value: str, leader_id: int) -> list[int]:
+    """Parse a roster strictly; malformed and duplicate Discord IDs are rejected."""
     result = [int(leader_id)]
-    for token in str(value or "").replace(",", " ").split():
-        if token.isdigit() and int(token) not in result:
-            result.append(int(token))
-    return result[:16]
+    tokens = str(value or "").replace(",", " ").split()
+    for token in tokens:
+        if not token.isdigit() or int(token) <= 0:
+            raise ValueError("اكتب معرفات Discord رقمية مفصولة بفواصل أو مسافات.")
+        member_id = int(token)
+        if member_id in result:
+            raise ValueError("يوجد عضو مكرر في التشكيلة.")
+        result.append(member_id)
+    if len(result) > 16:
+        raise ValueError("الحد الأقصى لحجم التشكيلة 16 لاعبًا.")
+    return result
 
 
 async def _scrim_embed(scrim: dict) -> discord.Embed:
-    registrations = scrim.get("registrations", [])
+    registrations = sorted(
+        scrim.get("registrations", []),
+        key=lambda item: int(item.get("slot_number", 0)),
+    )
+    occupied = int(scrim.get("occupied_slots", len(registrations)) or 0)
+    capacity = int(scrim.get("max_slots", 0) or 0)
     lines = []
-    by_slot = {int(item["slot_number"]): item for item in registrations}
-    for slot in range(1, int(scrim["max_slots"]) + 1):
-        item = by_slot.get(slot)
-        if not item:
-            lines.append(f"`#{slot:02d}` — شاغر")
-            continue
+    for item in registrations:
+        team = discord.utils.escape_mentions(
+            discord.utils.escape_markdown(str(item.get("team_name", "فريق")))
+        )
         check = " ✅" if item.get("checked_in") else ""
-        lines.append(
-            f"`#{slot:02d}` — **{discord.utils.escape_markdown(str(item['team_name']))}**"
+        line = (
+            f"`#{int(item['slot_number']):02d}` — **{team}**"
             f" · <@{int(item['leader_id'])}>{check}"
         )
+        if sum(len(value) + 1 for value in lines) + len(line) > 3300:
+            break
+        lines.append(line)
+    hidden = max(0, len(registrations) - len(lines))
+    if not lines:
+        roster = "لا توجد فرق مسجلة حتى الآن."
+    else:
+        roster = "\n".join(lines)
+    if hidden:
+        roster += f"\n… وإخفاء {hidden} فريقًا إضافيًا لتجنب تجاوز حدود Discord."
     embed = discord.Embed(
-        title=f"🎮 {scrim['title']}",
+        title=f"🎮 {discord.utils.escape_mentions(str(scrim['title']))}",
         description=(
-            f"**اللعبة:** {scrim['game_type']} · **حجم الفريق:** {scrim['team_size']}\n"
-            f"**المقاعد:** {scrim.get('occupied_slots', 0)}/{scrim['max_slots']}\n\n"
-            + "\n".join(lines)
+            f"**اللعبة:** {discord.utils.escape_mentions(str(scrim['game_type']))}"
+            f" · **حجم الفريق:** {int(scrim['team_size'])}\n"
+            f"**المقاعد:** {occupied}/{capacity} · **الشاغر:** {max(0, capacity - occupied)}\n\n"
+            + roster
         ),
         color=0x00E5FF,
     )
-    embed.set_footer(text=f"SCRIM:{scrim['id']} • الحجز خاص، والقائمة ظاهرة للجميع")
+    embed.set_footer(text=f"SCRIM:{int(scrim['id'])} • الحجز خاص، والقائمة ظاهرة للجميع")
     return embed
 
 
@@ -78,18 +100,60 @@ class BookingModal(discord.ui.Modal, title="حجز مقعد سكريم"):
         self.board = view
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if guild is None:
+            return await interaction.followup.send("الحجز متاح داخل السيرفر فقط.", ephemeral=True)
+
+        try:
+            team_member_ids = _members(str(self.members), interaction.user.id)
+        except ValueError as error:
+            return await interaction.followup.send(str(error), ephemeral=True)
+
+        scrims = await get_active_scrims(guild.id)
+        scrim = next(
+            (item for item in scrims if int(item["id"]) == self.board.scrim_id),
+            None,
+        )
+        if scrim is None:
+            return await interaction.followup.send("❌ هذا السكريم مغلق أو لم يعد موجودًا.", ephemeral=True)
+        expected_size = int(scrim["team_size"])
+        if len(team_member_ids) != expected_size:
+            return await interaction.followup.send(
+                f"❌ حجم الفريق المطلوب {expected_size} لاعبًا؛ أنت أدرجت {len(team_member_ids)}.",
+                ephemeral=True,
+            )
+
+        for member_id in team_member_ids:
+            member = guild.get_member(member_id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(member_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    return await interaction.followup.send(
+                        f"❌ تعذر التحقق من العضو {member_id}. تأكد أنه عضو في هذا السيرفر.",
+                        ephemeral=True,
+                    )
+            if member.guild.id != guild.id or member.bot:
+                return await interaction.followup.send(
+                    "❌ التشكيلة يجب أن تضم أعضاء حقيقيين من هذا السيرفر فقط.",
+                    ephemeral=True,
+                )
+
         registration = await reserve_scrim_slot(
             self.board.scrim_id,
-            str(self.team_name),
+            str(self.team_name).strip(),
             interaction.user.id,
-            _members(str(self.members), interaction.user.id),
+            team_member_ids,
         )
         if registration is None:
-            return await interaction.response.send_message(
-                "⚠️ لا توجد مقاعد متاحة أو أن التسجيل مغلق.", ephemeral=True
+            return await interaction.followup.send(
+                "⚠️ لا يوجد مقعد متاح، أو أن أحد اللاعبين مسجل بالفعل في فريق آخر.",
+                ephemeral=True,
             )
-        await interaction.response.send_message(
-            f"✅ تم حجز المقعد `#{registration['slot_number']}` لفريق **{self.team_name}**.",
+        await interaction.followup.send(
+            f"✅ تم حجز المقعد #{registration['slot_number']} لفريق "
+            f"**{discord.utils.escape_markdown(str(self.team_name))}**.",
             ephemeral=True,
         )
         await self.board.refresh_message(interaction)
@@ -167,21 +231,17 @@ class ScrimBoardView(discord.ui.View):
     async def checkin(self, interaction: discord.Interaction):
         if not _admin(interaction.user):
             return await interaction.response.send_message(
-                "⛔ تأكيد الحضور متاح لمضيف السكريم فقط.", ephemeral=True
+                "⛔ تأكيد الحضور متاح لمنظمي الفعالية فقط.", ephemeral=True
             )
-        scrims = await get_active_scrims(self.guild_id)
-        scrim = next((item for item in scrims if int(item["id"]) == self.scrim_id), None)
-        if not scrim:
-            return await interaction.response.send_message("❌ السكريم مغلق.", ephemeral=True)
-        # Host check-in is intentionally explicit: the button toggles all booked
-        # teams into checked-in state after the host confirms the action.
-        for registration in scrim.get("registrations", []):
-            await toggle_scrim_checkin(
-                self.scrim_id,
-                slot_number=int(registration["slot_number"]),
-                checked_in=not bool(registration.get("checked_in")),
+        changed = await set_scrim_checkin_all(self.scrim_id, checked_in=True)
+        if not changed:
+            return await interaction.response.send_message(
+                "❌ السكريم مغلق أو لم يعد موجودًا.", ephemeral=True
             )
-        await interaction.response.send_message("✅ تم تحديث حالة الحضور للفرق.", ephemeral=True)
+        await interaction.response.send_message(
+            "✅ تم تأكيد حضور جميع الفرق المسجلة. لن يؤدي الضغط مرة أخرى إلى إلغاء التأكيد.",
+            ephemeral=True,
+        )
         await self.refresh_message(interaction)
 
     async def refresh_message(self, interaction: discord.Interaction):
@@ -196,7 +256,14 @@ class ScrimBoardView(discord.ui.View):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 message = None
         if message is not None:
-            await message.edit(embed=await _scrim_embed(scrim), view=self)
+            try:
+                await message.edit(embed=await _scrim_embed(scrim), view=self)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                logger.warning(
+                    "Could not refresh scrim board %s after a database update.",
+                    self.scrim_id,
+                    exc_info=True,
+                )
 
 
 class Gaming(commands.Cog):
@@ -238,22 +305,47 @@ class Gaming(commands.Cog):
         return scrim
 
     async def close_scrim_board(self, scrim_id: int, guild: discord.Guild) -> bool:
+        scrims = await get_scrims(guild.id)
+        scrim = next(
+            (item for item in scrims if int(item["id"]) == int(scrim_id)),
+            None,
+        )
+        if scrim is None:
+            return False
         changed = await close_scrim(scrim_id)
         if not changed:
             return False
-        for channel in guild.text_channels:
+
+        # The saved channel/message IDs are authoritative; never scan recent messages.
+        channel_id = int(scrim.get("channel_id") or 0)
+        message_id = int(scrim.get("message_id") or 0)
+        channel = guild.get_channel(channel_id) if channel_id else None
+        if channel is None and channel_id:
             try:
-                async for message in channel.history(limit=100):
-                    if message.author.id == self.bot.user.id and message.embeds:
-                        footer = message.embeds[0].footer.text or ""
-                        if footer == f"SCRIM:{int(scrim_id)} • الحجز خاص، والقائمة ظاهرة للجميع":
-                            embed = message.embeds[0]
-                            embed.title = f"🔒 {embed.title.lstrip('🎮 ').strip()} (مغلق)"
-                            embed.color = 0x667085
-                            await message.edit(embed=embed, view=None)
-                            return True
-            except (discord.Forbidden, discord.HTTPException):
-                continue
+                channel = await guild.fetch_channel(channel_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                channel = None
+        if channel is None or not hasattr(channel, "fetch_message") or message_id <= 0:
+            logger.warning(
+                "Scrim %s closed in the database but its Discord message could not be resolved.",
+                scrim_id,
+            )
+            return True
+        try:
+            message = await channel.fetch_message(message_id)
+            embed = message.embeds[0] if message.embeds else await _scrim_embed(scrim)
+            title = str(embed.title or scrim.get("title") or "سكريم").removeprefix("🎮 ")
+            if not title.startswith("🔒"):
+                title = title.removesuffix(" (مغلق)")
+                embed.title = f"🔒 {title} (مغلق)"
+            embed.color = 0x667085
+            await message.edit(embed=embed, view=None)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            logger.warning(
+                "Scrim %s closed in the database but its Discord message edit failed.",
+                scrim_id,
+                exc_info=True,
+            )
         return True
 
     @app_commands.command(name="scrim_open", description="فتح لوحة تسجيل سكريم للفرق")
@@ -267,18 +359,25 @@ class Gaming(commands.Cog):
         team_size: int = 5,
         max_slots: int = 8,
     ):
+        if interaction.guild is None or interaction.channel is None:
+            return await interaction.response.send_message("افتح السكريم داخل سيرفر وقناة.", ephemeral=True)
         if not 1 <= team_size <= 16 or not 1 <= max_slots <= 128:
             return await interaction.response.send_message(
                 "❌ حجم الفريق بين 1 و16 وعدد المقاعد بين 1 و128.", ephemeral=True
             )
+        await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             scrim = await self.deploy_scrim(
                 interaction.guild, interaction.channel, title, game_type, team_size, max_slots
             )
         except (discord.Forbidden, discord.HTTPException):
-            raise
-        await interaction.response.send_message(
-            f"✅ تم فتح لوحة السكريم رقم `{scrim['id']}`.", ephemeral=True
+            logger.warning("Could not publish scrim in guild %s", interaction.guild.id, exc_info=True)
+            return await interaction.followup.send(
+                "تعذر نشر لوحة السكريم. تحقق من صلاحيات البوت في القناة.",
+                ephemeral=True,
+            )
+        await interaction.followup.send(
+            f"✅ تم فتح لوحة السكريم رقم {scrim['id']}.", ephemeral=True
         )
 
 
