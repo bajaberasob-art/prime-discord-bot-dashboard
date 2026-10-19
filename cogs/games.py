@@ -15,6 +15,7 @@ from prime_games.engine import (
     ensure_game_schema,
     expire_stale_sessions,
     GAME_SESSION_MAX_IDLE_HOURS,
+    get_session,
     list_active_sessions,
 )
 from prime_games.registry import registry
@@ -433,9 +434,25 @@ class GameBoardView(discord.ui.View):
                 )
                 return
             if not outcome.get("ok"):
+                if outcome.get("reason") == "game_expired" and interaction.message is not None:
+                    try:
+                        expired_state = await get_session(self.session_id)
+                        if expired_state is not None:
+                            await interaction.message.edit(
+                                embed=_game_embed(expired_state),
+                                attachments=[],
+                                view=GameBoardView(expired_state),
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Could not update expired %s game board for session %s",
+                            self.game_key,
+                            self.session_id,
+                        )
                 messages = {
                     "session_not_found": "لم أعد أجد هذه المباراة.",
                     "game_finished": "انتهت المباراة بالفعل.",
+                    "game_expired": f"انتهت صلاحية اللعبة بعد {GAME_SESSION_MAX_IDLE_HOURS} ساعة من عدم النشاط. ابدأ مباراة جديدة.",
                     "not_a_player": "أنت لست أحد لاعبي هذه المباراة.",
                     "not_your_turn": "انتظر دور اللاعب الآخر.",
                     "square_taken": "هذا المربع محجوز؛ اختر مربعًا آخر.",

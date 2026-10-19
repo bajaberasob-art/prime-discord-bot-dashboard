@@ -271,6 +271,30 @@ async def apply_action(
         if session["status"] != "active":
             await db.rollback()
             return _failure("game_finished")
+
+        # Enforce expiry during live play too; startup cleanup alone is not enough.
+        async with db.execute(
+            """
+            SELECT 1 FROM prime_game_sessions
+            WHERE id = ? AND status = 'active'
+              AND updated_at < datetime('now', ?)
+            """,
+            (int(session_id), f"-{GAME_SESSION_MAX_IDLE_HOURS} hours"),
+        ) as cur:
+            expired_row = await cur.fetchone()
+        if expired_row is not None:
+            await db.execute(
+                """
+                UPDATE prime_game_sessions
+                SET status = 'cancelled', result = 'expired_idle',
+                    updated_at = CURRENT_TIMESTAMP, version = version + 1
+                WHERE id = ? AND status = 'active'
+                """,
+                (int(session_id),),
+            )
+            await db.commit()
+            return _failure("game_expired")
+
         players = session["players"]
         if int(actor_id) not in players:
             await db.rollback()

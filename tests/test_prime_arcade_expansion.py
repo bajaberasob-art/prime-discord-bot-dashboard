@@ -249,6 +249,27 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await get_session(old_session["id"]))["status"], "cancelled")
         self.assertEqual((await get_session(fresh_session["id"]))["status"], "active")
 
+    async def test_expired_idle_game_rejects_new_actions_while_bot_is_running(self):
+        session = await create_session(
+            guild_id=924, channel_id=515, game_key="dice", players=self.players
+        )
+        await attach_message(session["id"], 92001)
+        async with database.connect() as db:
+            await db.execute(
+                "UPDATE prime_game_sessions SET updated_at = datetime('now', '-4 days') WHERE id = ?",
+                (session["id"],),
+            )
+            await db.commit()
+
+        outcome = await apply_action(
+            session["id"], self.players[0], {"roll": "roll"}
+        )
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(outcome["reason"], "game_expired")
+        expired = await get_session(session["id"])
+        self.assertEqual(expired["status"], "cancelled")
+        self.assertEqual(expired["result"], "expired_idle")
+
     async def test_all_game_types_restore_from_durable_active_sessions(self):
         game_keys = {"xo", "connect4", "rps", "quiz", "memory", "dice", "word"}
         expected = []
