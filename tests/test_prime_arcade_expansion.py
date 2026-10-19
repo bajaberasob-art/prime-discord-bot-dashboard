@@ -89,7 +89,7 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         session = await create_session(
             guild_id=913, channel_id=504, game_key="word", players=self.players
         )
-        self.assertEqual(len(session["state"]["puzzles"]), 5)
+        self.assertEqual(len(session["state"]["puzzles"]), 6)
         self.assertTrue(all(len(puzzle["options"]) == 4 for puzzle in session["state"]["puzzles"]))
         first_puzzle = session["state"]["puzzles"][0]
         result = await apply_action(
