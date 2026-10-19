@@ -341,8 +341,9 @@ class UniversalLobbyView(discord.ui.View):
             await self.on_start_callback(interaction, players)
         except Exception:
             logger.exception("Could not start multiplayer game %s", self.game_name)
-            self.closed = False
-            self._set_button_labels()
+            async with self._state_lock:
+                self.closed = False
+                self._set_button_labels()
             try:
                 await interaction.followup.send(
                     "تعذر بدء اللعبة بسبب خطأ داخلي. بقي اللوبي متاحًا للمحاولة مجددًا.",
@@ -350,6 +351,10 @@ class UniversalLobbyView(discord.ui.View):
                 )
             except discord.HTTPException:
                 logger.debug("Could not report lobby start failure", exc_info=True)
+            await self._refresh_message()
+        else:
+            # Update the original lobby so its buttons visibly become disabled
+            # after the game starts; otherwise the stale message looks usable.
             await self._refresh_message()
 
     @discord.ui.button(label="شرح القوانين", style=discord.ButtonStyle.secondary, emoji="📖", row=0)
@@ -387,15 +392,19 @@ class UniversalLobbyView(discord.ui.View):
         self.message = message
         await self._refresh_message()
 
-    def render_lobby_image(self) -> Image.Image:
-        """Synchronous text-only lobby rendering; avatars are added asynchronously."""
+    def render_lobby_image(
+        self,
+        players: Sequence[discord.Member] | None = None,
+    ) -> Image.Image:
+        """Render a stable snapshot of the lobby; avatars are added asynchronously."""
+        player_snapshot = list(self.players.values()) if players is None else list(players)
         width, height = 1100, 360 + ((self.max_players + 3) // 4) * 118
         image = create_base_canvas(width, height, self.game_name, "LOBBY • انتظر اكتمال اللاعبين")
         draw = ImageDraw.Draw(image)
-        draw_arabic_text(draw, (width - 52, 148), f"اللاعبون: {len(self.players)} / {self.max_players}",
+        draw_arabic_text(draw, (width - 52, 148), f"اللاعبون: {len(player_snapshot)} / {self.max_players}",
                          font=_font(22, True), fill=CYAN, anchor="ra")
         columns = 4
-        for index, player in enumerate(self.players.values()):
+        for index, player in enumerate(player_snapshot):
             column, row = index % columns, index // columns
             x = 60 + column * 260
             y = 176 + row * 118
@@ -411,19 +420,49 @@ class UniversalLobbyView(discord.ui.View):
         return image
 
     async def render_lobby_file(self) -> discord.File:
-        """Render the lobby with downloaded circular avatars and safe placeholders."""
-        image = self.render_lobby_image().convert("RGBA")
-        draw = ImageDraw.Draw(image)
-        for index, player in enumerate(self.players.values()):
+        """Render a stable lobby snapshot and fetch avatars concurrently."""
+        async with self._state_lock:
+            players = list(self.players.values())
+
+        image = self.render_lobby_image(players).convert("RGBA")
+        owns_session = self.avatar_session is None
+        client = self.avatar_session
+        if client is None:
+            client = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=4.0)
+            )
+
+        try:
+            avatar_results = await asyncio.gather(
+                *(
+                    get_circular_avatar(
+                        player,
+                        60,
+                        session=client,
+                        timeout=4.0,
+                        border_color=CYAN if player.id == self.host.id else PURPLE,
+                    )
+                    for player in players
+                ),
+                return_exceptions=True,
+            )
+        finally:
+            if owns_session and client is not None and not client.closed:
+                await client.close()
+
+        for index, result in enumerate(avatar_results):
+            if isinstance(result, Exception):
+                logger.debug("Avatar rendering failed for lobby player %s", players[index].id, exc_info=result)
+                avatar = _frame_avatar(
+                    _placeholder_avatar(60, getattr(players[index], "display_name", "?")),
+                    60,
+                    CYAN if players[index].id == self.host.id else PURPLE,
+                )
+            else:
+                avatar = result
             column, row = index % 4, index // 4
             x, y = 60 + column * 260, 176 + row * 118
-            avatar = await get_circular_avatar(
-                player, 60, session=self.avatar_session,
-                border_color=CYAN if player.id == self.host.id else PURPLE,
-            )
             image.alpha_composite(avatar, (x + 14, y + 18))
-            # Cover the placeholder avatar underneath with the downloaded one.
-            draw = ImageDraw.Draw(image)
         return image_to_file(image, "prime-lobby.png")
 
     def lobby_embed(self) -> discord.Embed:
