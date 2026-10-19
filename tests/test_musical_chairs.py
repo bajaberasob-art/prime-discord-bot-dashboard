@@ -2,8 +2,6 @@ import io
 import unittest
 from types import SimpleNamespace
 
-from PIL import Image
-
 from cogs.musical_chairs import (
     MAX_PLAYERS,
     MIN_PLAYERS,
@@ -33,7 +31,7 @@ class MusicalChairsLogicTests(unittest.TestCase):
 
     def test_round_elimination_is_deterministic_and_ordered(self):
         survivors, eliminated = resolve_round([1, 2, 3, 4, 5], [5, 3, 1])
-        self.assertEqual(survivors, [5, 3, 1, 2][:4 - 1])
+        self.assertEqual(survivors, [5, 3, 1])
         self.assertEqual(eliminated, [2, 4])
 
 
