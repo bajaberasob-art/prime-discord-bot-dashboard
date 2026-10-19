@@ -453,7 +453,7 @@ def _scramble_word(word: str) -> str:
 
 def _initial_word_state(players: list[int]) -> dict[str, Any]:
     puzzles = []
-    for word, distractors in random.sample(list(_WORD_BANK), 5):
+    for word, distractors in random.sample(list(_WORD_BANK), 6):
         options = [word, *distractors]
         random.shuffle(options)
         puzzles.append({
