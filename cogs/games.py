@@ -25,12 +25,18 @@ _GAME_TITLES = {
     "connect4": "🔴 PRIME · أربعة على التوالي",
     "rps": "🪨 PRIME · حجر ورقة مقص",
     "quiz": "🧠 PRIME · تحدّي المعلومات",
+    "memory": "🧩 PRIME · تحدّي الذاكرة",
+    "dice": "🎲 PRIME · مبارزة النرد",
+    "word": "🔐 PRIME · فكّ الكلمة",
 }
 _GAME_COMMANDS = {
     "xo": ("/game xo @عضو", "ضع X وO في صف أو عمود أو قطر من ثلاثة رموز."),
     "connect4": ("/game connect4 @عضو", "أسقط الرموز في الأعمدة وحاول توصيل أربعة."),
     "rps": ("/game rps @عضو", "اختر حجرًا أو ورقة أو مقصًا؛ الاختيار الأول مخفي."),
     "quiz": ("/game quiz @عضو", "ستة أسئلة عربية، نقطة للإجابة الصحيحة."),
+    "memory": ("/game memory @عضو", "اكشف البطاقات المتطابقة واجمع الأزواج قبل خصمك."),
+    "dice": ("/game dice @عضو", "خمس جولات نرد؛ الأعلى نقاطًا يفوز."),
+    "word": ("/game word @عضو", "فكّ ترتيب الحروف واختر الكلمة الصحيحة في خمس جولات."),
 }
 _RPS_LABELS = {
     "rock": "🪨 حجر",
@@ -95,6 +101,85 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
             description += f"🧑 <@{players[0]}>: **{first}**\n🧑 <@{players[1]}>: **{second}**"
             if winner_id is None:
                 description += "\n\n🤝 تعادل! اخترتما الحركة نفسها."
+
+    elif game_key == "memory":
+        cards = list(state.get("cards") or [])
+        matched = {int(value) for value in state.get("matched") or []}
+        revealed = {int(value) for value in state.get("revealed") or []}
+        board_lines = []
+        for row in range(4):
+            board_lines.append("  ".join(
+                cards[index] if index in matched or index in revealed else "❔"
+                for index in range(row * 4, row * 4 + 4)
+            ))
+        scores = state.get("scores") or {}
+        description = (
+            f"🧑 <@{players[0]}>: **{int(scores.get(str(players[0]), 0))}** زوج\n"
+            f"🧑 <@{players[1]}>: **{int(scores.get(str(players[1]), 0))}** زوج\n\n"
+            + "\n".join(board_lines)
+            + f"\n\n🧩 الأزواج المكتشفة: **{len(matched) // 2}/8**"
+        )
+        if state.get("last_match") is True:
+            description += "\n✅ تطابق رائع! حصلت على زوج."
+        elif state.get("last_match") is False:
+            description += "\n👀 البطاقتان مختلفتان؛ تذكّر مكانهما."
+        if status == "active":
+            description += f"\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
+        elif status == "finished" and winner_id is None:
+            description += "\n\n🤝 انتهت اللعبة بالتعادل."
+
+    elif game_key == "dice":
+        scores = state.get("scores") or {}
+        description = (
+            f"🧑 <@{players[0]}>: **{int(scores.get(str(players[0]), 0))}** نقاط\n"
+            f"🧑 <@{players[1]}>: **{int(scores.get(str(players[1]), 0))}** نقاط\n"
+        )
+        last_round = state.get("last_round") or {}
+        if last_round:
+            previous_rolls = last_round.get("rolls") or {}
+            description += (
+                f"\n**نتيجة الجولة {last_round.get('number', '?')}:** "
+                f"🎲 {previous_rolls.get(str(players[0]), '—')} مقابل "
+                f"{previous_rolls.get(str(players[1]), '—')}"
+            )
+            if last_round.get("draw"):
+                description += " — تعادل الجولة"
+            elif last_round.get("winner_id") is not None:
+                description += f" — نقطة لـ <@{last_round['winner_id']}>"
+        if status == "active":
+            description += f"\n\n**الجولة {int(state.get('round') or 1)} من 5**"
+            current_rolls = state.get("round_rolls") or {}
+            if current_rolls:
+                rolling_player = next(iter(current_rolls))
+                description += (
+                    f"\n🎲 رمية <@{rolling_player}>: **{current_rolls[rolling_player]}**"
+                    "\nبانتظار رمية اللاعب الآخر."
+                )
+            description += f"\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
+        elif status == "finished" and winner_id is None:
+            description += "\n\n🤝 انتهت الجولات بالتعادل."
+
+    elif game_key == "word":
+        puzzles = list(state.get("puzzles") or [])
+        round_index = int(state.get("round_index") or 0)
+        scores = state.get("scores") or {}
+        description = (
+            f"🧑 <@{players[0]}>: **{int(scores.get(str(players[0]), 0))}** نقطة\n"
+            f"🧑 <@{players[1]}>: **{int(scores.get(str(players[1]), 0))}** نقطة\n"
+        )
+        last_answer = state.get("last_answer")
+        if last_answer:
+            description += "\n✅ إجابة صحيحة!" if last_answer.get("correct") else "\n❌ إجابة غير صحيحة."
+        if status == "active" and round_index < len(puzzles):
+            puzzle = puzzles[round_index]
+            description += (
+                f"\n\n**الجولة {round_index + 1} من {len(puzzles)}**"
+                f"\n\n🔐 رتّب الحروف: **{puzzle.get('scrambled', '')}**"
+                "\nاختر الكلمة الصحيحة من الأزرار أسفل الرسالة."
+                f"\n\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
+            )
+        elif status == "finished" and winner_id is None:
+            description += "\n\n🤝 انتهى التحدي بالتعادل."
 
     elif game_key == "quiz":
         questions = list(state.get("questions") or [])
@@ -256,6 +341,53 @@ class GameBoardView(discord.ui.View):
                 button.callback = self._move({"choice": choice})
                 self.add_item(button)
 
+        elif self.game_key == "memory":
+            cards = list(state.get("cards") or [])
+            matched = {int(value) for value in state.get("matched") or []}
+            revealed = {int(value) for value in state.get("revealed") or []}
+            pending = state.get("pending_index")
+            for index, symbol in enumerate(cards):
+                is_face_up = index in matched or index in revealed
+                button = discord.ui.Button(
+                    label=symbol if is_face_up else "❔",
+                    style=(
+                        discord.ButtonStyle.success if index in matched
+                        else discord.ButtonStyle.primary if is_face_up
+                        else discord.ButtonStyle.secondary
+                    ),
+                    row=index // 4,
+                    disabled=terminal or index in matched or index == pending,
+                    custom_id=f"primegame:memory:{self.session_id}:{index}",
+                )
+                button.callback = self._move({"index": index})
+                self.add_item(button)
+
+        elif self.game_key == "dice":
+            button = discord.ui.Button(
+                label="🎲 ارم النرد",
+                style=discord.ButtonStyle.primary,
+                disabled=terminal,
+                custom_id=f"primegame:dice:{self.session_id}:roll",
+            )
+            button.callback = self._move({"roll": "roll"})
+            self.add_item(button)
+
+        elif self.game_key == "word":
+            puzzles = list(state.get("puzzles") or [])
+            round_index = int(state.get("round_index") or 0)
+            if puzzles:
+                puzzle = puzzles[min(round_index, len(puzzles) - 1)]
+                for index, option in enumerate(puzzle.get("options") or []):
+                    button = discord.ui.Button(
+                        label=f"{index + 1}. {str(option)[:70]}",
+                        style=discord.ButtonStyle.secondary,
+                        row=index // 2,
+                        disabled=terminal,
+                        custom_id=f"primegame:word:{self.session_id}:{index}",
+                    )
+                    button.callback = self._move({"answer": index})
+                    self.add_item(button)
+
         elif self.game_key == "quiz":
             questions = list(state.get("questions") or [])
             question_index = int(state.get("question_index") or 0)
@@ -294,6 +426,11 @@ class GameBoardView(discord.ui.View):
                     "invalid_choice": "اختر حجرًا أو ورقة أو مقصًا من الأزرار.",
                     "already_chose": "تم تسجيل اختيارك بالفعل.",
                     "invalid_answer": "الإجابة المحددة غير صالحة.",
+                    "invalid_card": "اختر بطاقة من اللوحة.",
+                    "card_matched": "هذا الزوج مكتمل بالفعل؛ اختر بطاقة أخرى.",
+                    "same_card": "اختر بطاقة ثانية مختلفة.",
+                    "invalid_roll": "اضغط زر رمي النرد.",
+                    "already_rolled": "سُجلت رميتك بالفعل في هذه الجولة.",
                 }
                 await interaction.followup.send(
                     messages.get(outcome.get("reason"), "تعذر تسجيل الحركة؛ حاول تحديث اللوحة."),
@@ -427,6 +564,21 @@ class Games(commands.Cog):
     @app_commands.guild_only()
     async def quiz(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
         await self._start_duel(interaction, opponent, "quiz")
+
+    @game.command(name="memory", description="تحدّ لاعبًا في لعبة الذاكرة")
+    @app_commands.guild_only()
+    async def memory(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "memory")
+
+    @game.command(name="dice", description="تحدّ لاعبًا في مبارزة النرد")
+    @app_commands.guild_only()
+    async def dice(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "dice")
+
+    @game.command(name="word", description="تحدّ لاعبًا في فكّ الكلمة")
+    @app_commands.guild_only()
+    async def word(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "word")
 
     @game.command(name="list", description="عرض ألعاب PRIME وأوامر تشغيلها")
     async def list_games(self, interaction: discord.Interaction) -> None:
