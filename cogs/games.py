@@ -28,6 +28,8 @@ _GAME_TITLES = {
     "memory": "🧩 PRIME · تحدّي الذاكرة",
     "dice": "🎲 PRIME · مبارزة النرد",
     "word": "🔐 PRIME · فكّ الكلمة",
+    "emoji": "🧩 PRIME · فك شفرة الإيموجي",
+    "treasure": "💎 PRIME · صائد الكنز",
 }
 _GAME_COMMANDS = {
     "xo": ("/game xo @عضو", "ضع X وO في صف أو عمود أو قطر من ثلاثة رموز."),
@@ -37,6 +39,8 @@ _GAME_COMMANDS = {
     "memory": ("/game memory @عضو", "اكشف البطاقات المتطابقة واجمع الأزواج قبل خصمك."),
     "dice": ("/game dice @عضو", "خمس جولات نرد؛ الأعلى نقاطًا يفوز."),
     "word": ("/game word @عضو", "فكّ ترتيب الحروف واختر الكلمة الصحيحة في خمس جولات."),
+    "emoji": ("/game emoji @عضو", "فك رموز الإيموجي وخمّن الفيلم أو الشخصية في خمس جولات."),
+    "treasure": ("/game treasure @عضو", "افتح 8 صناديق بالتناوب؛ اجمع الجواهر واحذر الفخاخ."),
 }
 _RPS_LABELS = {
     "rock": "🪨 حجر",
@@ -211,6 +215,66 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
             )
         elif status == "finished" and winner_id is None:
             description += "\n\n🤝 انتهى التحدي بالتعادل."
+
+    elif game_key == "emoji":
+        puzzles = list(state.get("puzzles") or [])
+        round_index = int(state.get("round_index") or 0)
+        scores = state.get("scores") or {}
+        first_score = int(scores.get(str(players[0]), 0))
+        second_score = int(scores.get(str(players[1]), 0))
+        description = (
+            f"🧑 <@{players[0]}>: **{first_score}** نقطة\n"
+            f"🧑 <@{players[1]}>: **{second_score}** نقطة\n"
+        )
+        last_answer = state.get("last_answer") or {}
+        if last_answer:
+            description += "\n✅ إجابة صحيحة!" if last_answer.get("correct") else "\n❌ إجابة غير صحيحة."
+        if status == "active" and round_index < len(puzzles):
+            puzzle = puzzles[round_index]
+            options = list(puzzle.get("options") or [])
+            description += (
+                f"\n\n**جولة فك الشفرة {round_index + 1} من {len(puzzles)}**"
+                f"\n\n🧩 **الرموز:** {puzzle.get('clue', '❔')}"
+                f"\n💡 **تلميح:** {puzzle.get('hint', 'خمّن المقصود')}"
+                "\n\nاختر الإجابة الصحيحة من الأزرار:"
+                + "\n" + "\n".join(
+                    f"**{index + 1}.** {option}" for index, option in enumerate(options)
+                )
+                + f"\n\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
+            )
+        elif status == "finished" and winner_id is None:
+            description += "\n\n🤝 انتهت جولات فك الشفرة بالتعادل."
+
+    elif game_key == "treasure":
+        crates = list(state.get("crates") or [])
+        revealed = state.get("revealed") or {}
+        scores = state.get("scores") or {}
+        first_score = int(scores.get(str(players[0]), 0))
+        second_score = int(scores.get(str(players[1]), 0))
+        turn_count = int(state.get("turn_count") or 0)
+        description = (
+            f"🧭 <@{players[0]}>: **{first_score}** نقطة\n"
+            f"🧭 <@{players[1]}>: **{second_score}** نقطة\n\n"
+            f"📦 الصناديق المفتوحة: **{len(revealed)} / {len(crates)}**\n"
+            f"🏁 الاختيارات: **{turn_count} / 8**"
+        )
+        last_pick = state.get("last_pick") or {}
+        if last_pick:
+            points = int(last_pick.get("points") or 0)
+            points_text = f"{points:+d}" if points else "0"
+            description += (
+                f"\n\n🔓 كشف <@{last_pick.get('player_id')}> صندوقًا "
+                f"{last_pick.get('symbol', '❔')} (**{points_text} نقطة**)"
+            )
+        if status == "active":
+            remaining = max(0, len(crates) - len(revealed))
+            description += (
+                f"\n\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
+                f"\nاختر صندوقًا من **{remaining}** صندوقًا مغلقًا."
+                "\n👑 التاج والجواهر تمنح نقاطًا؛ 🕳️ الفخاخ تخصم نقاطًا."
+            )
+        elif status == "finished" and winner_id is None:
+            description += "\n\n🤝 انتهى البحث بتعادل النقاط."
 
     if status == "finished":
         if winner_id is not None:
@@ -404,6 +468,49 @@ class GameBoardView(discord.ui.View):
                     button.callback = self._move({"answer": index})
                     self.add_item(button)
 
+        elif self.game_key == "emoji":
+            puzzles = list(state.get("puzzles") or [])
+            round_index = int(state.get("round_index") or 0)
+            if puzzles:
+                puzzle = puzzles[min(round_index, len(puzzles) - 1)]
+                for index, option in enumerate(puzzle.get("options") or []):
+                    button = discord.ui.Button(
+                        label=f"{index + 1}. {str(option)[:70]}",
+                        style=discord.ButtonStyle.secondary,
+                        row=index // 2,
+                        disabled=terminal,
+                        custom_id=f"primegame:emoji:{self.session_id}:{index}",
+                    )
+                    button.callback = self._move({"answer": index})
+                    self.add_item(button)
+
+        elif self.game_key == "treasure":
+            crates = list(state.get("crates") or [None] * 16)
+            revealed = state.get("revealed") or {}
+            for index in range(16):
+                result = revealed.get(str(index))
+                if result:
+                    points = int(result.get("points") or 0)
+                    points_label = f"{points:+d}" if points else "0"
+                    label = f"{result.get('symbol', '❔')} {points_label}"
+                    style = (
+                        discord.ButtonStyle.danger if points < 0
+                        else discord.ButtonStyle.success if points > 0
+                        else discord.ButtonStyle.secondary
+                    )
+                else:
+                    label = f"📦 صندوق {index + 1}"
+                    style = discord.ButtonStyle.secondary
+                button = discord.ui.Button(
+                    label=label,
+                    style=style,
+                    row=index // 4,
+                    disabled=terminal or result is not None,
+                    custom_id=f"primegame:treasure:{self.session_id}:{index}",
+                )
+                button.callback = self._move({"index": index})
+                self.add_item(button)
+
     def _move(self, action: dict):
         async def callback(interaction: discord.Interaction) -> None:
             await interaction.response.defer()
@@ -431,6 +538,9 @@ class GameBoardView(discord.ui.View):
                     "same_card": "اختر بطاقة ثانية مختلفة.",
                     "invalid_roll": "اضغط زر رمي النرد.",
                     "already_rolled": "سُجلت رميتك بالفعل في هذه الجولة.",
+                    "invalid_treasure_crate": "اختر صندوقًا من اللوحة.",
+                    "treasure_crate_open": "هذا الصندوق مفتوح بالفعل؛ اختر صندوقًا آخر.",
+                    "invalid_treasure_state": "تعذر قراءة حالة الكنز؛ أعد فتح اللعبة.",
                 }
                 await interaction.followup.send(
                     messages.get(outcome.get("reason"), "تعذر تسجيل الحركة؛ حاول تحديث اللوحة."),
@@ -579,6 +689,16 @@ class Games(commands.Cog):
     @app_commands.guild_only()
     async def word(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
         await self._start_duel(interaction, opponent, "word")
+
+    @game.command(name="emoji", description="تحدّ لاعبًا في فك شفرة الإيموجي")
+    @app_commands.guild_only()
+    async def emoji(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "emoji")
+
+    @game.command(name="treasure", description="تحدّ لاعبًا في صائد الكنز")
+    @app_commands.guild_only()
+    async def treasure(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "treasure")
 
     @game.command(name="list", description="عرض ألعاب PRIME وأوامر تشغيلها")
     async def list_games(self, interaction: discord.Interaction) -> None:
