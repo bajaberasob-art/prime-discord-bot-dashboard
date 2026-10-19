@@ -30,9 +30,9 @@ from game_engine import (
 logger = logging.getLogger("PrimeMusicalChairs")
 
 MIN_PLAYERS = 3
-MAX_PLAYERS = 12
-MUSIC_MIN_SECONDS = 5.0
-MUSIC_MAX_SECONDS = 10.0
+MAX_PLAYERS = 10
+MUSIC_MIN_SECONDS = 4.0
+MUSIC_MAX_SECONDS = 8.0
 SEATING_SECONDS = 9.0
 RESULT_PAUSE_SECONDS = 2.5
 
@@ -77,16 +77,18 @@ def render_musical_chairs_image(
     chair_count: int = 0,
     winner_id: int | None = None,
     avatars: dict[int, Image.Image] | None = None,
+    chair_assignments: dict[int, int] | None = None,
 ) -> Image.Image:
-    """Render a dark/neon game board; avatars are preloaded and cached by the view."""
+    """Render the game board, green chair grid, player states and winner."""
     player_list = list(players)
     alive = {int(value) for value in alive_ids}
     seated = {int(value) for value in seated_ids}
     eliminated = {int(value) for value in eliminated_ids}
+    assignments = chair_assignments or {}
     columns = 4
     rows = max(1, (len(player_list) + columns - 1) // columns)
     width = 1200
-    height = max(430, 205 + rows * 126)
+    height = max(560, 385 + rows * 126)
     if phase == "music":
         subtitle = f"ROUND {round_number} • الموسيقى تعمل 🎵"
     elif phase == "seating":
@@ -105,12 +107,37 @@ def render_musical_chairs_image(
         fill=CYAN,
         anchor="ra",
     )
+
+    # A visible chair grid complements the individual Discord chair buttons.
+    names = {
+        int(getattr(player, "id", 0)): str(
+            getattr(player, "display_name", getattr(player, "name", f"Player {getattr(player, 'id', 0)}"))
+        )
+        for player in player_list
+    }
+    for index in range(max(0, chair_count)):
+        column, row = index % 5, index // 5
+        x, y = 92 + column * 210, 184 + row * 78
+        occupant = assignments.get(index)
+        occupied = occupant is not None
+        fill = "#164e35" if not occupied else "#173b50"
+        outline = CYAN if occupied else GREEN
+        draw.rounded_rectangle((x, y, x + 174, y + 61), radius=12, fill=fill, outline=outline, width=3)
+        draw.rounded_rectangle((x + 12, y + 10, x + 162, y + 34), radius=7, fill="#14532d" if not occupied else "#155e75")
+        draw.line((x + 22, y + 40, x + 22, y + 53), fill=outline, width=4)
+        draw.line((x + 152, y + 40, x + 152, y + 53), fill=outline, width=4)
+        label = f"كرسي {index + 1}"
+        if occupied:
+            owner = names.get(int(occupant), str(occupant))[:15]
+            label = f"{label} • {owner}"
+        draw_arabic_text(draw, (x + 87, y + 46), label, font=_font(12, True), fill=WHITE, anchor="mm")
+
     avatars = avatars or {}
     for index, player in enumerate(player_list):
         user_id = int(getattr(player, "id", 0))
         name = str(getattr(player, "display_name", getattr(player, "name", f"Player {user_id}")))
         column, row = index % columns, index // columns
-        x, y = 54 + column * 278, 168 + row * 126
+        x, y = 54 + column * 278, 350 + row * 126
         is_alive = user_id in alive
         if user_id == winner_id:
             outline, status, status_color = GREEN, "الفائز 🏆", GREEN
@@ -138,12 +165,19 @@ def render_musical_chairs_image(
             draw.ellipse((x + 14, y + 20, x + 76, y + 82), fill="#29233f", outline=outline, width=2)
             initial = (name.strip()[:1] or "?").upper()
             draw_arabic_text(draw, (x + 45, y + 51), initial, font=_font(24, True), fill=WHITE, anchor="mm")
-        safe_name = name[:20]
-        draw_arabic_text(draw, (x + 88, y + 27), safe_name, font=_font(17, True), fill=WHITE)
+        draw_arabic_text(draw, (x + 88, y + 27), name[:20], font=_font(17, True), fill=WHITE)
         draw_arabic_text(draw, (x + 88, y + 61), status, font=_font(14), fill=status_color)
-    footer = "PRIME • VISUAL MULTIPLAYER"
-    draw_arabic_text(draw, (width // 2, height - 43), footer, font=_font(13, True), fill=MUTED, anchor="mm")
+    draw_arabic_text(draw, (width // 2, height - 25), "PRIME • VISUAL MULTIPLAYER", font=_font(13, True), fill=MUTED, anchor="mm")
     return image
+
+
+def eliminate_early_press(alive_ids: Sequence[int], user_id: int) -> tuple[list[int], bool]:
+    """Return the living players after a premature click and whether it eliminated them."""
+    alive = list(dict.fromkeys(int(value) for value in alive_ids))
+    actor = int(user_id)
+    if actor not in alive:
+        return alive, False
+    return [value for value in alive if value != actor], True
 
 
 class MusicalChairsGameView(discord.ui.View):
@@ -171,7 +205,9 @@ class MusicalChairsGameView(discord.ui.View):
         self.eliminated_ids: list[int] = []
         self.seated_ids: list[int] = []
         self.round_number = 1
-        self.chair_count = max(1, len(ids) - 1)
+        self.chair_count = len(ids) - 1
+        self.chair_assignments: dict[int, int] = {}
+        self.chair_buttons: dict[int, discord.ui.Button] = {}
         self.phase = "music"
         self.closed = False
         self.winner_id: int | None = None
@@ -185,56 +221,83 @@ class MusicalChairsGameView(discord.ui.View):
         self._runner: asyncio.Task | None = None
         self._avatar_cache: dict[int, Image.Image] = {}
         self._last_round_eliminated: list[int] = []
+        self._rebuild_chair_buttons()
         self._update_controls()
 
-    def _update_controls(self) -> None:
-        self.seat_button.disabled = self.closed or self.phase != "seating"
-        if self.phase == "seating":
-            self.seat_button.label = f"اجلس على الكرسي! ({len(self.seated_ids)}/{self.chair_count})"
-        elif self.closed:
-            self.seat_button.label = "انتهت اللعبة"
-        else:
-            self.seat_button.label = "انتظر توقف الموسيقى"
+    def _rebuild_chair_buttons(self) -> None:
+        for button in self.chair_buttons.values():
+            self.remove_item(button)
+        self.chair_buttons.clear()
+        order = list(range(max(0, self.chair_count)))
+        random.shuffle(order)
+        for display_index, chair_index in enumerate(order):
+            button = discord.ui.Button(
+                label=f"🪑 كرسي {chair_index + 1}",
+                style=discord.ButtonStyle.success,
+                row=display_index // 5,
+                custom_id=f"prime:mc:{id(self):x}:{self.round_number}:{chair_index}",
+            )
+            button.callback = self._make_chair_callback(chair_index)
+            self.chair_buttons[chair_index] = button
+            self.add_item(button)
 
-    @discord.ui.button(
-        label="انتظر توقف الموسيقى",
-        style=discord.ButtonStyle.success,
-        emoji="🪑",
-        row=0,
-    )
-    async def seat_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
-        user_id = int(interaction.user.id)
-        async with self._lock:
-            if self.closed:
-                return await interaction.response.send_message("انتهت اللعبة.", ephemeral=True)
-            if self.phase != "seating":
-                return await interaction.response.send_message(
-                    "🎵 الموسيقى ما زالت تعمل؛ انتظر حتى تتوقف ثم اضغط بسرعة.",
+    def _make_chair_callback(self, chair_index: int):
+        async def callback(interaction: discord.Interaction) -> None:
+            user_id = int(interaction.user.id)
+            early_elimination = False
+            async with self._lock:
+                if self.closed or self.phase in {"resolving", "result", "finished"}:
+                    return await interaction.response.send_message("انتهت هذه الجولة؛ انتظر الجولة التالية.", ephemeral=True)
+                if user_id not in self.alive_ids:
+                    return await interaction.response.send_message("لم تعد ضمن اللاعبين المتنافسين.", ephemeral=True)
+                if self.phase == "music":
+                    self.alive_ids, early_elimination = eliminate_early_press(self.alive_ids, user_id)
+                    if early_elimination:
+                        self.eliminated_ids.append(user_id)
+                        self._last_round_eliminated.append(user_id)
+                        self.chair_count = max(0, len(self.alive_ids) - 1)
+                        self._rebuild_chair_buttons()
+                        self._update_controls()
+                elif self.phase == "seating":
+                    if user_id in self.seated_ids:
+                        return await interaction.response.send_message("🪑 حجزت كرسيًا بالفعل؛ لا يمكنك حجز كرسي ثانٍ.", ephemeral=True)
+                    if chair_index in self.chair_assignments:
+                        return await interaction.response.send_message("هذا الكرسي حُجز للتو؛ اختر كرسيًا أخضر آخر.", ephemeral=True)
+                    self.chair_assignments[chair_index] = user_id
+                    self.seated_ids.append(user_id)
+                    if len(self.seated_ids) >= self.chair_count:
+                        self.phase = "resolving"
+                        self._seat_event.set()
+                    self._update_controls()
+                else:
+                    return await interaction.response.send_message("انتظر إشارة الجولة التالية.", ephemeral=True)
+
+            if early_elimination:
+                await interaction.response.send_message(
+                    "🚫 ضغطت أثناء الموسيقى! خرجت من هذه اللعبة.",
                     ephemeral=True,
                 )
-            if user_id not in self.alive_ids:
-                return await interaction.response.send_message(
-                    "لم تعد ضمن اللاعبين المتنافسين في هذه الجولة.", ephemeral=True
-                )
-            if user_id in self.seated_ids:
-                return await interaction.response.send_message(
-                    "🪑 تم تسجيل جلوسك بالفعل؛ انتظر نتيجة الجولة.", ephemeral=True
-                )
-            if len(self.seated_ids) >= self.chair_count:
-                return await interaction.response.send_message(
-                    "للأسف، حُجزت جميع الكراسي في هذه الجولة.", ephemeral=True
-                )
-            self.seated_ids.append(user_id)
-            if len(self.seated_ids) >= self.chair_count:
-                self.phase = "resolving"
-                self._seat_event.set()
-            self._update_controls()
-        await interaction.response.send_message("🪑 تم تسجيل جلوسك!", ephemeral=True)
-        await self._edit_board()
+            else:
+                await interaction.response.send_message("🪑 تم حجز الكرسي لك!", ephemeral=True)
+            await self._edit_board()
+
+        return callback
+
+    def _update_controls(self) -> None:
+        for chair_index, button in self.chair_buttons.items():
+            occupant = self.chair_assignments.get(chair_index)
+            button.disabled = (
+                self.closed
+                or self.phase not in {"music", "seating"}
+                or (self.phase == "seating" and occupant is not None)
+            )
+            if occupant is not None:
+                player = self.players.get(int(occupant))
+                button.label = f"🔒 {str(getattr(player, 'display_name', 'محجوز'))[:55]}"
+                button.style = discord.ButtonStyle.secondary
+            else:
+                button.label = f"🪑 كرسي {chair_index + 1}"
+                button.style = discord.ButtonStyle.success
 
     async def start(self, message: discord.Message) -> None:
         self.message = message
@@ -281,6 +344,7 @@ class MusicalChairsGameView(discord.ui.View):
             chair_count=self.chair_count,
             winner_id=self.winner_id,
             avatars=self._avatar_cache,
+            chair_assignments=self.chair_assignments,
         )
         return image_to_file(image, "prime-musical-chairs.png")
 
@@ -347,9 +411,11 @@ class MusicalChairsGameView(discord.ui.View):
                 async with self._lock:
                     self.phase = "music"
                     self.seated_ids = []
+                    self.chair_assignments = {}
                     self.chair_count = len(self.alive_ids) - 1
                     self._seat_event = asyncio.Event()
                     self._last_round_eliminated = []
+                    self._rebuild_chair_buttons()
                     self._update_controls()
                 await self._edit_board()
                 await asyncio.sleep(random.uniform(self.music_min_seconds, self.music_max_seconds))
@@ -357,6 +423,8 @@ class MusicalChairsGameView(discord.ui.View):
                 async with self._lock:
                     if self.closed:
                         return
+                    if len(self.alive_ids) <= 1:
+                        break
                     self.phase = "seating"
                     self._update_controls()
                 await self._edit_board()
@@ -369,16 +437,17 @@ class MusicalChairsGameView(discord.ui.View):
                 async with self._lock:
                     if self.closed:
                         return
-                    # A round with no valid clicks should not eliminate everyone.
+                    # If nobody reacts, simulate a fair scramble: fill all but one chair.
                     if not self.seated_ids and self.alive_ids:
-                        self.seated_ids = [random.choice(self.alive_ids)]
+                        self.seated_ids = random.sample(self.alive_ids, min(self.chair_count, len(self.alive_ids)))
+                        self.chair_assignments = {index: user_id for index, user_id in enumerate(self.seated_ids)}
                     survivors, eliminated = resolve_round(self.alive_ids, self.seated_ids)
                     if not survivors and self.alive_ids:
-                        survivors = [random.choice(self.alive_ids)]
+                        survivors = random.sample(self.alive_ids, min(self.chair_count, len(self.alive_ids))) or [random.choice(self.alive_ids)]
                         eliminated = [user_id for user_id in self.alive_ids if user_id not in survivors]
                     self.alive_ids = survivors
-                    self.eliminated_ids.extend(eliminated)
-                    self._last_round_eliminated = eliminated
+                    self.eliminated_ids.extend(user_id for user_id in eliminated if user_id not in self.eliminated_ids)
+                    self._last_round_eliminated.extend(user_id for user_id in eliminated if user_id not in self._last_round_eliminated)
                     self.phase = "result"
                     # Keep the current round number and chair count for the result
                     # board. Advance only after showing this round's outcome.
@@ -472,9 +541,9 @@ class MusicalChairs(commands.Cog):
             interaction.user,
             game_name="الكراسي الموسيقية",
             rules=(
-                "1) تحتاج اللعبة إلى 3–12 لاعبًا.\n"
-                "2) أثناء الموسيقى لا تضغط زر الجلوس.\n"
-                "3) عند توقف الموسيقى، أول اللاعبين الجالسين بعدد الكراسي ينجون.\n"
+                "1) تحتاج اللعبة إلى 3–10 لاعبين.\n"
+                "2) الضغط على أي كرسي أثناء الموسيقى يخرجك من اللعبة.\n"
+                "3) عند توقف الموسيقى، احجز كرسيًا أخضر بسرعة لتبقى في المنافسة.\n"
                 "4) يوجد كرسي أقل من عدد المتنافسين في كل جولة.\n"
                 "5) آخر لاعب يبقى هو الفائز."
             ),
