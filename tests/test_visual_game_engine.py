@@ -62,6 +62,32 @@ class VisualGameEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(view.join_button.disabled)
         self.assertTrue(view.rules_button.disabled)
 
+    async def test_lobby_render_produces_a_discord_png_file(self):
+        async def start_callback(interaction, players):
+            return None
+
+        host = SimpleNamespace(
+            id=10,
+            name="Host",
+            display_name="Host",
+            mention="<@10>",
+            display_avatar=None,
+        )
+        view = UniversalLobbyView(
+            host,
+            game_name="الكراسي الموسيقية",
+            rules="انتظر توقف الموسيقى.",
+            on_start=start_callback,
+            min_players=2,
+            max_players=4,
+        )
+        output = await view.render_lobby_file()
+        try:
+            self.assertEqual(output.filename, "prime-lobby.png")
+            self.assertTrue(output.fp.read().startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        finally:
+            output.close()
+
     async def test_invalid_lobby_limits_are_rejected(self):
         async def start_callback(interaction, players):
             return None
