@@ -2,11 +2,10 @@ import io
 import unittest
 from types import SimpleNamespace
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 from game_engine import (
     BACKGROUND,
-    GREEN,
     UniversalLobbyView,
     create_base_canvas,
     draw_arabic_text,
@@ -27,9 +26,10 @@ class VisualGameEngineTests(unittest.IsolatedAsyncioTestCase):
     def test_draw_arabic_text_accepts_mixed_arabic_english_and_symbols(self):
         image = Image.new("RGB", (480, 120), BACKGROUND)
         from PIL import ImageDraw
+        before = image.copy()
         draw = ImageDraw.Draw(image)
         draw_arabic_text(draw, (450, 20), "توقفت الموسيقى! Round 2 🎵")
-        self.assertIsNotNone(image.getbbox())
+        self.assertIsNotNone(ImageChops.difference(image, before).getbbox())
 
     async def test_missing_avatar_url_returns_circular_placeholder(self):
         user = SimpleNamespace(id=5, name="Tester", display_name="Tester", display_avatar=None)
