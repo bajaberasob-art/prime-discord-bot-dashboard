@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from cogs.musical_chairs import (
     MAX_PLAYERS,
     MIN_PLAYERS,
+    MUSIC_MIN_SECONDS,
+    MUSIC_MAX_SECONDS,
+    eliminate_early_press,
     MusicalChairsGameView,
     render_musical_chairs_image,
     resolve_round,
@@ -35,6 +38,18 @@ class MusicalChairsLogicTests(unittest.TestCase):
         self.assertEqual(eliminated, [2, 4])
 
 
+    def test_early_press_eliminates_only_the_player_who_clicked(self):
+        alive, eliminated = eliminate_early_press([10, 20, 30], 20)
+        self.assertEqual(alive, [10, 30])
+        self.assertTrue(eliminated)
+
+    def test_early_press_from_non_player_does_not_change_round(self):
+        alive, eliminated = eliminate_early_press([10, 20, 30], 99)
+        self.assertEqual(alive, [10, 20, 30])
+        self.assertFalse(eliminated)
+
+
+
 class MusicalChairsRenderingTests(unittest.TestCase):
     def setUp(self):
         self.players = [
@@ -50,6 +65,7 @@ class MusicalChairsRenderingTests(unittest.TestCase):
             round_number=1,
             phase="music",
             chair_count=2,
+            chair_assignments={0: 101},
         )
         self.assertEqual(image.mode, "RGBA")
         self.assertEqual(image.size[0], 1200)
@@ -92,7 +108,9 @@ class MusicalChairsRenderingTests(unittest.TestCase):
 
     def test_supported_player_bounds_are_explicit(self):
         self.assertEqual(MIN_PLAYERS, 3)
-        self.assertEqual(MAX_PLAYERS, 12)
+        self.assertEqual(MAX_PLAYERS, 10)
+        self.assertEqual(MUSIC_MIN_SECONDS, 4.0)
+        self.assertEqual(MUSIC_MAX_SECONDS, 8.0)
 
 
 if __name__ == "__main__":
