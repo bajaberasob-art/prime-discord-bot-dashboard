@@ -71,7 +71,8 @@ class EmojiAndTreasureRulesTests(unittest.TestCase):
         self.assertTrue(all("📦" in item.label for item in view.children))
         embed = _game_embed(session)
         self.assertIn("صائد الكنز", embed.title)
-        self.assertNotIn("👑", embed.description or "")
+        self.assertNotIn("👑", [item.label for item in view.children])
+        self.assertIn("الفخاخ تخصم نقاطًا", embed.description or "")
 
     def test_treasure_hunt_finishes_after_eight_turns_by_total_points(self):
         game = registry.get("treasure")
