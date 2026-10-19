@@ -22,7 +22,7 @@ class VisualGameEngineTests(unittest.IsolatedAsyncioTestCase):
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         self.assertTrue(buffer.getvalue().startswith(b"\x89PNG\r\n\x1a\n"))
-        self.assertEqual(image.getpixel((100, 100)), tuple(bytes.fromhex(BACKGROUND[1:])))
+        self.assertEqual(image.getpixel((15, 15)), tuple(bytes.fromhex(BACKGROUND[1:])))
 
     def test_draw_arabic_text_accepts_mixed_arabic_english_and_symbols(self):
         image = Image.new("RGB", (480, 120), BACKGROUND)
