@@ -6,7 +6,6 @@ import logging
 import random
 from typing import Sequence
 
-import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -23,9 +22,9 @@ from game_engine import (
     _font,
     draw_arabic_text,
     get_circular_avatar,
-    image_to_file,
-    create_base_canvas,
     UniversalLobbyView,
+    create_base_canvas,
+    image_to_file,
 )
 
 logger = logging.getLogger("PrimeMusicalChairs")
@@ -382,7 +381,8 @@ class MusicalChairsGameView(discord.ui.View):
                     self._last_round_eliminated = eliminated
                     self.phase = "result"
                     self.round_number += 1
-                    self.chair_count = max(0, len(self.alive_ids) - 1)
+                    # Keep the just-finished round's chair count for its result
+                    # board; the next loop sets the new count before music starts.
                     self._update_controls()
                 await self._edit_board()
                 if len(self.alive_ids) > 1 and self.result_pause_seconds:
