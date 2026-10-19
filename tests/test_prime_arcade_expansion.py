@@ -102,6 +102,83 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         embed = _game_embed(result["session"])
         self.assertIn("رتّب الحروف", embed.description or "")
 
+    async def test_connect_four_uses_its_configured_reward_in_existing_wallet(self):
+        session = await create_session(
+            guild_id=915, channel_id=506, game_key="connect4", players=self.players
+        )
+        moves = [
+            (self.players[0], 0), (self.players[1], 0),
+            (self.players[0], 1), (self.players[1], 1),
+            (self.players[0], 2), (self.players[1], 2),
+            (self.players[0], 3),
+        ]
+        result = None
+        for actor_id, column in moves:
+            result = await apply_action(session["id"], actor_id, {"column": column})
+            self.assertTrue(result["ok"], result)
+        self.assertTrue(result["finished"])
+        self.assertEqual(result["winner_id"], self.players[0])
+        self.assertEqual(result["reward"], 20)
+        account = await database.get_or_create_user(self.players[0], 915)
+        self.assertEqual(account["balance"], 120)
+
+    async def test_rps_keeps_first_choice_hidden_and_pays_configured_reward(self):
+        session = await create_session(
+            guild_id=916, channel_id=507, game_key="rps", players=self.players
+        )
+        first = await apply_action(session["id"], self.players[0], {"choice": "rock"})
+        self.assertTrue(first["ok"], first)
+        hidden_embed = _game_embed(first["session"])
+        self.assertNotIn("🪨 حجر", hidden_embed.description or "")
+        second = await apply_action(session["id"], self.players[1], {"choice": "scissors"})
+        self.assertTrue(second["ok"], second)
+        self.assertTrue(second["finished"])
+        self.assertEqual(second["winner_id"], self.players[0])
+        self.assertEqual(second["reward"], 10)
+        account = await database.get_or_create_user(self.players[0], 916)
+        self.assertEqual(account["balance"], 110)
+
+    async def test_memory_completes_all_pairs_and_draws_when_scores_are_equal(self):
+        session = await create_session(
+            guild_id=917, channel_id=508, game_key="memory", players=self.players
+        )
+        groups = {}
+        for index, symbol in enumerate(session["state"]["cards"]):
+            groups.setdefault(symbol, []).append(index)
+        result = None
+        for pair in groups.values():
+            current = await get_session(session["id"])
+            actor_id = current["current_player_id"]
+            first = await apply_action(session["id"], actor_id, {"index": pair[0]})
+            self.assertTrue(first["ok"], first)
+            result = await apply_action(session["id"], actor_id, {"index": pair[1]})
+            self.assertTrue(result["ok"], result)
+        self.assertTrue(result["finished"])
+        self.assertTrue(result["is_draw"])
+        self.assertEqual(len(result["session"]["state"]["matched"]), 16)
+        self.assertEqual(result["reward"], 0)
+
+    async def test_word_challenge_has_six_fair_turns_and_resolves_tie(self):
+        session = await create_session(
+            guild_id=918, channel_id=509, game_key="word", players=self.players
+        )
+        result = None
+        for _ in range(6):
+            current = await get_session(session["id"])
+            index = current["state"]["round_index"]
+            correct = current["state"]["puzzles"][index]["correct"]
+            result = await apply_action(
+                session["id"], current["current_player_id"], {"answer": correct}
+            )
+            self.assertTrue(result["ok"], result)
+        self.assertTrue(result["finished"])
+        self.assertTrue(result["is_draw"])
+        self.assertEqual(result["session"]["state"]["scores"], {
+            str(self.players[0]): 3,
+            str(self.players[1]): 3,
+        })
+        self.assertEqual(result["reward"], 0)
+
     async def test_word_invalid_answer_does_not_advance_round(self):
         session = await create_session(
             guild_id=914, channel_id=505, game_key="word", players=self.players
