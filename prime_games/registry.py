@@ -341,6 +341,8 @@ def _reduce_memory_action(
                 return GameTransition(next_state, None, is_draw=True)
             winner_id = players[0] if first_score > second_score else players[1]
             return GameTransition(next_state, None, winner_id=winner_id)
+        # A successful pair earns another turn, matching standard memory-game rules.
+        return GameTransition(next_state, actor_id)
     else:
         # Keep both cards visible until the next player makes their first pick.
         next_state = {

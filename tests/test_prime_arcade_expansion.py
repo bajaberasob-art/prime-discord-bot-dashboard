@@ -5,7 +5,15 @@ from unittest.mock import patch
 
 import database
 from cogs.games import GameBoardView, _game_embed
-from prime_games.engine import apply_action, create_session, ensure_game_schema, get_session
+from prime_games.engine import (
+    apply_action,
+    attach_message,
+    create_session,
+    ensure_game_schema,
+    expire_stale_sessions,
+    get_session,
+    list_active_sessions,
+)
 from prime_games.registry import registry
 
 
@@ -52,7 +60,25 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(second["ok"], second)
         self.assertEqual(second["session"]["state"]["matched"], sorted([first_index, matching_index]))
         self.assertEqual(second["session"]["state"]["scores"][str(self.players[0])], 1)
-        self.assertEqual(second["session"]["current_player_id"], self.players[1])
+        # A successful match keeps the same player's turn.
+        self.assertEqual(second["session"]["current_player_id"], self.players[0])
+
+    async def test_memory_mismatch_switches_turn_without_awarding_a_pair(self):
+        session = await create_session(
+            guild_id=919, channel_id=510, game_key="memory", players=self.players
+        )
+        cards = session["state"]["cards"]
+        first_index = 0
+        other_index = next(index for index, symbol in enumerate(cards) if symbol != cards[first_index])
+
+        first = await apply_action(session["id"], self.players[0], {"index": first_index})
+        self.assertTrue(first["ok"], first)
+        mismatch = await apply_action(session["id"], self.players[0], {"index": other_index})
+        self.assertTrue(mismatch["ok"], mismatch)
+        self.assertEqual(mismatch["session"]["current_player_id"], self.players[1])
+        self.assertEqual(mismatch["session"]["state"]["revealed"], [first_index, other_index])
+        self.assertFalse(mismatch["session"]["state"]["last_match"])
+        self.assertEqual(mismatch["session"]["state"]["scores"][str(self.players[0])], 0)
 
     async def test_memory_has_sixteen_persistent_controls_and_renders_hidden_cards(self):
         session = await create_session(
@@ -138,7 +164,7 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         account = await database.get_or_create_user(self.players[0], 916)
         self.assertEqual(account["balance"], 110)
 
-    async def test_memory_completes_all_pairs_and_draws_when_scores_are_equal(self):
+    async def test_memory_completes_all_pairs_and_pays_winner_once(self):
         session = await create_session(
             guild_id=917, channel_id=508, game_key="memory", players=self.players
         )
@@ -154,9 +180,93 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
             result = await apply_action(session["id"], actor_id, {"index": pair[1]})
             self.assertTrue(result["ok"], result)
         self.assertTrue(result["finished"])
-        self.assertTrue(result["is_draw"])
+        self.assertFalse(result["is_draw"])
+        self.assertEqual(result["winner_id"], self.players[0])
         self.assertEqual(len(result["session"]["state"]["matched"]), 16)
-        self.assertEqual(result["reward"], 0)
+        self.assertEqual(result["reward"], 20)
+        account = await database.get_or_create_user(self.players[0], 917)
+        self.assertEqual(account["balance"], 120)
+
+    async def test_quiz_winner_receives_configured_reward(self):
+        session = await create_session(
+            guild_id=920, channel_id=511, game_key="quiz", players=self.players
+        )
+        result = None
+        for _ in range(6):
+            current = await get_session(session["id"])
+            question = current["state"]["questions"][current["state"]["question_index"]]
+            actor_id = current["current_player_id"]
+            answer = int(question["correct"])
+            if actor_id == self.players[1]:
+                answer = (answer + 1) % len(question["options"])
+            result = await apply_action(session["id"], actor_id, {"answer": answer})
+            self.assertTrue(result["ok"], result)
+        self.assertTrue(result["finished"])
+        self.assertEqual(result["winner_id"], self.players[0])
+        self.assertEqual(result["reward"], 15)
+        account = await database.get_or_create_user(self.players[0], 920)
+        self.assertEqual(account["balance"], 115)
+
+    async def test_word_winner_receives_configured_reward(self):
+        session = await create_session(
+            guild_id=921, channel_id=512, game_key="word", players=self.players
+        )
+        result = None
+        for _ in range(6):
+            current = await get_session(session["id"])
+            puzzle = current["state"]["puzzles"][current["state"]["round_index"]]
+            actor_id = current["current_player_id"]
+            answer = int(puzzle["correct"])
+            if actor_id == self.players[1]:
+                answer = (answer + 1) % len(puzzle["options"])
+            result = await apply_action(session["id"], actor_id, {"answer": answer})
+            self.assertTrue(result["ok"], result)
+        self.assertTrue(result["finished"])
+        self.assertEqual(result["winner_id"], self.players[0])
+        self.assertEqual(result["reward"], 15)
+        account = await database.get_or_create_user(self.players[0], 921)
+        self.assertEqual(account["balance"], 115)
+
+    async def test_expired_idle_sessions_are_cancelled_for_ui_cleanup(self):
+        old_session = await create_session(
+            guild_id=922, channel_id=513, game_key="dice", players=self.players
+        )
+        fresh_session = await create_session(
+            guild_id=922, channel_id=513, game_key="word", players=self.players
+        )
+        await attach_message(old_session["id"], 90001)
+        await attach_message(fresh_session["id"], 90002)
+        async with database.connect() as db:
+            await db.execute(
+                "UPDATE prime_game_sessions SET updated_at = datetime('now', '-4 days') WHERE id = ?",
+                (old_session["id"],),
+            )
+            await db.commit()
+
+        expired = await expire_stale_sessions()
+        self.assertEqual([item["id"] for item in expired], [old_session["id"]])
+        self.assertEqual(expired[0]["result"], "expired_idle")
+        self.assertEqual((await get_session(old_session["id"]))["status"], "cancelled")
+        self.assertEqual((await get_session(fresh_session["id"]))["status"], "active")
+
+    async def test_all_game_types_restore_from_durable_active_sessions(self):
+        game_keys = {"xo", "connect4", "rps", "quiz", "memory", "dice", "word"}
+        expected = []
+        for index, game_key in enumerate(sorted(game_keys), start=1):
+            session = await create_session(
+                guild_id=923, channel_id=514, game_key=game_key, players=self.players
+            )
+            await attach_message(session["id"], 91000 + index)
+            expected.append(session["id"])
+
+        restored = await list_active_sessions(guild_id=923, limit=None)
+        self.assertEqual({item["game_key"] for item in restored}, game_keys)
+        self.assertEqual({item["id"] for item in restored}, set(expected))
+        for session in restored:
+            view = GameBoardView(session)
+            self.assertIsNone(view.timeout)
+            self.assertGreater(len(view.children), 0)
+            self.assertTrue(all(item.custom_id for item in view.children))
 
     async def test_word_challenge_has_six_fair_turns_and_resolves_tie(self):
         session = await create_session(

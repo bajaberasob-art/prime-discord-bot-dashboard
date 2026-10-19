@@ -13,6 +13,8 @@ from prime_games.engine import (
     cancel_session,
     create_session,
     ensure_game_schema,
+    expire_stale_sessions,
+    GAME_SESSION_MAX_IDLE_HOURS,
     list_active_sessions,
 )
 from prime_games.registry import registry
@@ -226,6 +228,12 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
         else:
             color = 0x64748B
     elif status == "cancelled":
+        if session.get("result") == "expired_idle":
+            description += (
+                f"\n\n⏰ انتهت صلاحية اللعبة بعد {GAME_SESSION_MAX_IDLE_HOURS} ساعة من عدم النشاط."
+            )
+        else:
+            description += "\n\n🔒 تم إيقاف المباراة."
         color = 0x64748B
 
     embed = discord.Embed(
@@ -407,11 +415,23 @@ class GameBoardView(discord.ui.View):
     def _move(self, action: dict):
         async def callback(interaction: discord.Interaction) -> None:
             await interaction.response.defer()
-            outcome = await apply_action(
-                self.session_id,
-                interaction.user.id,
-                action,
-            )
+            try:
+                outcome = await apply_action(
+                    self.session_id,
+                    interaction.user.id,
+                    action,
+                )
+            except Exception:
+                logger.exception(
+                    "Could not apply %s action for session %s",
+                    self.game_key,
+                    self.session_id,
+                )
+                await interaction.followup.send(
+                    "واجهت مشكلة أثناء حفظ الحركة. لم أستطع تأكيدها؛ حدّث اللوحة وحاول مجددًا.",
+                    ephemeral=True,
+                )
+                return
             if not outcome.get("ok"):
                 messages = {
                     "session_not_found": "لم أعد أجد هذه المباراة.",
@@ -444,17 +464,52 @@ class GameBoardView(discord.ui.View):
                     "تم حفظ الحركة لكن تعذر تحميل اللوحة.", ephemeral=True
                 )
                 return
+            reward = int(outcome.get("reward") or 0)
+            reward_capped = bool(outcome.get("reward_capped"))
             embed, image_file = await _game_presentation(
                 session,
                 interaction,
-                reward=int(outcome.get("reward") or 0),
-                reward_capped=bool(outcome.get("reward_capped")),
+                reward=reward,
+                reward_capped=reward_capped,
             )
-            await interaction.edit_original_response(
-                embed=embed,
-                attachments=[image_file] if image_file is not None else [],
-                view=GameBoardView(session),
-            )
+            view = GameBoardView(session)
+            try:
+                await interaction.edit_original_response(
+                    embed=embed,
+                    attachments=[image_file] if image_file is not None else [],
+                    view=view,
+                )
+            except discord.HTTPException:
+                # The move is already durable. Try editing the message with the
+                # bot token and a text-only embed instead of leaving a stale board.
+                logger.exception(
+                    "Interaction response edit failed for %s session %s; trying message edit",
+                    self.game_key,
+                    self.session_id,
+                )
+                try:
+                    if interaction.message is None:
+                        raise RuntimeError("component interaction has no source message")
+                    await interaction.message.edit(
+                        embed=_game_embed(
+                            session,
+                            reward=reward,
+                            reward_capped=reward_capped,
+                        ),
+                        attachments=[],
+                        view=view,
+                    )
+                except (discord.HTTPException, RuntimeError):
+                    logger.exception(
+                        "Could not synchronize Discord board after saved %s move in session %s",
+                        self.game_key,
+                        self.session_id,
+                    )
+                    await interaction.followup.send(
+                        "✅ حُفظت الحركة، لكن تعذّر تحديث اللوحة تلقائيًا. "
+                        "حاول إعادة فتح الرسالة أو تواصل مع مشرف السيرفر.",
+                        ephemeral=True,
+                    )
 
         return callback
 
@@ -467,6 +522,34 @@ class Games(commands.Cog):
 
     async def cog_load(self) -> None:
         await ensure_game_schema()
+
+        # Expire abandoned games after 72 hours, but keep handlers registered for
+        # old buttons even when a message cannot be edited or its channel is gone.
+        expired_sessions = await expire_stale_sessions()
+        for session in expired_sessions:
+            expired_state = {**session, "status": "cancelled"}
+            message_id = int(session.get("message_id") or 0)
+            if message_id <= 0:
+                continue
+            self.bot.add_view(GameBoardView(expired_state), message_id=message_id)
+            try:
+                channel = self.bot.get_channel(int(session["channel_id"]))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(session["channel_id"]))
+                message = await channel.fetch_message(message_id)
+                await message.edit(
+                    embed=_game_embed(expired_state),
+                    attachments=[],
+                    view=GameBoardView(expired_state),
+                )
+            except (discord.HTTPException, AttributeError):
+                logger.warning(
+                    "Expired game session %s could not be visually closed; "
+                    "its persistent handler remains registered",
+                    session.get("id"),
+                    exc_info=True,
+                )
+
         for session in await list_active_sessions(limit=None):
             self.bot.add_view(
                 GameBoardView(session),

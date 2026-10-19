@@ -13,6 +13,7 @@ from prime_games.registry import GameTransition, registry
 logger = logging.getLogger("PrimeGames")
 
 MAX_DAILY_GAME_REWARD_COINS = 250
+GAME_SESSION_MAX_IDLE_HOURS = 72
 
 
 async def ensure_game_schema() -> None:
@@ -43,6 +44,10 @@ async def ensure_game_schema() -> None:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_prime_games_message "
             "ON prime_game_sessions(message_id)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prime_games_status_updated "
+            "ON prime_game_sessions(status, updated_at)"
         )
         await db.execute("""
             CREATE TABLE IF NOT EXISTS prime_game_reward_claims (
@@ -88,6 +93,51 @@ def _session(row: Any) -> dict[str, Any] | None:
     result["version"] = int(result.get("version") or 0)
     result["is_active"] = result.get("status") == "active"
     return result
+
+
+async def expire_stale_sessions(
+    max_idle_hours: int = GAME_SESSION_MAX_IDLE_HOURS,
+) -> list[dict[str, Any]]:
+    """Cancel inactive published games and return sessions needing UI cleanup."""
+    hours = max(1, min(int(max_idle_hours), 24 * 365))
+    modifier = f"-{hours} hours"
+
+    async with connect(aiosqlite.Row) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            """
+            SELECT * FROM prime_game_sessions
+            WHERE status = 'active'
+              AND message_id > 0
+              AND updated_at < datetime('now', ?)
+            ORDER BY id
+            """,
+            (modifier,),
+        ) as cur:
+            rows = await cur.fetchall()
+
+        expired = [
+            session for session in (_session(row) for row in rows)
+            if session is not None
+        ]
+        for session in expired:
+            await db.execute(
+                """
+                UPDATE prime_game_sessions
+                SET status = 'cancelled',
+                    result = 'expired_idle',
+                    updated_at = CURRENT_TIMESTAMP,
+                    version = version + 1
+                WHERE id = ? AND status = 'active'
+                """,
+                (int(session["id"]),),
+            )
+        await db.commit()
+
+    return [
+        {**session, "status": "cancelled", "result": "expired_idle"}
+        for session in expired
+    ]
 
 
 async def create_session(
