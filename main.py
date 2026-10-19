@@ -342,6 +342,7 @@ class EnterpriseBot(commands.Bot):
             "cogs.tournaments",
             "cogs.gaming",
             "cogs.games",
+            "cogs.musical_chairs",
             "cogs.community",
             "cogs.announcement_reactions",
             "cogs.ai_tools",
