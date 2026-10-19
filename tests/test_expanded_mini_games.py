@@ -11,12 +11,15 @@ class ExpandedMiniGameTests(unittest.TestCase):
     def test_registry_exposes_all_four_playable_games(self):
         self.assertEqual(
             {game.key for game in registry.all()},
-            {"xo", "connect4", "rps", "quiz"},
+            {"xo", "connect4", "rps", "quiz", "memory", "dice", "word"},
         )
         self.assertEqual(registry.get("xo").reward_coins, 25)
         self.assertEqual(registry.get("connect4").reward_coins, 20)
         self.assertEqual(registry.get("rps").reward_coins, 10)
         self.assertEqual(registry.get("quiz").reward_coins, 15)
+        self.assertEqual(registry.get("memory").reward_coins, 20)
+        self.assertEqual(registry.get("dice").reward_coins, 15)
+        self.assertEqual(registry.get("word").reward_coins, 15)
 
     def test_connect_four_finds_horizontal_winner(self):
         game = registry.get("connect4")
