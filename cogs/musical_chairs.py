@@ -380,13 +380,14 @@ class MusicalChairsGameView(discord.ui.View):
                     self.eliminated_ids.extend(eliminated)
                     self._last_round_eliminated = eliminated
                     self.phase = "result"
-                    self.round_number += 1
-                    # Keep the just-finished round's chair count for its result
-                    # board; the next loop sets the new count before music starts.
+                    # Keep the current round number and chair count for the result
+                    # board. Advance only after showing this round's outcome.
                     self._update_controls()
                 await self._edit_board()
                 if len(self.alive_ids) > 1 and self.result_pause_seconds:
                     await asyncio.sleep(self.result_pause_seconds)
+                if len(self.alive_ids) > 1:
+                    self.round_number += 1
 
             async with self._lock:
                 self.winner_id = self.alive_ids[0] if self.alive_ids else None
