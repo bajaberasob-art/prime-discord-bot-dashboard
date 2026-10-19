@@ -25,12 +25,20 @@ _GAME_TITLES = {
     "connect4": "🔴 PRIME · أربعة على التوالي",
     "rps": "🪨 PRIME · حجر ورقة مقص",
     "quiz": "🧠 PRIME · تحدّي المعلومات",
+    "word": "🔤 PRIME · حروف مبعثرة",
+    "emoji": "🧩 PRIME · فك شفرة الإيموجي",
+    "dice": "🎲 PRIME · نرد الأبطال",
+    "memory": "🧠 PRIME · ذاكرة PRIME",
 }
 _GAME_COMMANDS = {
     "xo": ("/game xo @عضو", "ضع X وO في صف أو عمود أو قطر من ثلاثة رموز."),
     "connect4": ("/game connect4 @عضو", "أسقط الرموز في الأعمدة وحاول توصيل أربعة."),
     "rps": ("/game rps @عضو", "اختر حجرًا أو ورقة أو مقصًا؛ الاختيار الأول مخفي."),
     "quiz": ("/game quiz @عضو", "ستة أسئلة عربية، نقطة للإجابة الصحيحة."),
+    "word": ("/game word @عضو", "فك الحروف المبعثرة واختر الكلمة الصحيحة قبل خصمك."),
+    "emoji": ("/game emoji @عضو", "حل ألغاز الإيموجي عن الأفلام والشخصيات والرياضة."),
+    "dice": ("/game dice @عضو", "ست رميات نرد؛ أعلى مجموع يفوز."),
+    "memory": ("/game memory @عضو", "طابق 6 أزواج؛ عند التطابق تلعب مرة إضافية."),
 }
 _RPS_LABELS = {
     "rock": "🪨 حجر",
@@ -126,6 +134,101 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
             )
         elif status == "finished" and winner_id is None:
             description += "\n\n🤝 انتهى التحدي بالتعادل."
+
+    elif game_key in {"word", "emoji"}:
+        puzzles = list(state.get("puzzles") or [])
+        question_index = int(state.get("question_index") or 0)
+        scores = state.get("scores") or {}
+        first_score = int(scores.get(str(players[0]), 0))
+        second_score = int(scores.get(str(players[1]), 0))
+        description = (
+            f"🧑 <@{players[0]}>: **{first_score}** نقطة\n"
+            f"🧑 <@{players[1]}>: **{second_score}** نقطة\n"
+        )
+        last_answer = state.get("last_answer") or {}
+        if last_answer:
+            if last_answer.get("correct"):
+                description += f"\n✅ إجابة صحيحة: **{last_answer.get('correct_option', '—')}**"
+            else:
+                description += f"\n💡 الإجابة الصحيحة كانت: **{last_answer.get('correct_option', '—')}**"
+        if status == "active" and question_index < len(puzzles):
+            puzzle = puzzles[question_index]
+            if game_key == "word":
+                prompt = (
+                    f"**الحروف المبعثرة:** «{puzzle.get('scrambled', '')}»\n"
+                    f"💡 **تلميح:** {puzzle.get('hint', 'خمّن الكلمة الصحيحة')}"
+                )
+                round_name = "حروف مبعثرة"
+            else:
+                prompt = (
+                    f"**شفرة الإيموجي:** {puzzle.get('clue', '❔')}\n"
+                    f"💡 **تلميح:** {puzzle.get('hint', 'خمّن المقصود')}"
+                )
+                round_name = "فك شفرة الإيموجي"
+            options = list(puzzle.get("options") or [])
+            description += (
+                f"\n\n**{round_name} · الجولة {question_index + 1} من {len(puzzles)}**\n"
+                f"{prompt}\n\n"
+                + "\n".join(f"**{index + 1}.** {option}" for index, option in enumerate(options))
+                + f"\n\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
+            )
+        elif status == "finished" and winner_id is None:
+            description += "\n\n🤝 انتهى التحدي بالتعادل."
+
+    elif game_key == "dice":
+        totals = state.get("totals") or {}
+        rolls = state.get("rolls") or {}
+        first_total = int(totals.get(str(players[0]), 0))
+        second_total = int(totals.get(str(players[1]), 0))
+        turn_count = int(state.get("turn_count") or 0)
+        first_rolls = " · ".join(str(value) for value in rolls.get(str(players[0]), [])) or "—"
+        second_rolls = " · ".join(str(value) for value in rolls.get(str(players[1]), [])) or "—"
+        description = (
+            f"🎲 <@{players[0]}>: **{first_total}** نقطة\n"
+            f"الرميات: {first_rolls}\n\n"
+            f"🎲 <@{players[1]}>: **{second_total}** نقطة\n"
+            f"الرميات: {second_rolls}\n\n"
+            f"الجولات: **{turn_count} / 6**"
+        )
+        last_roll = state.get("last_roll") or {}
+        if last_roll:
+            description += (
+                f"\n\n🎯 آخر رمية: <@{last_roll.get('player_id')}> حصل على "
+                f"**{last_roll.get('value')}**"
+            )
+        if status == "active":
+            description += f"\n\nاضغط زر النرد لتلعب دورك: <@{session.get('current_player_id')}>."
+        elif status == "finished" and winner_id is None:
+            description += "\n\n🤝 تعادلتم في مجموع النقاط!"
+
+    elif game_key == "memory":
+        symbols = list(state.get("symbols") or [])
+        matched = {int(value) for value in (state.get("matched") or [])}
+        open_cards = [int(value) for value in (state.get("open_cards") or [])]
+        scores = state.get("scores") or {}
+        first_score = int(scores.get(str(players[0]), 0))
+        second_score = int(scores.get(str(players[1]), 0))
+        remaining_pairs = max(0, (len(symbols) - len(matched)) // 2)
+        description = (
+            f"🧑 <@{players[0]}>: **{first_score}** زوج\n"
+            f"🧑 <@{players[1]}>: **{second_score}** زوج\n\n"
+            f"✅ الأزواج المكتشفة: **{len(matched) // 2} / 6**\n"
+            f"🃏 الأزواج المتبقية: **{remaining_pairs}**"
+        )
+        outcome = state.get("last_turn_outcome")
+        if outcome == "match":
+            description += "\n\n✨ تطابق رائع! لك حركة إضافية."
+        elif outcome == "mismatch":
+            description += "\n\n👀 البطاقتان مختلفتان؛ الخصم يلعب الآن. حاول تذكر الرمزين الظاهرين."
+        if status == "active":
+            if state.get("pending_mismatch"):
+                description += f"\n\n🧠 احفظ البطاقتين الظاهرتين، ثم اختر بطاقة جديدة — دور <@{session.get('current_player_id')}>."
+            elif len(open_cards) == 1:
+                description += f"\n\n🔎 اختر البطاقة الثانية لإكمال المطابقة — دور <@{session.get('current_player_id')}>."
+            else:
+                description += f"\n\n🃏 اختر بطاقة لبدء محاولة جديدة — دور <@{session.get('current_player_id')}>."
+        elif status == "finished" and winner_id is None:
+            description += "\n\n🤝 تعادلت الذاكرتان!"
 
     if status == "finished":
         if winner_id is not None:
@@ -272,6 +375,54 @@ class GameBoardView(discord.ui.View):
                     button.callback = self._move({"answer": index})
                     self.add_item(button)
 
+        elif self.game_key in {"word", "emoji"}:
+            puzzles = list(state.get("puzzles") or [])
+            question_index = int(state.get("question_index") or 0)
+            if puzzles:
+                puzzle = puzzles[min(question_index, len(puzzles) - 1)]
+                for index, option in enumerate(puzzle.get("options") or []):
+                    button = discord.ui.Button(
+                        label=f"{index + 1}. {str(option)[:70]}",
+                        style=discord.ButtonStyle.secondary,
+                        row=index // 2,
+                        disabled=terminal,
+                        custom_id=f"primegame:{self.game_key}:{self.session_id}:{index}",
+                    )
+                    button.callback = self._move({"answer": index})
+                    self.add_item(button)
+
+        elif self.game_key == "dice":
+            button = discord.ui.Button(
+                label="🎲 ارْمِ النرد",
+                style=discord.ButtonStyle.primary,
+                row=0,
+                disabled=terminal,
+                custom_id=f"primegame:dice:{self.session_id}:roll",
+            )
+            button.callback = self._move({"roll": True})
+            self.add_item(button)
+
+        elif self.game_key == "memory":
+            symbols = list(state.get("symbols") or [None] * 12)
+            matched = {int(value) for value in (state.get("matched") or [])}
+            open_cards = {int(value) for value in (state.get("open_cards") or [])}
+            for index, symbol in enumerate(symbols):
+                is_open = index in open_cards
+                is_matched = index in matched
+                button = discord.ui.Button(
+                    label=str(symbol) if is_open or is_matched else f"❔ {index + 1}",
+                    style=(
+                        discord.ButtonStyle.success if is_matched
+                        else discord.ButtonStyle.primary if is_open
+                        else discord.ButtonStyle.secondary
+                    ),
+                    row=index // 4,
+                    disabled=terminal or is_matched or is_open,
+                    custom_id=f"primegame:memory:{self.session_id}:{index}",
+                )
+                button.callback = self._move({"index": index})
+                self.add_item(button)
+
     def _move(self, action: dict):
         async def callback(interaction: discord.Interaction) -> None:
             await interaction.response.defer()
@@ -294,6 +445,11 @@ class GameBoardView(discord.ui.View):
                     "invalid_choice": "اختر حجرًا أو ورقة أو مقصًا من الأزرار.",
                     "already_chose": "تم تسجيل اختيارك بالفعل.",
                     "invalid_answer": "الإجابة المحددة غير صالحة.",
+                    "invalid_roll": "استخدم زر النرد لاحتساب رميتك.",
+                    "invalid_memory_card": "اختر بطاقة من اللوحة.",
+                    "card_already_matched": "هذا الزوج اكتُشف بالفعل؛ اختر بطاقة أخرى.",
+                    "card_already_open": "هذه البطاقة ظاهرة بالفعل؛ اختر بطاقة مختلفة.",
+                    "memory_invalid_state": "تعذر قراءة لوحة الذاكرة؛ أعد فتح اللعبة.",
                 }
                 await interaction.followup.send(
                     messages.get(outcome.get("reason"), "تعذر تسجيل الحركة؛ حاول تحديث اللوحة."),
@@ -427,6 +583,26 @@ class Games(commands.Cog):
     @app_commands.guild_only()
     async def quiz(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
         await self._start_duel(interaction, opponent, "quiz")
+
+    @game.command(name="word", description="تحدّ لاعبًا في الحروف المبعثرة")
+    @app_commands.guild_only()
+    async def word(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "word")
+
+    @game.command(name="emoji", description="تحدّ لاعبًا في فك شفرة الإيموجي")
+    @app_commands.guild_only()
+    async def emoji(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "emoji")
+
+    @game.command(name="dice", description="تحدّ لاعبًا في نرد الأبطال")
+    @app_commands.guild_only()
+    async def dice(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "dice")
+
+    @game.command(name="memory", description="تحدّ لاعبًا في لعبة ذاكرة PRIME")
+    @app_commands.guild_only()
+    async def memory(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
+        await self._start_duel(interaction, opponent, "memory")
 
     @game.command(name="list", description="عرض ألعاب PRIME وأوامر تشغيلها")
     async def list_games(self, interaction: discord.Interaction) -> None:
