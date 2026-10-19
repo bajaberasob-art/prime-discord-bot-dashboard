@@ -25,6 +25,7 @@ from game_engine import (
     get_circular_avatar,
     image_to_file,
     create_base_canvas,
+    UniversalLobbyView,
 )
 
 logger = logging.getLogger("PrimeMusicalChairs")
@@ -453,39 +454,27 @@ class MusicalChairs(commands.Cog):
             players: list[discord.Member],
         ) -> None:
             view = MusicalChairsGameView(self, players)
-            await start_interaction.followup.send(
-                "🎵 بدأت الكراسي الموسيقية! راقب اللوحة وانتظر توقف الموسيقى.",
-                embed=view._embed(),
-                file=view._render_file(),
-                view=view,
-                wait=True,
-            )
-            message = await start_interaction.original_response()
-            # The follow-up is the game board; use the returned message, not the
-            # original lobby response, so every round edits one stable game post.
+            game_file = view._render_file()
             try:
-                followup_message = await start_interaction.followup.send(
-                    " ",
-                    ephemeral=True,
+                game_message = await start_interaction.followup.send(
+                    "🎵 بدأت الكراسي الموسيقية! راقب اللوحة وانتظر توقف الموسيقى.",
+                    embed=view._embed(),
+                    file=game_file,
+                    view=view,
                     wait=True,
                 )
-                await followup_message.delete()
-            except (discord.HTTPException, AttributeError):
-                pass
-            # Fetch the actual game message by its returned webhook message ID.
-            # The first followup's message is returned directly by send(wait=True).
-            if message is not None:
-                logger.debug("Interaction original response exists; binding board below.")
-            # This fallback is replaced by the direct returned message below.
+            finally:
+                game_file.close()
+            await view.start(game_message)
 
         lobby = UniversalLobbyView(
             interaction.user,
             game_name="الكراسي الموسيقية",
             rules=(
-                "1) تحتاج اللعبة إلى 3–12 لاعبًا.\\n"
-                "2) أثناء الموسيقى لا تضغط زر الجلوس.\\n"
-                "3) عند توقف الموسيقى، أول اللاعبون الجالسين بعدد الكراسي ينجون.\\n"
-                "4) يوجد كرسي أقل من عدد المتنافسين في كل جولة.\\n"
+                "1) تحتاج اللعبة إلى 3–12 لاعبًا.\n"
+                "2) أثناء الموسيقى لا تضغط زر الجلوس.\n"
+                "3) عند توقف الموسيقى، أول اللاعبين الجالسين بعدد الكراسي ينجون.\n"
+                "4) يوجد كرسي أقل من عدد المتنافسين في كل جولة.\n"
                 "5) آخر لاعب يبقى هو الفائز."
             ),
             on_start=on_start,
