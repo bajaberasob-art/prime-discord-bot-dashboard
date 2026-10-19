@@ -84,7 +84,7 @@ class VisualGameEngineTests(unittest.IsolatedAsyncioTestCase):
         output = await view.render_lobby_file()
         try:
             self.assertEqual(output.filename, "prime-lobby.png")
-            self.assertTrue(output.fp.read().startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+            self.assertTrue(output.fp.read().startswith(b"\x89PNG\r\n\x1a\n"))
         finally:
             output.close()
 
