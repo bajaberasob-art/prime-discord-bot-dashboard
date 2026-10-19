@@ -25,11 +25,13 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
     async def test_registry_lists_three_new_games_with_bounded_rewards(self):
         self.assertEqual(
             {game.key for game in registry.all()},
-            {"xo", "connect4", "rps", "quiz", "memory", "dice", "word"},
+            {"xo", "connect4", "rps", "quiz", "memory", "dice", "word", "emoji", "treasure"},
         )
         self.assertEqual(registry.get("memory").reward_coins, 20)
         self.assertEqual(registry.get("dice").reward_coins, 15)
         self.assertEqual(registry.get("word").reward_coins, 15)
+        self.assertEqual(registry.get("emoji").reward_coins, 15)
+        self.assertEqual(registry.get("treasure").reward_coins, 20)
 
     async def test_memory_requires_two_different_cards_from_same_player(self):
         session = await create_session(
