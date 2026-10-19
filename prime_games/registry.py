@@ -265,6 +265,258 @@ def _reduce_quiz_action(
     return GameTransition(next_state, next_player)
 
 
+
+
+# ── Memory Matrix: find all matching pairs ───────────────────────────────────
+_MEMORY_SYMBOLS = ("🍎", "⭐", "🔷", "🌙", "🔥", "🎈", "🍀", "💎", "🎯", "🦋")
+
+
+def _initial_memory_state(players: list[int]) -> dict[str, Any]:
+    symbols = random.sample(list(_MEMORY_SYMBOLS), 8)
+    cards = [symbol for symbol in symbols for _ in range(2)]
+    random.shuffle(cards)
+    return {
+        "cards": cards,
+        "matched": [],
+        "revealed": [],
+        "pending_index": None,
+        "scores": {str(player): 0 for player in players},
+        "last_match": None,
+    }
+
+
+def _reduce_memory_action(
+    state: dict[str, Any],
+    players: list[int],
+    actor_id: int,
+    action: dict[str, Any],
+) -> GameTransition:
+    if actor_id not in players:
+        raise ValueError("not_a_player")
+    cards = list(state.get("cards") or [])
+    if len(cards) != 16:
+        raise ValueError("invalid_game_state")
+    try:
+        index = int(action.get("index"))
+    except (TypeError, ValueError):
+        raise ValueError("invalid_card") from None
+    if not 0 <= index < len(cards):
+        raise ValueError("invalid_card")
+
+    matched = {int(value) for value in state.get("matched") or []}
+    if index in matched:
+        raise ValueError("card_matched")
+    pending = state.get("pending_index")
+    if pending is None:
+        next_state = {
+            **state,
+            "revealed": [index],
+            "pending_index": index,
+            "last_match": None,
+        }
+        # The same player must choose the second card in their pair attempt.
+        return GameTransition(next_state, actor_id)
+    pending = int(pending)
+    if index == pending:
+        raise ValueError("same_card")
+
+    pair = [pending, index]
+    scores = {str(key): int(value) for key, value in (state.get("scores") or {}).items()}
+    if cards[pending] == cards[index]:
+        matched.update(pair)
+        scores[str(actor_id)] = scores.get(str(actor_id), 0) + 1
+        next_state = {
+            **state,
+            "matched": sorted(matched),
+            "revealed": [],
+            "pending_index": None,
+            "scores": scores,
+            "last_match": True,
+            "last_pair": pair,
+        }
+        if len(matched) == len(cards):
+            first_score = scores.get(str(players[0]), 0)
+            second_score = scores.get(str(players[1]), 0)
+            if first_score == second_score:
+                return GameTransition(next_state, None, is_draw=True)
+            winner_id = players[0] if first_score > second_score else players[1]
+            return GameTransition(next_state, None, winner_id=winner_id)
+    else:
+        # Keep both cards visible until the next player makes their first pick.
+        next_state = {
+            **state,
+            "revealed": pair,
+            "pending_index": None,
+            "last_match": False,
+            "last_pair": pair,
+        }
+    next_player = players[1] if actor_id == players[0] else players[0]
+    return GameTransition(next_state, next_player)
+
+
+# ── Dice Duel: five rounds of luck ───────────────────────────────────────────
+def _initial_dice_state(players: list[int]) -> dict[str, Any]:
+    return {
+        "round": 1,
+        "round_rolls": {},
+        "scores": {str(player): 0 for player in players},
+        "last_round": None,
+    }
+
+
+def _reduce_dice_action(
+    state: dict[str, Any],
+    players: list[int],
+    actor_id: int,
+    action: dict[str, Any],
+) -> GameTransition:
+    if actor_id not in players:
+        raise ValueError("not_a_player")
+    if action.get("roll") not in (True, "roll"):
+        raise ValueError("invalid_roll")
+    round_number = int(state.get("round") or 1)
+    if not 1 <= round_number <= 5:
+        raise ValueError("invalid_game_state")
+    rolls = dict(state.get("round_rolls") or {})
+    actor_key = str(actor_id)
+    if actor_key in rolls:
+        raise ValueError("already_rolled")
+    rolls[actor_key] = random.randint(1, 6)
+    if len(rolls) < 2:
+        next_state = {**state, "round_rolls": rolls}
+        next_player = players[1] if actor_id == players[0] else players[0]
+        return GameTransition(next_state, next_player)
+    if len(rolls) != 2:
+        raise ValueError("invalid_game_state")
+
+    first_roll = int(rolls[str(players[0])])
+    second_roll = int(rolls[str(players[1])])
+    scores = {str(key): int(value) for key, value in (state.get("scores") or {}).items()}
+    round_winner = None
+    if first_roll > second_roll:
+        scores[str(players[0])] = scores.get(str(players[0]), 0) + 1
+        round_winner = players[0]
+    elif second_roll > first_roll:
+        scores[str(players[1])] = scores.get(str(players[1]), 0) + 1
+        round_winner = players[1]
+    next_state = {
+        **state,
+        "round": round_number,
+        "round_rolls": {},
+        "scores": scores,
+        "last_round": {
+            "number": round_number,
+            "rolls": rolls,
+            "winner_id": round_winner,
+            "draw": round_winner is None,
+        },
+    }
+    if round_number == 5:
+        first_score = scores.get(str(players[0]), 0)
+        second_score = scores.get(str(players[1]), 0)
+        if first_score == second_score:
+            return GameTransition(next_state, None, is_draw=True)
+        winner_id = players[0] if first_score > second_score else players[1]
+        return GameTransition(next_state, None, winner_id=winner_id)
+    next_state["round"] = round_number + 1
+    return GameTransition(next_state, players[0])
+
+
+# ── Word Scramble: decode the hidden word ────────────────────────────────────
+_WORD_BANK: tuple[tuple[str, tuple[str, str, str]], ...] = (
+    ("قمر", ("نجم", "شمس", "بحر")),
+    ("مدرسة", ("جامعة", "مكتبة", "حديقة")),
+    ("حاسوب", ("هاتف", "لوحة", "شاشة")),
+    ("مطر", ("ريح", "ثلج", "غيم")),
+    ("طائرة", ("سيارة", "سفينة", "قطار")),
+    ("مفتاح", ("نافذة", "باب", "قفل")),
+    ("نجمة", ("كوكب", "مجرة", "سحابة")),
+    ("مكتبة", ("مدرسة", "مطبخ", "ملعب")),
+    ("صحراء", ("غابة", "جزيرة", "مدينة")),
+    ("بحر", ("نهر", "بحيرة", "جبل")),
+    ("تفاحة", ("موزة", "برتقالة", "عنب")),
+    ("هاتف", ("حاسوب", "كاميرا", "ساعة")),
+)
+
+
+def _scramble_word(word: str) -> str:
+    letters = list(word)
+    scrambled = letters[:]
+    for _ in range(8):
+        random.shuffle(scrambled)
+        if scrambled != letters:
+            break
+    if scrambled == letters and len(scrambled) > 1:
+        scrambled = scrambled[1:] + scrambled[:1]
+    return "".join(scrambled)
+
+
+def _initial_word_state(players: list[int]) -> dict[str, Any]:
+    puzzles = []
+    for word, distractors in random.sample(list(_WORD_BANK), 5):
+        options = [word, *distractors]
+        random.shuffle(options)
+        puzzles.append({
+            "scrambled": _scramble_word(word),
+            "options": options,
+            "correct": options.index(word),
+        })
+    return {
+        "round_index": 0,
+        "puzzles": puzzles,
+        "scores": {str(player): 0 for player in players},
+        "last_answer": None,
+    }
+
+
+def _reduce_word_action(
+    state: dict[str, Any],
+    players: list[int],
+    actor_id: int,
+    action: dict[str, Any],
+) -> GameTransition:
+    if actor_id not in players:
+        raise ValueError("not_a_player")
+    puzzles = list(state.get("puzzles") or [])
+    round_index = int(state.get("round_index") or 0)
+    if not 0 <= round_index < len(puzzles):
+        raise ValueError("invalid_game_state")
+    try:
+        answer = int(action.get("answer"))
+    except (TypeError, ValueError):
+        raise ValueError("invalid_answer") from None
+    puzzle = puzzles[round_index]
+    options = puzzle.get("options") or []
+    if not 0 <= answer < len(options):
+        raise ValueError("invalid_answer")
+
+    scores = {str(key): int(value) for key, value in (state.get("scores") or {}).items()}
+    is_correct = answer == int(puzzle.get("correct", -1))
+    if is_correct:
+        scores[str(actor_id)] = scores.get(str(actor_id), 0) + 1
+    next_index = round_index + 1
+    next_state = {
+        **state,
+        "round_index": next_index,
+        "scores": scores,
+        "last_answer": {
+            "player_id": actor_id,
+            "round": round_index + 1,
+            "correct": is_correct,
+        },
+    }
+    if next_index >= len(puzzles):
+        first_score = scores.get(str(players[0]), 0)
+        second_score = scores.get(str(players[1]), 0)
+        if first_score == second_score:
+            return GameTransition(next_state, None, is_draw=True)
+        winner_id = players[0] if first_score > second_score else players[1]
+        return GameTransition(next_state, None, winner_id=winner_id)
+    next_player = players[1] if actor_id == players[0] else players[0]
+    return GameTransition(next_state, next_player)
+
+
+
 registry = GameRegistry()
 registry.register(GameDefinition(
     key="xo", name="XO · تيك تاك تو", min_players=2, max_players=2,
@@ -281,4 +533,16 @@ registry.register(GameDefinition(
 registry.register(GameDefinition(
     key="quiz", name="تحدّي المعلومات", min_players=2, max_players=2,
     reward_coins=15, initial_state=_initial_quiz_state, reduce_action=_reduce_quiz_action,
+))
+registry.register(GameDefinition(
+    key="memory", name="تحدّي الذاكرة", min_players=2, max_players=2,
+    reward_coins=20, initial_state=_initial_memory_state, reduce_action=_reduce_memory_action,
+))
+registry.register(GameDefinition(
+    key="dice", name="مبارزة النرد", min_players=2, max_players=2,
+    reward_coins=15, initial_state=_initial_dice_state, reduce_action=_reduce_dice_action,
+))
+registry.register(GameDefinition(
+    key="word", name="فكّ الكلمة", min_players=2, max_players=2,
+    reward_coins=15, initial_state=_initial_word_state, reduce_action=_reduce_word_action,
 ))
