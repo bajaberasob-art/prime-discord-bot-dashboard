@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 from typing import Sequence
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from game_engine import (
     CYAN,
@@ -24,6 +25,10 @@ from game_engine import (
     get_circular_avatar,
     UniversalLobbyView,
     create_base_canvas,
+    create_luxury_canvas,
+    draw_glow_panel,
+    draw_radial_glow,
+    draw_status_avatar,
     image_to_file,
 )
 
@@ -207,6 +212,7 @@ class MusicalChairsGameView(discord.ui.View):
         self.round_number = 1
         self.chair_count = len(ids) - 1
         self.chair_assignments: dict[int, int] = {}
+        self.active_chair_indices: set[int] = set()
         self.chair_buttons: dict[int, discord.ui.Button] = {}
         self.phase = "music"
         self.closed = False
@@ -228,12 +234,12 @@ class MusicalChairsGameView(discord.ui.View):
         for button in self.chair_buttons.values():
             self.remove_item(button)
         self.chair_buttons.clear()
-        order = list(range(max(0, self.chair_count)))
+        order = list(range(25))
         random.shuffle(order)
         for display_index, chair_index in enumerate(order):
             button = discord.ui.Button(
-                label=f"🪑 كرسي {chair_index + 1}",
-                style=discord.ButtonStyle.success,
+                label=f"كرسي {chair_index + 1}",
+                style=discord.ButtonStyle.secondary,
                 row=display_index // 5,
                 custom_id=f"prime:mc:{id(self):x}:{self.round_number}:{chair_index}",
             )
@@ -259,6 +265,8 @@ class MusicalChairsGameView(discord.ui.View):
                         self._rebuild_chair_buttons()
                         self._update_controls()
                 elif self.phase == "seating":
+                    if chair_index not in self.active_chair_indices:
+                        return await interaction.response.send_message("هذا الكرسي غير متاح في هذه الجولة.", ephemeral=True)
                     if user_id in self.seated_ids:
                         return await interaction.response.send_message("🪑 حجزت كرسيًا بالفعل؛ لا يمكنك حجز كرسي ثانٍ.", ephemeral=True)
                     if chair_index in self.chair_assignments:
@@ -286,18 +294,25 @@ class MusicalChairsGameView(discord.ui.View):
     def _update_controls(self) -> None:
         for chair_index, button in self.chair_buttons.items():
             occupant = self.chair_assignments.get(chair_index)
+            active = chair_index in self.active_chair_indices
             button.disabled = (
                 self.closed
                 or self.phase not in {"music", "seating"}
-                or (self.phase == "seating" and occupant is not None)
+                or (self.phase == "seating" and (not active or occupant is not None))
             )
             if occupant is not None:
                 player = self.players.get(int(occupant))
-                button.label = f"🔒 {str(getattr(player, 'display_name', 'محجوز'))[:55]}"
+                button.label = f"محجوز: {str(getattr(player, 'display_name', 'لاعب'))[:35]}"
                 button.style = discord.ButtonStyle.secondary
-            else:
-                button.label = f"🪑 كرسي {chair_index + 1}"
+            elif self.phase == "music":
+                button.label = f"كرسي {chair_index + 1}"
+                button.style = discord.ButtonStyle.secondary
+            elif active:
+                button.label = f"🟩 كرسي {chair_index + 1}"
                 button.style = discord.ButtonStyle.success
+            else:
+                button.label = f"كرسي {chair_index + 1}"
+                button.style = discord.ButtonStyle.secondary
 
     async def start(self, message: discord.Message) -> None:
         self.message = message
@@ -345,6 +360,7 @@ class MusicalChairsGameView(discord.ui.View):
             winner_id=self.winner_id,
             avatars=self._avatar_cache,
             chair_assignments=self.chair_assignments,
+            active_chair_indices=self.active_chair_indices,
         )
         return image_to_file(image, "prime-musical-chairs.png")
 
@@ -413,6 +429,7 @@ class MusicalChairsGameView(discord.ui.View):
                     self.seated_ids = []
                     self.chair_assignments = {}
                     self.chair_count = len(self.alive_ids) - 1
+                    self.active_chair_indices = set()
                     self._seat_event = asyncio.Event()
                     self._last_round_eliminated = []
                     self._rebuild_chair_buttons()
@@ -426,6 +443,7 @@ class MusicalChairsGameView(discord.ui.View):
                     if len(self.alive_ids) <= 1:
                         break
                     self.phase = "seating"
+                    self.active_chair_indices = set(random.sample(range(25), min(self.chair_count, 25)))
                     self._update_controls()
                 await self._edit_board()
 
