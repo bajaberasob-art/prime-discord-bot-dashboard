@@ -129,6 +129,8 @@ def validate_config(guild_id: int, body: dict[str, Any], old: dict[str, Any] | N
             button_id = __import__("uuid").uuid4().hex[:12]
         used.add(button_id)
         emoji = str(raw.get("emoji") or "").strip()[:100] or None
+        if emoji and emoji.startswith("<") and not __import__("re").fullmatch(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", emoji):
+            raise ValueError(f"صيغة الإيموجي للزر «{label}» غير صحيحة. اختر إيموجيًا من قائمة السيرفر أو استخدم إيموجي Unicode.")
         clean_buttons.append({"id": button_id, "label": label, "emoji": emoji, "style": style, "response": response})
     channel_id = str(body.get("channel_id", old.get("channel_id", "")) or "").strip()
     if channel_id and not channel_id.isdigit():
