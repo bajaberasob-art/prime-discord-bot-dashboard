@@ -61,17 +61,22 @@ class ExpandedMiniGameTests(unittest.TestCase):
         self.assertEqual(first.next_player_id, 2202)
 
         second = game.reduce_action(first.state, self.players, 2202, {"choice": "scissors"})
-        self.assertEqual(second.winner_id, 1101)
-        self.assertIsNone(second.next_player_id)
-        self.assertEqual(second.state["choices"], {"1101": "rock", "2202": "scissors"})
+        # Tactical RPS is a three-heart duel, not a one-round knockout.
+        self.assertIsNone(second.winner_id)
+        self.assertEqual(second.next_player_id, 1101)
+        self.assertEqual(second.state["hp"], {"1101": 3, "2202": 2})
+        self.assertEqual(second.state["choices"], {})
+        self.assertEqual(second.state["last_round"]["choices"], {"1101": "rock", "2202": "scissors"})
 
     def test_rock_paper_scissors_tie_is_a_draw(self):
         game = registry.get("rps")
         state = game.initial_state(self.players)
         first = game.reduce_action(state, self.players, 1101, {"choice": "paper"})
         second = game.reduce_action(first.state, self.players, 2202, {"choice": "paper"})
-        self.assertTrue(second.is_draw)
+        self.assertFalse(second.is_draw)
         self.assertIsNone(second.winner_id)
+        self.assertEqual(second.state["hp"], {"1101": 3, "2202": 3})
+        self.assertEqual(second.next_player_id, 1101)
 
     def test_quiz_awards_point_and_switches_turn(self):
         game = registry.get("quiz")
@@ -99,7 +104,7 @@ class ExpandedMiniGameTests(unittest.TestCase):
             "state": quiz_state,
         })
         self.assertEqual(len(connect_view.children), 7)
-        self.assertEqual(len(rps_view.children), 3)
+        self.assertEqual(len(rps_view.children), 5)
         self.assertEqual(len(quiz_view.children), 4)
         self.assertTrue(all(item.custom_id for item in connect_view.children + rps_view.children + quiz_view.children))
 
