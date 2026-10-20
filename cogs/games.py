@@ -1,6 +1,7 @@
 """Discord UI adapter for PRIME's shared, durable mini-game engine."""
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 
@@ -935,12 +936,23 @@ class Games(commands.Cog):
 
     @game.command(name="list", description="عرض قائمة ألعاب PRIME بصورة منظمة وتصنيفات")
     async def list_games(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(
-            embed=_game_catalog_embed("all"),
-            file=_game_catalog_banner(),
-            view=GameCatalogView(),
-            ephemeral=True,
-        )
+        # Acknowledge before generating/encoding the Pillow asset. This keeps
+        # the Discord 3-second interaction deadline independent of image work.
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            banner = await asyncio.to_thread(_game_catalog_banner)
+            await interaction.followup.send(
+                embed=_game_catalog_embed("all"),
+                file=banner,
+                view=GameCatalogView(),
+                ephemeral=True,
+            )
+        except Exception:
+            logger.exception("Failed to render /game list for guild %s", interaction.guild_id)
+            await interaction.followup.send(
+                "تعذر تجهيز قائمة الألعاب المصوّرة الآن. حاول مرة أخرى بعد قليل.",
+                ephemeral=True,
+            )
 
 
 async def setup(bot: commands.Bot) -> None:
