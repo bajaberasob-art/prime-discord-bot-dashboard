@@ -12,6 +12,8 @@ from cogs.musical_chairs import (
     render_musical_chairs_image,
     resolve_round,
 )
+from game_engine import draw_arabic_text, _font
+)
 
 
 class MusicalChairsLogicTests(unittest.TestCase):
@@ -72,6 +74,29 @@ class MusicalChairsRenderingTests(unittest.TestCase):
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         self.assertTrue(buffer.getvalue().startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_arabic_and_mixed_direction_text_draws_without_error(self):
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (900, 160), "#111625")
+        draw = ImageDraw.Draw(image)
+        samples = (
+            "الكراسي الموسيقية",
+            "ROUND 2 • توقفت الموسيقى! اجلس بسرعة",
+            "اللاعبون الباقون: 3   •   الكراسي: 2",
+            "كرسي 1 • Abdullah 🎵",
+        )
+        for index, sample in enumerate(samples):
+            draw_arabic_text(
+                draw,
+                (850, 18 + index * 34),
+                sample,
+                font=_font(22, bold=index == 0),
+                anchor="ra",
+            )
+        # Ensure the output contains visible glyphs rather than a blank canvas.
+        self.assertGreater(len(image.getbbox()), 0)
+        self.assertGreater(len(set(image.getdata())), 1)
 
     def test_board_marks_seated_eliminated_and_winner_states(self):
         image = render_musical_chairs_image(
