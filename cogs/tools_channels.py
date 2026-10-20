@@ -113,9 +113,15 @@ class ToolsChannelsCog(commands.Cog):
         message = None
         try:
             if interaction.response.is_done():
-                message = await interaction.followup.send(wait=True, allowed_mentions=discord.AllowedMentions.none(), view=view, **payload)
+                send_kwargs = {"wait": True, "allowed_mentions": discord.AllowedMentions.none(), **payload}
+                if view is not None:
+                    send_kwargs["view"] = view
+                message = await interaction.followup.send(**send_kwargs)
             else:
-                await interaction.response.send_message(allowed_mentions=discord.AllowedMentions.none(), view=view, **payload)
+                send_kwargs = {"allowed_mentions": discord.AllowedMentions.none(), **payload}
+                if view is not None:
+                    send_kwargs["view"] = view
+                await interaction.response.send_message(**send_kwargs)
                 with contextlib.suppress(discord.HTTPException, discord.NotFound):
                     message = await interaction.original_response()
         except (discord.Forbidden, discord.HTTPException, discord.NotFound, discord.InteractionResponded):
