@@ -43,6 +43,10 @@ async def api_get(req):
                 {"id": str(ch.id), "name": ch.name}
                 for ch in guild.text_channels
             ],
+            "emoji_options": [
+                {"value": str(emoji), "label": f":{emoji.name}:" + (" · متحرك" if emoji.animated else "")}
+                for emoji in guild.emojis if emoji.available
+            ],
             "bot_ready": bool(cog),
         })
     except Exception:
