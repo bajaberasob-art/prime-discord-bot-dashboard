@@ -58,9 +58,10 @@
         input("وصف الرسالة", "description", config.description, { textarea: true, rows: 4, maxlength: 4096 }),
         h("div", { class: "iip-two-col" }, input("لون الإيمبد", "color", config.color, { type: "color" }), input("رابط صورة البانر", "banner_url", config.banner_url, { placeholder: "https://..." })),
         select("مدة الرد الخاص قبل الحذف", "auto_delete_seconds", config.auto_delete_seconds, [
-          { value: 300, label: "5 دقائق" }, { value: 600, label: "10 دقائق" },
-          { value: 840, label: "14 دقيقة (الحد الأعلى)" },
-          { value: 60, label: "دقيقة واحدة للاختبار" },
+          ...Array.from({ length: 14 }, (_, i) => ({
+            value: (i + 1) * 60,
+            label: i === 0 ? "دقيقة واحدة" : (i + 1) + " دقائق" + (i === 4 ? " · الافتراضي" : ""),
+          })),
         ]),
         h("p", { class: "iip-help", text: "مدة Discord محدودة بنافذة صلاحية التفاعل؛ نقيّدها من 5 ثوانٍ إلى 14 دقيقة في الخادم." }));
       const builder = h("section", { class: "iip-card iip-builder" },
