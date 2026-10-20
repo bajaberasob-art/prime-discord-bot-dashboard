@@ -100,8 +100,7 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
             hint = (state.get("hints") or {}).get(str(idx))
             if hint:
                 _text(draw, (600, 470), f"CLUE: FIRST LETTER  {hint}", 23, GREEN, anchor="mm", bold=True)
-            for i, option in enumerate(puzzle.get("options") or []):
-                _text(draw, (600, 490 + i * 42), f"{i+1}. {option}", 22, CYAN if i == int(puzzle.get("correct", -1)) else WHITE, anchor="mm")
+            _text(draw, (600, 520), "USE THE SECRET MODAL TO ENTER THE CODE", 20, WHITE, anchor="mm")
     elif key == "dice":
         last = state.get("last_round") or {}
         rolls = last.get("rolls") or state.get("round_rolls") or {}
