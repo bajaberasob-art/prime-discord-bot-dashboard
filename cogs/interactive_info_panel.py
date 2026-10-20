@@ -37,9 +37,12 @@ def _resolve_button_emoji(bot: commands.Bot, guild_id: int, value: Any) -> disco
             log.warning("Ignoring unavailable custom emoji in interactive panel guild=%s emoji_id=%s", guild_id, emoji_id)
             return None
         return discord.PartialEmoji(name=emoji.name, id=emoji.id, animated=emoji.animated)
-    # Unicode emoji are valid names; malformed custom emoji markup is not sent to Discord.
+    # Only pass actual emoji-like Unicode symbols; arbitrary text can trigger Discord 50035.
     if raw.startswith("<") or raw.endswith(">"):
         log.warning("Ignoring malformed emoji value in interactive panel guild=%s", guild_id)
+        return None
+    if not re.search(r"[\\U0001F000-\\U0001FAFF\\u2600-\\u27BF]", raw):
+        log.warning("Ignoring non-emoji button value in interactive panel guild=%s", guild_id)
         return None
     return raw[:100]
 
