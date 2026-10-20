@@ -10,6 +10,7 @@ from cogs.musical_chairs import (
     eliminate_early_press,
     MusicalChairsGameView,
     render_musical_chairs_image,
+    render_musical_chairs_victory,
     resolve_round,
 )
 from game_engine import draw_arabic_text, _font, fit_text, draw_progress_bar
@@ -58,6 +59,32 @@ class MusicalChairsRenderingTests(unittest.TestCase):
             SimpleNamespace(id=102, name="Player Two", display_name="Player Two"),
             SimpleNamespace(id=103, name="لاعب ثلاثة", display_name="لاعب ثلاثة"),
         ]
+
+    def test_board_renders_full_5x5_grid_for_seating_phase(self):
+        image = render_musical_chairs_image(
+            self.players,
+            alive_ids=[101, 102, 103],
+            round_number=2,
+            phase="seating",
+            chair_count=2,
+            active_chair_indices={3, 12},
+        )
+        self.assertEqual(image.mode, "RGBA")
+        self.assertEqual(image.size, (1200, 820))
+        self.assertGreater(len(set(image.getdata())), 1)
+
+    def test_champion_screen_renders_after_final_round(self):
+        image = render_musical_chairs_victory(
+            self.players,
+            winner_id=102,
+            round_number=4,
+            avatars={},
+        )
+        self.assertEqual(image.mode, "RGBA")
+        self.assertEqual(image.size, (1240, 760))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        self.assertTrue(buffer.getvalue().startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_board_renders_png_compatible_image_for_music_phase(self):
         image = render_musical_chairs_image(
