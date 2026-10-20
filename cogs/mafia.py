@@ -604,6 +604,7 @@ class MafiaGame:
                 dead = [p for p in self.players if p.user_id in result["deaths"]]
                 clue = random.choice(["شوهد شخص يهرب من قرب الساحة.", "آثار أقدام تتجه نحو المستودع.", "مصباح الشارع انطفأ أثناء الجريمة."]) if self.settings.forensic_newspaper else "لا توجد أدلة جنائية الليلة."
                 wills = "\n".join(f"📜 وصية {p.name}: {p.will}" for p in dead if p.will)
+                weather = ("\\n🌧️ الطقس الليلي: " + random.choice(["ضباب كثيف غطّى الأزقة.", "عاصفة أخفت الأصوات.", "ليلة هادئة على نحو مريب."])) if self.settings.night_weather else ""
                 self.last_newspaper = f"📰 **جريدة الفجر — اليوم {self.day_number}**\n" + ("لم تقع جريمة الليلة." if not dead else "الضحايا: " + "، ".join(p.name for p in dead)) + f"\n🔎 {clue}" + (f"\n{wills}" if wills else "")
                 if self.message:
                     f = image_to_file(render_mafia_board(self.players, phase="morning", headline=self.last_newspaper[:80], avatars=self.avatars), "mafia-morning.png")
@@ -700,6 +701,8 @@ class MafiaGame:
                 await self.message.edit(content=f"🎭 **كشف الأقنعة — الفائز: {winner}**", attachments=[f], view=None)
             finally:
                 f.close()
+        if self.settings.auto_mute:
+            await self._apply_voice_mutes(night=False)
         await self.cog.release(self)
 
 
