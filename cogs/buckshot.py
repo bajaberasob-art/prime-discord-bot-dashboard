@@ -125,6 +125,8 @@ def render_buckshot_board(players: list[BuckshotPlayer], *, shells_left: int,
         state = "دورك الآن" if active else ("على قيد الحياة" if player.alive else "مقصى")
         if player.handcuffed and player.alive:
             state += " • مقيّد"
+        if player.inventory and player.alive:
+            state += " • أدوات: " + ",".join(player.inventory)
         draw_arabic_text(draw, (x+22, y+96), state, font=_font(14), fill=CYAN if active else MUTED)
     draw_arabic_text(draw, (600, 730), "PRIME • TACTICAL SURVIVAL", font=_font(13, True), fill=MUTED, anchor="mm")
     return image
@@ -235,6 +237,7 @@ class BuckshotGame:
         self.finished = False
         self.message: discord.Message | None = None
         self.last_event = "بدأت المواجهة. اختر قرارك بحذر."
+        self.saw_armed: set[int] = set()
 
     def _render(self, current_id: int | None = None):
         if not self.shells:
@@ -261,43 +264,77 @@ class BuckshotGame:
 
     async def run(self) -> None:
         try:
+            current_index = 0
+            # Distribute a random item to every player for the opening round.
+            for user_id, item in deal_round_items(self.players).items():
+                self.by_id[user_id].inventory.add(item)
             while sum(p.alive for p in self.players) > 1:
                 if not self.shells:
                     self.shells = load_shells()
-                    self.round_number += 1
-                for player in list(self.players):
-                    if not player.alive or sum(p.alive for p in self.players) <= 1:
-                        continue
-                    view = BuckshotTurnView(self, player.user_id)
-                    await self._update(f"دور {player.name}: أمامك {TURN_SECONDS} ثانية.", player.user_id, view)
-                    await view.wait()
-                    action, target_id = view.choice or ("opponent", None)
+                alive_players = [p for p in self.players if p.alive]
+                if len(alive_players) <= 1:
+                    break
+                current_index %= len(self.players)
+                player = self.players[current_index]
+                if not player.alive:
+                    current_index += 1
+                    continue
+                if player.handcuffed:
+                    player.handcuffed = False
+                    self.last_event = f"{player.name} تخطّى دوره بسبب الأصفاد."
+                    await self._update(self.last_event)
+                    current_index += 1
+                    continue
+
+                view = BuckshotTurnView(self, player.user_id)
+                await self._update(f"دور {player.name}: أمامك {TURN_SECONDS} ثانية.", player.user_id, view)
+                await view.wait()
+                action, target_id = view.choice or ("opponent", None)
+                if action == "self":
+                    target = player
+                else:
                     target = self.by_id.get(target_id) if target_id else None
-                    if action == "opponent" and (target is None or not target.alive or target.user_id == player.user_id):
+                    if target is None or not target.alive or target.user_id == player.user_id:
                         candidates = [p for p in self.players if p.alive and p.user_id != player.user_id]
                         target = random.choice(candidates) if candidates else player
-                    else:
-                        target = player
-                    shell = self.shells.pop(0)
-                    shooter_hp, target_hp, repeat = resolve_shot(
-                        shell, target_self=(target.user_id == player.user_id),
-                        shooter_hp=player.hp, target_hp=target.hp,
-                    )
-                    if target.user_id == player.user_id:
-                        player.hp = shooter_hp
-                    else:
-                        target.hp = target_hp
-                    if shell and target.hp <= 0:
-                        target.alive = False
-                    elif shell and player.hp <= 0:
-                        player.alive = False
-                    shell_label = "طلقة حية 🔴" if shell else "طلقة فارغة ⚪"
-                    self.last_event = f"{player.name}: {shell_label}."
-                    await self._update(self.last_event)
-                    await asyncio.sleep(1.3)
-                    if not self.shells:
-                        self.shells = load_shells()
-                        self.round_number += 1
+
+                shell = self.shells.pop(0)
+                damage = 2 if player.user_id in self.saw_armed else 1
+                self.saw_armed.discard(player.user_id)
+                shooter_hp, target_hp, keep_turn = resolve_shot(
+                    shell, target_self=(target.user_id == player.user_id),
+                    shooter_hp=player.hp, target_hp=target.hp, damage=damage,
+                )
+                if target.user_id == player.user_id:
+                    player.hp = shooter_hp
+                else:
+                    target.hp = target_hp
+                if shell and target.hp <= 0:
+                    target.alive = False
+                self.last_event = (
+                    f"{player.name}: {'طلقة حية 🔴' if shell else 'طلقة فارغة ⚪'}"
+                    f"{' — ضرر ' + str(damage) if shell else ''}."
+                )
+                await self._update(self.last_event)
+                await asyncio.sleep(1.0)
+                if sum(p.alive for p in self.players) <= 1:
+                    break
+                # Blank self-shot retains the turn; a live shot passes it.
+                if not keep_turn:
+                    current_index = (self.players.index(player) + 1) % len(self.players)
+                else:
+                    current_index = self.players.index(player)
+                if not self.shells:
+                    self.shells = load_shells()
+                    self.round_number += 1
+                    self.saw_armed.clear()
+                    for p in self.players:
+                        p.inventory = set()
+                        p.handcuffed = False
+                    for user_id, item in deal_round_items(self.players).items():
+                        self.by_id[user_id].inventory.add(item)
+                    await self._update(f"بدأت الجولة {self.round_number}: وُزّعت أدوات عشوائية.")
+
             winner = next((p for p in self.players if p.alive), None)
             self.finished = True
             await self._update(f"🏆 الفائز: {winner.name}" if winner else "انتهت اللعبة دون فائز.")
@@ -313,6 +350,7 @@ class BuckshotGame:
                 await self.message.edit(view=None)
         finally:
             await self.cog._release_game(self)
+
 
 
 class Buckshot(commands.Cog):
