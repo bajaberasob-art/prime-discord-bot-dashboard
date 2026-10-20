@@ -15,7 +15,7 @@ from typing import Awaitable, Callable, Sequence
 
 import aiohttp
 import discord
-from PIL import Image, ImageDraw, ImageFont, ImageOps, features
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter, features
 
 try:
     import arabic_reshaper
@@ -327,6 +327,112 @@ def create_base_canvas(
                          fill=MUTED, anchor="ma")
     draw.line((width // 2 - 70, 126, width // 2 + 70, 126), fill=CYAN, width=3)
     return image
+
+
+def create_luxury_canvas(
+    width: int = 1240,
+    height: int = 760,
+    title: str = "PRIME GAMES",
+    subtitle: str = "",
+    *,
+    accent: str = PURPLE,
+) -> Image.Image:
+    """Create a premium dark canvas with radial ambient light and soft neon trim."""
+    width = max(320, min(int(width), 2400))
+    height = max(240, min(int(height), 1600))
+    base = Image.new("RGB", (width, height), BACKGROUND)
+    pixels = base.load()
+    # A low-cost two-axis gradient; deliberately subtle so foreground text stays legible.
+    for y in range(height):
+        vertical = y / max(1, height - 1)
+        for x in range(width):
+            nx = (x - width * 0.68) / max(1, width * 0.78)
+            ny = (y - height * 0.16) / max(1, height * 0.88)
+            glow = max(0.0, 1.0 - (nx * nx + ny * ny) ** 0.5) ** 2
+            edge = max(0.0, 1.0 - abs(x - width / 2) / (width * 0.7))
+            pixels[x, y] = (
+                min(255, int(8 + 7 * (1 - vertical) + int(accent[1:3], 16) * glow * 0.10)),
+                min(255, int(10 + 3 * (1 - vertical) + int(accent[3:5], 16) * glow * 0.07)),
+                min(255, int(22 + 15 * (1 - vertical) + int(accent[5:7], 16) * glow * 0.12)),
+            )
+    image = base.convert("RGBA")
+    # Soft ambient halo behind the main frame.
+    halo = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    hd = ImageDraw.Draw(halo)
+    hd.ellipse((width * 0.18, -height * 0.45, width * 0.88, height * 0.72),
+               fill=(*tuple(int(accent[i:i+2], 16) for i in (1, 3, 5)), 24))
+    halo = halo.filter(ImageFilter.GaussianBlur(max(18, width // 30)))
+    image.alpha_composite(halo)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((18, 18, width - 18, height - 18), radius=30,
+                           fill=(12, 15, 31, 220), outline=(61, 54, 96, 255), width=2)
+    draw.line((52, 25, width * 0.34, 25), fill=accent, width=4)
+    draw.line((width * 0.66, height - 25, width - 52, height - 25), fill=CYAN, width=3)
+    draw_arabic_text(draw, (width // 2, 52), _safe_text(title, 90),
+                     font=_font(max(24, min(42, width // 25)), True), fill=WHITE, anchor="ma")
+    if subtitle:
+        draw_arabic_text(draw, (width // 2, 96), _safe_text(subtitle, 180),
+                         font=_font(max(14, min(21, width // 55))), fill=MUTED, anchor="ma")
+    draw.line((width // 2 - 72, 126, width // 2 + 72, 126), fill=accent, width=3)
+    return image
+
+
+def draw_glow_panel(
+    image: Image.Image,
+    xy: tuple[int, int, int, int],
+    *,
+    fill: tuple[int, int, int, int] = (15, 19, 39, 238),
+    outline: str = PANEL_EDGE,
+    radius: int = 20,
+    glow: str | None = None,
+    width: int = 2,
+) -> None:
+    """Draw a rounded panel with a soft shadow and optional neon halo."""
+    x1, y1, x2, y2 = (int(value) for value in xy)
+    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    sd.rounded_rectangle((x1 + 3, y1 + 7, x2 + 3, y2 + 7), radius=radius,
+                         fill=(0, 0, 0, 150))
+    image.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(12)))
+    if glow:
+        halo = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        ImageDraw.Draw(halo).rounded_rectangle((x1, y1, x2, y2), radius=radius,
+                                               outline=glow, width=max(3, width + 2))
+        image.alpha_composite(halo.filter(ImageFilter.GaussianBlur(11)))
+    ImageDraw.Draw(image).rounded_rectangle((x1, y1, x2, y2), radius=radius,
+                                             fill=fill, outline=glow or outline, width=width)
+
+
+def draw_status_avatar(
+    image: Image.Image,
+    avatar: Image.Image,
+    xy: tuple[int, int],
+    size: int,
+    *,
+    status: str = "alive",
+) -> None:
+    """Composite an antialiased circular avatar with state-coded neon ring."""
+    x, y = int(xy[0]), int(xy[1])
+    colors = {
+        "alive": GREEN,
+        "shield": CYAN,
+        "target": "#ffd166",
+        "eliminated": "#737b91",
+        "winner": "#ffca60",
+    }
+    ring = colors.get(status, PURPLE)
+    resampling = getattr(Image, "Resampling", Image).LANCZOS
+    avatar = ImageOps.fit(avatar.convert("RGBA"), (size, size), method=resampling)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse((1, 1, size - 2, size - 2), fill=255)
+    avatar.putalpha(mask)
+    halo = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(halo).ellipse((x - 5, y - 5, x + size + 5, y + size + 5),
+                                 outline=ring, width=max(3, size // 20))
+    image.alpha_composite(halo.filter(ImageFilter.GaussianBlur(max(4, size // 10))))
+    image.alpha_composite(avatar, (x, y))
+    ImageDraw.Draw(image).ellipse((x, y, x + size - 1, y + size - 1),
+                                  outline=ring, width=max(2, size // 24))
 
 
 def image_to_file(image: Image.Image, filename: str = "prime-game.png") -> discord.File:
