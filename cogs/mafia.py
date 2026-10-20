@@ -112,10 +112,15 @@ def distribute_roles(members: Sequence[object], settings: MafiaSettings, rng=Non
     rng = rng or random
     settings.validate(len(members))
     roles = list(settings.enabled_roles - {"citizen"})
-    # Keep mafia balanced at roughly one third while respecting explicitly enabled roles.
+    # Lovers is a paired role: enabling it creates exactly two linked players.
+    if "lover" in roles:
+        roles.remove("lover")
+        roles.extend(["lover", "lover"])
     mafia_count = sum(role in MAFIA_ROLES for role in roles)
     if mafia_count == 0:
         raise ValueError("enable_at_least_one_mafia_role")
+    if len(roles) > len(members):
+        raise ValueError("too_many_roles")
     roles.extend(["citizen"] * (len(members) - len(roles)))
     rng.shuffle(roles)
     players = [MafiaPlayer(member=member, role=role) for member, role in zip(members, roles)]
