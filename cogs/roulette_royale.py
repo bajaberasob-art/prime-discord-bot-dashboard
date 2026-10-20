@@ -451,7 +451,7 @@ class RouletteRoyaleGame:
             progress = frame / SPIN_FRAMES
             # Ease-out curve: fast at first, slowing toward the chosen slice.
             eased = 1.0 - (1.0 - progress) ** 2
-            angle = (start_angle * (1.0 - eased) + final_angle * eased) % 360.0
+            angle = start_angle * (1.0 - eased) + final_angle * eased
             await self._update_board("🎡 تدور العجلة... لحظات ويُكشف المستهدف!", angle=angle)
             await asyncio.sleep(SPIN_FRAME_DELAY)
         await self._update_board(f"🎯 توقفت العجلة على <@{target_id}>!", target_id=target_id)
