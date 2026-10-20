@@ -27,7 +27,7 @@ from prime_games.visual_renderers import render_memory_board, render_xo_board
 logger = logging.getLogger("PrimeGamesCog")
 
 _GAME_TITLES = {
-    "xo": "🎮 PRIME · XO",
+    "xo": "⚡ PRIME · Infinite Neon XO",
     "connect4": "🔴 PRIME · أربعة على التوالي",
     "rps": "🪨 PRIME · حجر ورقة مقص",
     "quiz": "🧠 PRIME · تحدّي المعلومات",
@@ -64,7 +64,7 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
     if game_key == "xo":
         board = state.get("board") or [None] * 9
         description = f"❎ **X:** <@{players[0]}>\n⭕ **O:** <@{players[1]}>\n\n"
-        description += "اضغط المربع الذي تريد اللعب فيه. لا يمكن تغيير حركة بعد تسجيلها."
+        description += "كل لاعب يملك 3 قطع فقط؛ عند وضع القطعة الرابعة تختفي أقدم قطعة له. اللوحة المرئية تعرض صور اللاعبين وحركاتهم."
         if status == "active":
             description += f"\n\n🎯 الدور الآن على <@{session.get('current_player_id')}>"
         elif status == "finished" and winner_id is None:
