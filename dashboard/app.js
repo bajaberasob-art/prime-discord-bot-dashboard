@@ -10350,7 +10350,7 @@
       main.append(host);
       if (state.guild && window.PrimeInteractiveInfoPanel) {
         state.interactiveInfoCleanup = window.PrimeInteractiveInfoPanel.mount(host, {
-          guildId: String(state.guild.id), api, writeApi, readJson, toast,
+          guildId: String(state.guild.id), api, writeApi, readJson, toast, getCsrf: () => state.session?.csrf || "", refreshSession,
         });
       } else {
         host.append(el("p", { class: "notice", text: "اختر سيرفرًا لفتح لوحة الأزرار التفاعلية." }));
