@@ -79,6 +79,16 @@ class InteractiveInfoPanelValidationTests(unittest.TestCase):
             finally:
                 os.environ.pop("PRIME_PANEL_UPLOAD_DIR", None)
 
+    def test_store_accepts_custom_emoji_marker_and_migrates_legacy_glyph(self):
+        body = self.valid_body()
+        body["buttons"][0]["emoji"] = "custom:123456789012345678"
+        config = validate_config(42, body)
+        self.assertEqual(config["buttons"][0]["emoji"], "custom:123456789012345678")
+
+        body["buttons"][0]["emoji"] = "✦"
+        config = validate_config(42, body)
+        self.assertEqual(config["buttons"][0]["emoji"], "✨")
+
     def test_custom_emoji_marker_resolves_to_guild_emoji(self):
         selected = type("GuildEmoji", (), {"id": 123456789012345678, "name": "prime_star"})()
         guild = type("Guild", (), {"emojis": [selected]})()
