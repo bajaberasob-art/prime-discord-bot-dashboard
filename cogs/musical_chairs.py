@@ -129,6 +129,26 @@ def render_musical_chairs_image(
                      font=_font(22, True), fill="#36e0d0" if phase == "seating" else WHITE, anchor="mm")
     draw_arabic_text(draw, (cx, cy+22), f"{len(alive)} لاعبين", font=_font(14, True), fill=MUTED, anchor="mm")
 
+    # Show players orbiting the arena; eliminated players are greyed outside the ring.
+    for index, player in enumerate(player_list):
+        user_id = int(getattr(player, "id", 0))
+        name = str(getattr(player, "display_name", getattr(player, "name", "?")))
+        angle = math.tau * index / max(1, len(player_list)) - math.pi / 2
+        orbit = 166 if user_id in alive else 236
+        ax = int(cx + math.cos(angle) * orbit - 18)
+        ay = int(cy + math.sin(angle) * orbit - 18)
+        avatar = avatar_map.get(user_id)
+        if avatar is not None and user_id in alive:
+            draw_status_avatar(image, avatar, (ax, ay), 36,
+                               status="shield" if user_id in seated and phase in {"seating", "result"} else "alive")
+        else:
+            draw = ImageDraw.Draw(image)
+            fill = "#343946" if user_id not in alive else "#282044"
+            edge = "#737b91" if user_id not in alive else PURPLE
+            draw.ellipse((ax, ay, ax+36, ay+36), fill=fill, outline=edge, width=2)
+            draw_arabic_text(draw, (ax+18, ay+18), name[:1] or "?", font=_font(15, True),
+                             fill="#a1a1aa" if user_id not in alive else WHITE, anchor="mm")
+
     # A visible 5x5 chair grid complements the individual Discord chair buttons.
     names = {
         int(getattr(player, "id", 0)): str(
