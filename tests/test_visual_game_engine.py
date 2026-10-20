@@ -1,5 +1,8 @@
+import asyncio
+import time
 import io
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 from PIL import Image, ImageChops
@@ -39,6 +42,25 @@ class VisualGameEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(avatar.getpixel((0, 0))[3], 0)
         self.assertEqual(avatar.getpixel((32, 32))[3], 255)
 
+
+    async def test_classic_renderer_offloads_cpu_bound_pillow_work(self):
+        from prime_games import classic_renderer
+
+        session = {"id": 78, "game_key": "memory", "players": [], "state": {}}
+
+        def slow_renderer(*args):
+            time.sleep(0.15)
+            return Image.new("RGB", (1200, 760), "#101020")
+
+        with patch(
+            "prime_games.classic_renderer._render_classic_game_sync",
+            side_effect=slow_renderer,
+        ):
+            task = asyncio.create_task(classic_renderer.render_classic_game(session))
+            await asyncio.sleep(0.02)
+            self.assertFalse(task.done(), "Pillow work must not block the asyncio loop")
+            result = await task
+        self.assertEqual(result.size, (1200, 760))
 
     async def test_classic_game_renderer_produces_valid_png_for_legacy_games(self):
         from prime_games.classic_renderer import render_classic_game
