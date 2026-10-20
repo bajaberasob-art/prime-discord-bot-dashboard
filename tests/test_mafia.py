@@ -127,7 +127,7 @@ class MafiaResolutionTests(unittest.TestCase):
         self.assertEqual(veteran.veteran_alerts, 1)
 
     def test_trial_tie_acquits_and_execution_awards_jester(self):
-        result = tally_trial({1: "execute", 2: "spare", 3: "execute"}, candidate_id=4, living_ids={1, 2, 3, 4})
+        result = tally_trial({1: "execute", 2: "spare"}, candidate_id=4, living_ids={1, 2, 3, 4})
         self.assertFalse(result["executed"])
         result = tally_trial({1: "execute", 2: "execute", 3: "spare"}, candidate_id=4, living_ids={1, 2, 3, 4})
         self.assertTrue(result["executed"])
