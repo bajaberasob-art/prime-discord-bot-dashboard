@@ -448,6 +448,18 @@ class MafiaActionView(discord.ui.View):
         if not options:
             await interaction.response.send_message("لا يوجد هدف متاح.", ephemeral=True)
             return
+        player = self.game.by_id[int(interaction.user.id)]
+        if player.role == "veteran":
+            if player.veteran_alerts <= 0:
+                await interaction.response.send_message("استهلكت وضعيتي التأهب.", ephemeral=True)
+                return
+            self.actions[player.user_id] = player.user_id
+            await interaction.response.send_message("💥 تم تفعيل وضع التأهب لهذه الليلة؛ من يزور بابك سيتعرض للنيران.", ephemeral=True)
+            self._event.set()
+            return
+        if player.role == "vigilante" and player.bullets <= 0:
+            await interaction.response.send_message("استخدمت رصاصتك الوحيدة بالفعل.", ephemeral=True)
+            return
         await interaction.response.send_message("اختر هدفك السري:", view=MafiaTargetView(self, int(interaction.user.id), options), ephemeral=True)
 
 
@@ -502,6 +514,16 @@ class MafiaGame:
         self.players = distribute_roles(self.members, self.settings)
         self.by_id = {p.user_id: p for p in self.players}
         self.started = True
+        # Secret role assignment is sent privately; members who block DMs can still play from the shared action UI.
+        for player in self.players:
+            try:
+                awaitable = player.member.send(
+                    f"🎭 دورك في Mafia Royale: **{ROLE_LABELS[player.role]}**\\n{ROLE_DESCRIPTIONS[player.role]}"
+                )
+                if hasattr(awaitable, "__await__"):
+                    asyncio.create_task(awaitable)
+            except (discord.HTTPException, AttributeError):
+                logger.debug("Could not DM role to player %s", player.user_id, exc_info=True)
 
     async def start_night(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message("🌑 بدأت الليلة الأولى. ستصل أزرار الأدوار السرية عبر رسائل خاصة.", ephemeral=True)
@@ -517,19 +539,41 @@ class MafiaGame:
                 if self.message:
                     await self.message.edit(embed=discord.Embed(title=f"🌑 الليل الدامس — ليلة {self.day_number}", description="تتحرك المافيا في الظلام…", color=discord.Color.dark_purple()), attachments=[image_to_file(render_mafia_board(self.players, phase="night", headline="الليل الدامس", avatars=self.avatars), "mafia-night.png")], view=MafiaActionView(self, phase="night"))
                 view = MafiaActionView(self, phase="night")
-                # Collect role actions through the private ephemeral action views for up to 90 seconds.
-                await asyncio.sleep(0)
-                try:
-                    await asyncio.wait_for(view._event.wait(), timeout=90)
-                except asyncio.TimeoutError:
-                    pass
+                # Wait for all enabled living roles to submit an action, or end the night after 90 seconds.
+                required = {
+                    p.user_id for p in self.players if p.alive and (
+                        p.role in MAFIA_ROLES or p.role in {"doctor", "detective"}
+                        or (p.role == "vigilante" and p.bullets > 0)
+                        or (p.role == "veteran" and p.veteran_alerts > 0)
+                    )
+                }
+                deadline = asyncio.get_running_loop().time() + 90
+                while not required.issubset(view.actions):
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        break
+                    view._event.clear()
+                    try:
+                        await asyncio.wait_for(view._event.wait(), timeout=remaining)
+                    except asyncio.TimeoutError:
+                        break
                 actions = view.actions
                 mafia_target = next((actions[p.user_id] for p in self.players if p.alive and p.role in MAFIA_ROLES and p.user_id in actions), None)
                 doctor_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "doctor" and p.user_id in actions), None)
                 detective_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "detective" and p.user_id in actions), None)
+                framed_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "framer" and p.user_id in actions), None)
+                silenced_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "silencer" and p.user_id in actions), None)
+                veteran_targets = {
+                    p.user_id for p in self.players if p.alive and p.role == "veteran"
+                    and actions.get(p.user_id) == p.user_id and p.veteran_alerts > 0
+                }
                 vigilante_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "vigilante" and p.bullets > 0 and p.user_id in actions), None)
-                result = resolve_night(self.players, mafia_target=mafia_target, doctor_target=doctor_target,
-                                       detective_target=detective_target, vigilante_target=vigilante_target)
+                result = resolve_night(
+                    self.players, mafia_target=mafia_target, doctor_target=doctor_target,
+                    detective_target=detective_target, framed_target=framed_target,
+                    silenced_target=silenced_target, veteran_targets=veteran_targets,
+                    vigilante_target=vigilante_target,
+                )
                 dead = [p for p in self.players if p.user_id in result["deaths"]]
                 clue = random.choice(["شوهد شخص يهرب من قرب الساحة.", "آثار أقدام تتجه نحو المستودع.", "مصباح الشارع انطفأ أثناء الجريمة."]) if self.settings.forensic_newspaper else "لا توجد أدلة جنائية الليلة."
                 wills = "\n".join(f"📜 وصية {p.name}: {p.will}" for p in dead if p.will)
