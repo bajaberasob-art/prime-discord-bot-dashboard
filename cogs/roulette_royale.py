@@ -217,10 +217,24 @@ class RoyaleTurnView(discord.ui.View):
             if value == "none":
                 await interaction.response.send_message("لا يوجد هدف متاح.", ephemeral=True)
                 return
-            self.action = "eliminate"
+            # Keep the skill selected by the player; the same menu serves
+            # elimination, revival, and fate-link targeting.
+            if self.action == "heal":
+                if self.game.players[int(value)].alive:
+                    await interaction.response.send_message("اختر لاعبًا مطرودًا لإنعاشه.", ephemeral=True)
+                    return
+            elif self.action in {"eliminate", "chain"}:
+                if not self.game.players[int(value)].alive or int(value) == self.target_id:
+                    await interaction.response.send_message("هذا الهدف غير متاح لهذا القرار.", ephemeral=True)
+                    return
+            else:
+                await interaction.response.send_message("اختر مهارة أولًا.", ephemeral=True)
+                return
             self.choice_id = int(value)
+            labels = {"eliminate": "للطرد", "heal": "للإنعاش", "chain": "لربط المصير"}
             await interaction.response.send_message(
-                f"تم تحديد <@{self.choice_id}> للطرد. اضغط تأكيد القرار خلال الوقت المتبقي.",
+                f"تم تحديد <@{self.choice_id}> {labels.get(self.action, 'كهدف')}. "
+                "اضغط تأكيد القرار خلال الوقت المتبقي.",
                 ephemeral=True,
             )
         select.callback = callback
