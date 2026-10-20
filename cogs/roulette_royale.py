@@ -85,6 +85,59 @@ def apply_eliminations(
     return eliminated, broken
 
 
+def render_royale_victory(players: dict[int, RoyalePlayer], winner_id: int,
+                         round_number: int, avatars: dict[int, Image.Image] | None = None) -> Image.Image:
+    """Render a dedicated royal victory screen with layered gold illumination."""
+    width, height = 1240, 760
+    image = create_luxury_canvas(width, height, "روليت الملوك | CHAMPION",
+                                 f"تتويج البطل - بعد {round_number} جولات", accent="#ffca60").convert("RGBA")
+    glow = Image.new("RGBA", (width // 3, height // 3), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    gcx, gcy = glow.width // 2, glow.height // 2
+    for radius in range(135, 0, -1):
+        alpha = int(1 + 36 * (1 - radius / 135) ** 2)
+        gd.ellipse((gcx-radius, gcy-radius, gcx+radius, gcy+radius), fill=(255, 183, 48, alpha))
+    image.alpha_composite(glow.resize((width, height), Image.Resampling.BICUBIC).filter(ImageFilter.GaussianBlur(24)))
+    draw = ImageDraw.Draw(image)
+    cx, cy = width // 2, 315
+    for i in range(32):
+        angle = math.tau * i / 32
+        draw.line((cx, cy, cx + math.cos(angle) * 310, cy + math.sin(angle) * 260), fill=(255, 202, 96, 34), width=2)
+    winner = players.get(int(winner_id))
+    name = winner.name if winner else "الفائز"
+    draw_glow_panel(image, (270, 145, 970, 690), fill=(10, 12, 28, 232), outline="#a87927", radius=34, glow="#ffca60", width=3)
+    draw = ImageDraw.Draw(image)
+    crown = [(cx-78, 180), (cx-52, 222), (cx-20, 164), (cx+8, 218), (cx+52, 173), (cx+78, 228), (cx-78, 228)]
+    draw.polygon(crown, fill="#d99a2b", outline="#fff0bd", width=4)
+    draw.line(crown + [crown[0]], fill="#fff0bd", width=3, joint="curve")
+    draw.rounded_rectangle((cx-79, 224, cx+79, 244), radius=6, fill="#a66a18", outline="#ffe4a0", width=3)
+    for px, py in [(cx-52, 208), (cx-20, 178), (cx+8, 208), (cx+52, 190)]:
+        draw.ellipse((px-6, py-6, px+6, py+6), fill="#f5fbff", outline="#fff0bd", width=2)
+    avatar = (avatars or {}).get(int(winner_id))
+    avatar_size, ax, ay = 176, cx-88, 265
+    halo = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(halo).ellipse((ax-25, ay-25, ax+avatar_size+25, ay+avatar_size+25), fill=(255, 178, 35, 90))
+    image.alpha_composite(halo.filter(ImageFilter.GaussianBlur(28)))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((ax-13, ay-13, ax+avatar_size+13, ay+avatar_size+13), outline="#ffca60", width=8)
+    draw.ellipse((ax-4, ay-4, ax+avatar_size+4, ay+avatar_size+4), outline="#fff0bd", width=3)
+    if avatar is not None:
+        draw_status_avatar(image, avatar, (ax, ay), avatar_size, status="winner")
+    else:
+        draw.ellipse((ax, ay, ax+avatar_size, ay+avatar_size), fill="#282044", outline="#ffca60", width=4)
+        draw_arabic_text(draw, (cx, ay+avatar_size//2), name[:1], font=_font(64, True), fill=WHITE, anchor="mm")
+    draw = ImageDraw.Draw(image)
+    draw_arabic_text(draw, (cx, 490), name[:28], font=_font(38, True), fill=WHITE, anchor="mm")
+    draw.rounded_rectangle((cx-140, 522, cx+140, 568), radius=20, fill=(76, 47, 12, 245), outline="#ffca60", width=2)
+    draw_arabic_text(draw, (cx, 545), "ملك الساحة", font=_font(23, True), fill="#ffdf8b", anchor="mm")
+    for index, (label, value) in enumerate([("الجولات", str(round_number)), ("الناجون", "01"), ("اللقب", "CHAMPION")]):
+        x = 335 + index * 195
+        draw.rounded_rectangle((x, 605, x+180, 655), radius=14, fill=(24, 25, 48, 245), outline="#9a722e", width=2)
+        draw_arabic_text(draw, (x+90, 620), value, font=_font(16, True), fill=CYAN, anchor="mm")
+        draw_arabic_text(draw, (x+90, 641), label, font=_font(13, True), fill=MUTED, anchor="mm")
+    return image
+
+
 def render_roulette_board(
     players: dict[int, RoyalePlayer],
     *,
@@ -103,8 +156,8 @@ def render_roulette_board(
     living = [p for p in all_players if p.user_id in alive]
     width, height = 1240, 760
     image = create_luxury_canvas(
-        width, height, "روليت الملوك • ROULETTE ROYALE",
-        f"الجولة {round_number} • آخر لاعب يبقى هو الملك", accent=PURPLE,
+        width, height, "روليت الملوك | ROULETTE ROYALE",
+        f"الجولة {round_number} - آخر لاعب يبقى هو الملك", accent=PURPLE,
     ).convert("RGBA")
     draw = ImageDraw.Draw(image)
     cx, cy, radius = 385, 430, 260
@@ -191,12 +244,25 @@ def render_roulette_board(
                 image, avatar, (panel_x+24, y-8), 30, status=avatar_status,
             )
             draw = ImageDraw.Draw(image)
-        status = "مطـرود" if not is_alive else ("🛡 درع" if player.shield else "حي")
-        if player.user_id == winner_id:
-            status = "👑 الملك"
-        draw_arabic_text(draw, (panel_x+panel_w-28, y+6), status, font=_font(13, True),
-                         fill=fg, anchor="rm")
-        name_limit = 23
+        status = ("مقصى" if not is_alive else
+                  "الملك" if player.user_id == winner_id else
+                  "صاحب الدور" if is_target else
+                  "مدرع" if player.shield else "في الساحة")
+        pill_colors = {"مقصى": "#3b4050", "الملك": "#5a3b12",
+                       "صاحب الدور": "#5b3510", "مدرع": "#123e48", "في الساحة": "#12382d"}
+        pill_edges = {"مقصى": "#737b91", "الملك": "#ffca60",
+                      "صاحب الدور": "#ffd166", "مدرع": CYAN, "في الساحة": GREEN}
+        pill_box = (panel_x + panel_w - 150, y - 7, panel_x + panel_w - 22, y + 22)
+        draw.rounded_rectangle(pill_box, radius=9, fill=pill_colors[status],
+                               outline=pill_edges[status], width=1)
+        draw_arabic_text(draw, ((pill_box[0]+pill_box[2])//2, y+7), status,
+                         font=_font(12, True), fill=WHITE if is_alive else "#c2c6d0", anchor="mm")
+        if player.shield and is_alive:
+            sx, sy = panel_x + panel_w - 170, y + 7
+            draw.polygon([(sx, sy-10), (sx+9, sy-6), (sx+8, sy+4),
+                          (sx, sy+11), (sx-8, sy+4), (sx-9, sy-6)],
+                         fill=CYAN, outline="#e0fbff")
+        name_limit = 18
         draw_arabic_text(draw, (panel_x+68, y+6), player.name[:name_limit],
                          font=_font(15, True), fill=fg, anchor="lm")
     if event_text:
@@ -206,13 +272,13 @@ def render_roulette_board(
     if obscure_wheel:
         draw.rounded_rectangle((cx-radius+35, cy-radius+105, cx+radius-35, cy+radius-105),
                                radius=20, fill="#111827", outline=PURPLE, width=4)
-        draw_arabic_text(draw, (cx, cy), "🌪️ العاصفة العمياء\nتفاصيل العجلة مخفية",
+        draw_arabic_text(draw, (cx, cy), "العاصفة العمياء\nتفاصيل العجلة مخفية",
                          font=_font(21, True), fill=WHITE, anchor="mm")
     if target_id is not None:
         target = players.get(target_id)
         if target:
             draw.rounded_rectangle((55, 155, 680, 205), radius=12, fill="#20152d", outline=PURPLE, width=2)
-            draw_arabic_text(draw, (367, 180), f"🎯 المستهدف: {target.name[:28]}",
+            draw_arabic_text(draw, (367, 180), f"المستهدف: {target.name[:28]}",
                              font=_font(19, True), fill=WHITE, anchor="mm")
     return image
 
