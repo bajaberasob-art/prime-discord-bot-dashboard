@@ -13,7 +13,6 @@ from cogs.musical_chairs import (
     resolve_round,
 )
 from game_engine import draw_arabic_text, _font
-)
 
 
 class MusicalChairsLogicTests(unittest.TestCase):
