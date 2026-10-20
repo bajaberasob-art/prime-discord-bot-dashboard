@@ -149,6 +149,7 @@ def resolve_night(
     framed_target: int | None = None,
     silenced_target: int | None = None,
     veteran_targets: set[int] | None = None,
+    veteran_visitors: dict[int, set[int]] | None = None,
     vigilante_target: int | None = None,
 ) -> dict[str, object]:
     """Resolve night actions in a deterministic order and return private/public events."""
@@ -157,6 +158,7 @@ def resolve_night(
     events: list[str] = []
     deaths: set[int] = set()
     veteran_targets = veteran_targets or set()
+    veteran_visitors = veteran_visitors or {}
     for p in players:
         p.framed = False
         p.visited = False
