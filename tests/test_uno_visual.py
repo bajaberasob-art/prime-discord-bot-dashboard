@@ -81,7 +81,7 @@ class UNORulesTests(unittest.TestCase):
     def test_reverse_changes_direction_and_two_player_reverse_skips(self):
         current = self.state.current_player
         self.state.players = self.state.players[:2]
-        current.hand = [UNOCard("red", "reverse")]
+        current.hand = [UNOCard("red", "reverse"), UNOCard("blue", "2")]
         self.state.discard_pile = [UNOCard("red", "1")]
         self.state.current_color = "red"
         self.state.play_card(current.user_id, 0)
@@ -90,7 +90,7 @@ class UNORulesTests(unittest.TestCase):
 
     def test_skip_and_draw_two_skip_next_player(self):
         current = self.state.current_player
-        current.hand = [UNOCard("red", "skip")]
+        current.hand = [UNOCard("red", "skip"), UNOCard("blue", "2")]
         self.state.discard_pile = [UNOCard("red", "1")]
         self.state.current_color = "red"
         self.state.play_card(current.user_id, 0)
