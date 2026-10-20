@@ -154,28 +154,69 @@ class BuckshotTurnView(discord.ui.View):
         await interaction.response.edit_message(view=self)
         self.stop()
 
-    @discord.ui.button(label="أطلق على نفسك", style=discord.ButtonStyle.danger, emoji="🎯")
+    @discord.ui.button(label="أطلق على نفسك", style=discord.ButtonStyle.danger, emoji="🎯", row=0)
     async def shoot_self(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await self._choose(interaction, "self")
 
-    @discord.ui.button(label="أطلق على خصم", style=discord.ButtonStyle.primary, emoji="🔫")
+    @discord.ui.button(label="أطلق على خصم", style=discord.ButtonStyle.primary, emoji="🔫", row=0)
     async def shoot_opponent(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         targets = [p for p in self.game.players if p.alive and p.user_id != self.current_id]
         if not targets:
             await self._choose(interaction, "self")
             return
-        target = random.choice(targets)
-        await self._choose(interaction, "opponent", target.user_id)
+        await self._choose(interaction, "opponent", random.choice(targets).user_id)
 
-    @discord.ui.button(label="استخدم المنظار", style=discord.ButtonStyle.secondary, emoji="🔎")
+    @discord.ui.button(label="🔍 المنظار", style=discord.ButtonStyle.secondary, row=1)
     async def inspect_shell(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if "magnifier" in (self.game.by_id[self.current_id].used_items or set()):
-            await interaction.response.send_message("استخدمت المنظار مسبقًا.", ephemeral=True)
+        player = self.game.by_id[self.current_id]
+        if "magnifier" not in (player.inventory or set()):
+            await interaction.response.send_message("ليس لديك منظار في هذه الجولة.", ephemeral=True)
             return
-        self.game.by_id[self.current_id].used_items.add("magnifier")
-        shell = self.game.shells[0] if self.game.shells else None
-        info = "الطلقة التالية حية 🔴" if shell else "الطلقة التالية فارغة ⚪"
-        await interaction.response.send_message(info, ephemeral=True)
+        if not self.game.shells:
+            await interaction.response.send_message("المخزن فارغ حاليًا.", ephemeral=True)
+            return
+        apply_item(player, "magnifier")
+        await interaction.response.send_message(
+            "الطلقة الحالية حية 🔴" if self.game.shells[0] else "الطلقة الحالية فارغة ⚪",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="🪚 تفعيل المنشار", style=discord.ButtonStyle.secondary, row=1)
+    async def use_saw(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        player = self.game.by_id[self.current_id]
+        if not apply_item(player, "saw"):
+            await interaction.response.send_message("لا تملك منشارًا متاحًا.", ephemeral=True)
+            return
+        self.game.saw_armed.add(self.current_id)
+        await interaction.response.send_message("تم تفعيل المنشار؛ الطلقة الحية التالية تسبب 2 HP.", ephemeral=True)
+
+    @discord.ui.button(label="⛓️ أصفاد الخصم", style=discord.ButtonStyle.secondary, row=1)
+    async def use_handcuffs(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        player = self.game.by_id[self.current_id]
+        if "handcuffs" not in (player.inventory or set()):
+            await interaction.response.send_message("لا تملك أصفادًا متاحة.", ephemeral=True)
+            return
+        targets = [p for p in self.game.players if p.alive and p.user_id != self.current_id]
+        if not targets:
+            await interaction.response.send_message("لا يوجد خصم حي لاستهدافه.", ephemeral=True)
+            return
+        target = random.choice(targets)
+        apply_item(player, "handcuffs")
+        target.handcuffed = True
+        await interaction.response.send_message(
+            f"قُيّد الخصم {target.name} وسيتخطى دوره القادم.", ephemeral=True
+        )
+
+    @discord.ui.button(label="🚬 استعادة الصحة", style=discord.ButtonStyle.secondary, row=1)
+    async def use_cigarettes(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        player = self.game.by_id[self.current_id]
+        if player.hp >= MAX_HP:
+            await interaction.response.send_message("صحتك كاملة بالفعل.", ephemeral=True)
+            return
+        if not apply_item(player, "cigarettes"):
+            await interaction.response.send_message("لا تملك علاجًا متاحًا.", ephemeral=True)
+            return
+        await interaction.response.send_message(f"استعدت نقطة صحة: {player.hp}/{MAX_HP} ❤️", ephemeral=True)
 
     async def on_timeout(self) -> None:
         if self.choice is None:
