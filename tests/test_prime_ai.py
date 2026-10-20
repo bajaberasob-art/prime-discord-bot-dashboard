@@ -4653,6 +4653,8 @@ class PrimeAIActionEngineTests(unittest.IsolatedAsyncioTestCase):
     async def test_action_planner_keeps_server_owned_intent_and_registered_targets(self):
         guild, actor, channel, _bot, _channels, _members = self._runtime_context()
         config = self._action_config("send_message")
+        # The planner only includes reviewed adapters whose action is enabled.
+        config["actions"]["set_channel_mode"]["enabled"] = True
         prompt = "send a message here"
         provider_plan = json.dumps({
             "intent": "private user text echoed by provider",
@@ -4682,7 +4684,31 @@ class PrimeAIActionEngineTests(unittest.IsolatedAsyncioTestCase):
                     {"role": "assistant", "content": "Preview only; nothing changed."},
                 ],
                 config=config,
+                reviewed_command_adapters=[
+                    {
+                        "command_name": "lock",
+                        "tool": "set_channel_mode",
+                        "execution_path": "linked_handler",
+                        "policy_command": "lock",
+                        "description": "قفل القناة الحالية",
+                        "argument_hints": {"mode": "read_only"},
+                    },
+                    {
+                        "command_name": "unlock",
+                        "tool": "set_channel_mode",
+                        "execution_path": "linked_handler",
+                        "policy_command": "unlock",
+                        "description": "فتح القناة الحالية",
+                        "argument_hints": {"mode": "not_a_valid_mode", "extra": "ignored"},
+                    },
+                ],
             )
+        self.assertIn("reviewed_command_adapters", generate.await_args.kwargs["context"])
+        adapter_context = generate.await_args.kwargs["context"]["reviewed_command_adapters"]
+        self.assertEqual(len(adapter_context), 1)
+        self.assertEqual(adapter_context[0]["command_name"], "lock")
+        self.assertEqual(adapter_context[0]["description"], "قفل القناة الحالية")
+        self.assertEqual(adapter_context[0]["argument_hints"], {"mode": "read_only"})
         self.assertFalse(generate.await_args.kwargs["include_memories"])
         planning_prompt = generate.await_args.args[4]
         self.assertIn("recent_conversation", planning_prompt)

@@ -128,11 +128,14 @@ Build a tested adapter contract for one low-risk read operation and one narrowly
 
 ## Phase 2 implementation — reviewed command adapter contract
 
-The follow-up implementation adds `prime_ai/command_catalog.py`, which reads metadata from the **currently loaded Slash command tree** but only emits the two reviewed bridges (`channelinfo` → the read-only `fetch_channel` skill, and `create_channel` → the registered `create_channel` action). It never returns callbacks and never makes arbitrary COG commands executable.
+The reviewed command catalog in `prime_ai/command_catalog.py` reads metadata from the **currently loaded Slash command tree** and emits only 12 explicitly reviewed write-side bridges represented in `prime_ai/linked_commands.py`: `create_channel`, `rename_channel`, `delete_channel`, `setnick`, `give_role`, `take_role`, `timeout`, `kick`, `ban`, `unban`, `lock`, and `unlock`. It never returns callbacks and never makes arbitrary COG commands executable. Risk and the required Discord permission are derived from `ACTION_REGISTRY`, avoiding a second source of truth.
 
-The AI action planner receives only the catalog entries that correspond to already-enabled `ACTION_REGISTRY` tools. The action schema in `available_tools` remains authoritative; the catalog does not grant permission, change argument validation, bypass confirmation, or replace the fresh policy and Discord permission checks. The read-only `fetch_channel` route additionally checks the saved `channelinfo` enabled/role/channel policy and returns a clear policy-denial message. Unit tests cover allowlist-only discovery, missing command trees, matching policy enforcement, route short-circuit on policy denial, and user-facing denial handling.
+For `lock` and `unlock`, the catalog carries a reviewed fixed-argument hint mapping to `set_channel_mode` (`mode=read_only` and `mode=open` respectively). The planner permits only those exact hint values and continues to use the registered action schema as the only argument contract. Adapter descriptions are contextual metadata, not authorization. Every real action still requires fresh server-side policy, permission, target, hierarchy and confirmation checks as applicable.
+
+Read-only links such as `channelinfo` → `fetch_channel`, `serverinfo` → `fetch_server_data`, `roles` → `fetch_roles`, `roleinfo` → `fetch_role`, and `userinfo` → `fetch_member` remain separately managed by `linked_commands.py` and `ensure_read_skill_command_policy`; they are intentionally not write-action planner entries. Unit tests cover exact allowlist discovery, omitted arbitrary/bulk commands, metadata derivation, fixed mode mapping validation, missing command trees and policy-denial short-circuiting.
 
 The generic adapter gap remains intentional: commands such as `massban`, `nuke`, `emergency`, or arbitrary economy/subscription commands are not exposed just because they exist in Discord.
+
 
 
 ## Phase 3 implementation — high-impact confirmation invariant
