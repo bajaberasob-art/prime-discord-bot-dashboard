@@ -57,6 +57,13 @@
         input("عنوان الرسالة", "title", config.title, { maxlength: 256 }),
         input("وصف الرسالة", "description", config.description, { textarea: true, rows: 4, maxlength: 4096 }),
         h("div", { class: "iip-two-col" }, input("لون الإيمبد", "color", config.color, { type: "color" }), input("رابط صورة البانر", "banner_url", config.banner_url, { placeholder: "https://..." })),
+        h("label", { class: "iip-field" }, h("span", { text: "أو ارفع صورة من جهازك (PNG / JPG / WEBP / GIF، حتى 8MB)" }),
+          (() => {
+            const control = h("input", { class: "iip-input", type: "file", accept: "image/png,image/jpeg,image/webp,image/gif" });
+            listen(control, "change", () => uploadBanner(control));
+            return control;
+          })()),
+        config.banner_file ? h("p", { class: "iip-help", text: "تم اختيار صورة مرفوعة؛ ستُرفق برسالة Discord عند النشر." }) : null,
         select("مدة الرد الخاص قبل الحذف", "auto_delete_seconds", config.auto_delete_seconds, [
           ...Array.from({ length: 14 }, (_, i) => ({
             value: (i + 1) * 60,
@@ -105,6 +112,38 @@
           h("button", { type: "button", class: "iip-button primary", text: config.message_id ? "حفظ وتحديث الرسالة" : "حفظ ونشر في الروم", disabled: busy, onClick: () => save(true) })));
       main.append(settings, h("div", { class: "iip-right-column" }, builder, preview));
       host.append(header, main, actions);
+    }
+    async function uploadBanner(control) {
+      const file = control.files && control.files[0];
+      if (!file) return;
+      if (file.size > 8 * 1024 * 1024) { control.value = ""; return ctx.toast("حجم الصورة يجب ألا يتجاوز 8 ميغابايت", "warn"); }
+      const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+      if (!allowed.includes(file.type)) { control.value = ""; return ctx.toast("الصيغ المدعومة PNG وJPG وWEBP وGIF فقط", "warn"); }
+      busy = true;
+      try {
+        let response;
+        const send = async () => {
+          const form = new FormData();
+          form.append("file", file, file.name);
+          return ctx.api("api/guild/" + encodeURIComponent(ctx.guildId) + "/interactive-info-panel/banner", {
+            method: "POST", headers: { "X-CSRF-Token": ctx.getCsrf ? ctx.getCsrf() : "" }, body: form,
+          });
+        };
+        response = await send();
+        if (response.status === 403) {
+          const errorData = await ctx.readJson(response.clone(), {});
+          if (errorData.error === "csrf" && ctx.refreshSession && await ctx.refreshSession()) response = await send();
+        }
+        const data = await ctx.readJson(response, {});
+        if (!response.ok) return ctx.toast(data.message || "تعذر رفع الصورة", "warn");
+        config.banner_file = data.banner_file;
+        config.banner_url = data.banner_url;
+        dirty = true;
+        ctx.toast("تم رفع الصورة؛ احفظ وانشر اللوحة لتظهر في Discord", "success");
+        render();
+      } catch (error) {
+        if (error.message !== "unauth") ctx.toast("تعذر رفع الصورة", "warn");
+      } finally { busy = false; control.value = ""; }
     }
     async function save(publish) {
       if (busy) return;
