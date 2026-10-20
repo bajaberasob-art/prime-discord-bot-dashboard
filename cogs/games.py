@@ -41,7 +41,7 @@ _GAME_COMMANDS = {
     "quiz": ("/game quiz @عضو", "ستة أسئلة عربية، نقطة للإجابة الصحيحة."),
     "memory": ("/game memory @عضو", "اكشف البطاقات المتطابقة واجمع الأزواج قبل خصمك."),
     "dice": ("/game dice @عضو", "مواجهة نرد تكتيكية بثلاثة قلوب وقدرات تُستخدم مرة واحدة."),
-    "word": ("/game word @عضو", "فكّ ترتيب الحروف واختر الكلمة الصحيحة في ست جولات."),
+    "word": ("/game word @عضو", "فكّ الشفرة عبر نافذة سرية مع تلميح اختياري في ست جولات."),
 }
 _RPS_LABELS = {
     "rock": "🪨 حجر",
@@ -97,7 +97,7 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
             description += (
                 "✅ سُجّل اختيار اللاعب الأول بشكل مخفي. ينتظر PRIME اختيار الخصم."
                 if chosen == 1 else
-                "اختار كل لاعب حركته سرًا؛ لن تُكشف الخيارات قبل أن يختار الطرفان."
+                "لم يختر اللاعبان بعد؛ اختر حركتك سرًا."
             )
             description += f"\n\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
         else:
@@ -152,7 +152,7 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
             elif last_round.get("winner_id") is not None:
                 description += f" — نقطة لـ <@{last_round['winner_id']}>"
         if status == "active":
-            description += f"\n\n**الجولة {int(state.get('round') or 1)} من 5**"
+            description += f"\n\n**الجولة {int(state.get('round') or 1)} • مواجهة بثلاثة قلوب**"
             current_rolls = state.get("round_rolls") or {}
             if current_rolls:
                 rolling_player = next(iter(current_rolls))
