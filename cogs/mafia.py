@@ -623,10 +623,17 @@ class MafiaGame:
                 day_view = MafiaDayView(self)
                 if self.message:
                     await self.message.edit(content=self.last_newspaper + "\n\nرشّحوا المشتبه به عبر أزرار التصويت.", view=day_view)
-                try:
-                    await asyncio.wait_for(day_view.event.wait(), timeout=60)
-                except asyncio.TimeoutError:
-                    pass
+                eligible_voters = {p.user_id for p in self.players if p.alive}
+                deadline = asyncio.get_running_loop().time() + 60
+                while not eligible_voters.issubset(day_view.votes):
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        break
+                    day_view.event.clear()
+                    try:
+                        await asyncio.wait_for(day_view.event.wait(), timeout=remaining)
+                    except asyncio.TimeoutError:
+                        break
                 candidate = day_view.top_candidate()
                 if candidate is not None:
                     await self.run_trial(candidate)
@@ -647,10 +654,17 @@ class MafiaGame:
             f = image_to_file(render_mafia_board(self.players, phase="trial", headline=f"المتهم: {candidate.name}", candidate_id=candidate_id, avatars=self.avatars), "mafia-trial.png")
             await self.message.edit(content=f"⚖️ قفص الاتهام: **{candidate.name}** — أمامكم {TRIAL_SECONDS} ثانية.", attachments=[f], view=view)
             f.close()
-        try:
-            await asyncio.wait_for(view._event.wait(), timeout=TRIAL_SECONDS)
-        except asyncio.TimeoutError:
-            pass
+        eligible = {p.user_id for p in self.players if p.alive and p.user_id != candidate_id}
+        deadline = asyncio.get_running_loop().time() + TRIAL_SECONDS
+        while not eligible.issubset(view.votes):
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                break
+            view._event.clear()
+            try:
+                await asyncio.wait_for(view._event.wait(), timeout=remaining)
+            except asyncio.TimeoutError:
+                break
         result = tally_trial(view.votes, candidate_id=candidate_id, living_ids={p.user_id for p in self.players if p.alive})
         if result["executed"]:
             candidate.alive = False
