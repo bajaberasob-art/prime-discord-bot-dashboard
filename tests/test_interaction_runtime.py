@@ -35,6 +35,18 @@ class InteractionAcknowledgementTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(await defer_if_needed(interaction))
 
+    async def test_already_acknowledged_interaction_does_not_defer_twice(self):
+        response = Mock()
+        response.is_done.return_value = True
+        response.defer = AsyncMock()
+        interaction = Mock()
+        interaction.response = response
+        interaction.guild = None
+        interaction.command = None
+
+        self.assertTrue(await defer_if_needed(interaction))
+        response.defer.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()
