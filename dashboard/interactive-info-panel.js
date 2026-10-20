@@ -17,11 +17,11 @@
     color: "#6366F1", banner_url: "", auto_delete_seconds: 300,
     buttons: [
       { id: crypto.randomUUID().replaceAll("-", "").slice(0, 12), label: "القوانين", emoji: "📜", style: "primary", response: "يرجى الالتزام بقوانين السيرفر واحترام جميع الأعضاء." },
-      { id: crypto.randomUUID().replaceAll("-", "").slice(0, 12), label: "من نحن؟", emoji: "✦", style: "secondary", response: "أهلًا بك في مجتمعنا!" },
+      { id: crypto.randomUUID().replaceAll("-", "").slice(0, 12), label: "من نحن؟", emoji: "✨", style: "secondary", response: "أهلًا بك في مجتمعنا!" },
     ],
   });
   function mount(host, ctx) {
-    let config = defaults(), channels = [], dirty = false, busy = false;
+    let config = defaults(), channels = [], emojis = [], dirty = false, busy = false;
     const cleanup = [];
     const listen = (node, event, fn) => { node.addEventListener(event, fn); cleanup.push(() => node.removeEventListener(event, fn)); };
     const input = (label, key, value, options = {}) => {
@@ -89,11 +89,49 @@
             ...[["primary","Primary · أزرق"],["secondary","Secondary · رمادي"],["success","Success · أخضر"],["danger","Danger · أحمر"]].map(([value,label]) => h("option", { value, selected: button.style === value, text: label })));
           listen(style, "change", () => { button.style = style.value; dirty = true; });
           const move = (delta) => { const next = index + delta; if (next < 0 || next >= config.buttons.length) return; [config.buttons[index], config.buttons[next]] = [config.buttons[next], config.buttons[index]]; dirty = true; render(); };
+          const selectedEmojiId = (value) => {
+            const raw = String(value || "");
+            return raw.match(/^custom:(\\d{15,22})$/)?.[1]
+              || raw.match(/^<a?:[A-Za-z0-9_]{1,32}:(\\d{15,22})>$/)?.[1]
+              || "";
+          };
+          const currentEmojiId = selectedEmojiId(button.emoji);
+          const unicodeEmoji = h("input", {
+            class: "iip-input", type: "text", maxlength: 32,
+            value: currentEmojiId ? "" : (button.emoji || ""),
+            placeholder: "أو الصق إيموجيًا عاديًا مثل ✨",
+            "aria-label": "إيموجي Unicode",
+          });
+          const serverEmoji = h("select", { class: "iip-input", "aria-label": "اختيار إيموجي من السيرفر" },
+            h("option", { value: "", selected: !currentEmojiId, text: "بدون إيموجي من السيرفر" }),
+            ...emojis.map((emoji) => h("option", {
+              value: String(emoji.id),
+              selected: String(emoji.id) === currentEmojiId,
+              text: (emoji.animated ? "GIF " : "") + ":" + emoji.name + ":",
+            })));
+          listen(unicodeEmoji, "input", () => {
+            button.emoji = unicodeEmoji.value.trim();
+            if (button.emoji) serverEmoji.value = "";
+            dirty = true;
+          });
+          listen(serverEmoji, "change", () => {
+            if (serverEmoji.value) {
+              button.emoji = "custom:" + serverEmoji.value;
+              unicodeEmoji.value = "";
+            } else if (selectedEmojiId(button.emoji)) {
+              button.emoji = "";
+            }
+            dirty = true;
+          });
+          const emojiEditor = h("div", { class: "iip-emoji-picker" },
+            h("label", { class: "iip-field" }, h("span", { text: "إيموجي عادي (اختياري)" }), unicodeEmoji),
+            h("label", { class: "iip-field" }, h("span", { text: "أو اختر إيموجي من السيرفر" }), serverEmoji),
+            h("p", { class: "iip-help", text: emojis.length ? "الإيموجيات المخصصة تُربط بمعرّفها، لذلك لا تتأثر بتغيير الاسم." : "لا توجد إيموجيات مخصصة متاحة؛ يمكنك استخدام إيموجي Unicode." }));
           card.append(h("div", { class: "iip-row" }, h("strong", { text: "زر " + (index + 1) }), h("div", { class: "iip-actions" },
             h("button", { type: "button", class: "iip-icon-btn", text: "↑", title: "تحريك للأعلى", disabled: index === 0, onClick: () => move(-1) }),
             h("button", { type: "button", class: "iip-icon-btn", text: "↓", title: "تحريك للأسفل", disabled: index === config.buttons.length - 1, onClick: () => move(1) }),
             h("button", { type: "button", class: "iip-icon-btn danger", text: "حذف", onClick: () => { config.buttons.splice(index, 1); dirty = true; render(); } }))),
-            h("div", { class: "iip-two-col" }, field("اسم الزر", "label", { maxlength: 80 }), field("Emoji (اختياري)", "emoji")),
+            h("div", { class: "iip-two-col" }, field("اسم الزر", "label", { maxlength: 80 }), emojiEditor),
             h("label", { class: "iip-field" }, h("span", { text: "لون الزر" }), style),
             field("الرد الخاص (يدعم Markdown ومنشن القنوات والرتب)", "response", { textarea: true }));
           return card;
@@ -104,7 +142,12 @@
           h("strong", { text: config.title || "عنوان الرسالة" }),
           h("p", { text: config.description || "وصف الرسالة" }),
           config.banner_url ? h("img", { class: "iip-banner", src: config.banner_url, alt: "Banner preview", onError: e => { e.currentTarget.hidden = true; } }) : null,
-          h("div", { class: "iip-preview-buttons" }, ...config.buttons.map(b => h("span", { class: "iip-preview-button " + (b.style || "primary"), text: (b.emoji ? b.emoji + " " : "") + (b.label || "زر") })))));
+          h("div", { class: "iip-preview-buttons" }, ...config.buttons.map(b => {
+            const customId = String(b.emoji || "").match(/^(?:custom:|<a?:[A-Za-z0-9_]+:)(\\d{15,22})>?$/)?.[1];
+            const serverEmoji = customId ? emojis.find(item => String(item.id) === customId) : null;
+            const shownEmoji = serverEmoji ? (":" + serverEmoji.name + ":") : (b.emoji || "");
+            return h("span", { class: "iip-preview-button " + (b.style || "primary"), text: (shownEmoji ? shownEmoji + " " : "") + (b.label || "زر") });
+          }))));
       const actions = h("div", { class: "iip-save-row" },
         h("span", { class: "iip-help", text: config.message_id ? "معرّف الرسالة: " + config.message_id : "لم تُنشر رسالة بعد." }),
         h("div", { class: "iip-actions" },
