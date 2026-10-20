@@ -21,6 +21,21 @@ STYLE_MAP = {
     "success": discord.ButtonStyle.success,
     "danger": discord.ButtonStyle.danger,
 }
+_CUSTOM_EMOJI_RE = re.compile(r"<(a?):([A-Za-z0-9_]{2,32}):(\d{15,22})>")
+
+
+def _button_emoji(bot: commands.Bot, guild_id: int, value: Any):
+    """Resolve custom emoji markup to a guild-owned Emoji object; preserve Unicode emoji."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = _CUSTOM_EMOJI_RE.fullmatch(text)
+    if not match:
+        return text[:100]
+    guild = bot.get_guild(int(guild_id))
+    if guild is None:
+        return None
+    return discord.utils.get(guild.emojis, id=int(match.group(3)))
 
 
 def _make_embed(config: dict[str, Any]) -> discord.Embed:
@@ -55,7 +70,7 @@ class InteractiveInfoPanelView(discord.ui.View):
             style = STYLE_MAP.get(str(item.get("style") or "primary"), discord.ButtonStyle.primary)
             button = discord.ui.Button(
                 label=str(item.get("label") or "معلومات")[:80],
-                emoji=(str(item["emoji"])[:100] if item.get("emoji") else None),
+                emoji=_button_emoji(self.bot, self.guild_id, item.get("emoji")),
                 style=style,
                 custom_id=f"prime:info:{self.guild_id}:{button_id}",
                 row=min(len(self.children) // 5, 4),
@@ -124,6 +139,13 @@ class InteractiveInfoPanel(commands.Cog):
         channel = guild.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
             raise ValueError("اختر قناة نصية موجودة في السيرفر.")
+        for item in config.get("buttons") or []:
+            emoji_text = str(item.get("emoji") or "").strip()
+            match = _CUSTOM_EMOJI_RE.fullmatch(emoji_text)
+            if emoji_text.startswith("<") and not match:
+                raise ValueError(f"صيغة الإيموجي للزر «{item.get('label') or 'معلومات'}» غير صحيحة. اختر إيموجيًا من قائمة السيرفر.")
+            if match and not discord.utils.get(guild.emojis, id=int(match.group(3))):
+                raise ValueError(f"الإيموجي المحدد للزر «{item.get('label') or 'معلومات'}» غير موجود ضمن إيموجيات هذا السيرفر. اختره مجددًا من القائمة.")
         view = InteractiveInfoPanelView(self.bot, guild.id, config.get("buttons") or [])
         if not view.children:
             raise ValueError("أضف زرًا واحدًا على الأقل قبل النشر.")
