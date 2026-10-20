@@ -100,7 +100,7 @@ class UNORulesTests(unittest.TestCase):
         self.state.discard_pile = [UNOCard("blue", "3")]
         self.state.current_color = "blue"
         self.state.play_card(current.user_id, 0)
-        self.assertEqual(len(self.state.players[0].hand), 9)
+        self.assertEqual(len(self.state.players[3].hand), 9)
         self.assertEqual(self.state.current_index, 0)
 
     def test_draw_requires_current_player_and_returns_card(self):
