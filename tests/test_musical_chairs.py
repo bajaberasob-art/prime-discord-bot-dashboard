@@ -12,6 +12,7 @@ from cogs.musical_chairs import (
     render_musical_chairs_image,
     resolve_round,
 )
+from game_engine import draw_arabic_text, _font, fit_text, draw_progress_bar
 
 
 class MusicalChairsLogicTests(unittest.TestCase):
@@ -72,6 +73,50 @@ class MusicalChairsRenderingTests(unittest.TestCase):
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         self.assertTrue(buffer.getvalue().startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_arabic_and_mixed_direction_text_draws_without_error(self):
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (900, 160), "#111625")
+        draw = ImageDraw.Draw(image)
+        samples = (
+            "الكراسي الموسيقية",
+            "ROUND 2 • توقفت الموسيقى! اجلس بسرعة",
+            "اللاعبون الباقون: 3   •   الكراسي: 2",
+            "كرسي 1 • Abdullah 🎵",
+        )
+        for index, sample in enumerate(samples):
+            draw_arabic_text(
+                draw,
+                (850, 18 + index * 34),
+                sample,
+                font=_font(22, bold=index == 0),
+                anchor="ra",
+            )
+        # Ensure the output contains visible glyphs rather than a blank canvas.
+        self.assertGreater(len(image.getbbox()), 0)
+        self.assertGreater(len(set(image.getdata())), 1)
+
+    def test_fit_text_keeps_display_names_within_pixel_width(self):
+        from PIL import Image, ImageDraw
+
+        canvas = Image.new("RGB", (500, 60))
+        draw = ImageDraw.Draw(canvas)
+        text, font = fit_text("اسم طويل جدًا جدًا جدًا Player Name", 150, font_size=24, min_font_size=12)
+        self.assertLessEqual(draw.textlength(text, font=font), 150)
+        self.assertTrue(text)
+
+    def test_progress_bar_clamps_values_and_rejects_invalid_bounds(self):
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (120, 30), "#111625")
+        draw = ImageDraw.Draw(image)
+        draw_progress_bar(draw, (2, 2, 118, 28), 150, maximum=100)
+        self.assertGreater(len(set(image.getdata())), 1)
+        with self.assertRaisesRegex(ValueError, "positive_area"):
+            draw_progress_bar(draw, (10, 10, 10, 20), 1)
+        with self.assertRaisesRegex(ValueError, "maximum"):
+            draw_progress_bar(draw, (2, 2, 118, 28), 1, maximum=0)
 
     def test_board_marks_seated_eliminated_and_winner_states(self):
         image = render_musical_chairs_image(
