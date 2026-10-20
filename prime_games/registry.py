@@ -196,7 +196,7 @@ def _reduce_rps_action(
         if ability in used.setdefault(key, []):
             raise ValueError("ability_used")
         used[key].append(ability)
-        active[key] = ability
+        active[key] = list(active.get(key, [])) + [ability]
         return GameTransition({**state, "abilities_used": used, "active_abilities": active, "hp": hp, "choices": choices}, actor_id)
     choice = str(action.get("choice", "")).strip().lower()
     if choice not in _RPS_CHOICES:
@@ -213,8 +213,8 @@ def _reduce_rps_action(
     if first_choice != second_choice:
         round_winner = players[0] if _RPS_WINS[first_choice] == second_choice else players[1]
         loser = players[1] if round_winner == players[0] else players[0]
-        damage = 2 if active.get(str(round_winner)) == "double" else 1
-        if active.get(str(loser)) == "shield":
+        damage = 2 if "double" in (active.get(str(round_winner)) or []) else 1
+        if "shield" in (active.get(str(loser)) or []):
             damage = 0
         hp[str(loser)] = max(0, hp.get(str(loser), 3) - damage)
         scores[str(round_winner)] = scores.get(str(round_winner), 0) + 1
@@ -413,7 +413,7 @@ def _reduce_dice_action(state: dict[str, Any], players: list[int], actor_id: int
         if ability in used.setdefault(key, []):
             raise ValueError("ability_used")
         used[key].append(ability)
-        active[key] = ability
+        active[key] = list(active.get(key, [])) + [ability]
         return GameTransition({**state, "round_rolls": rolls, "committed": sorted(committed), "abilities_used": used, "active_abilities": active, "hp": hp}, actor_id)
     if action.get("roll") in (True, "roll"):
         if key in rolls:
@@ -432,8 +432,8 @@ def _reduce_dice_action(state: dict[str, Any], players: list[int], actor_id: int
         if key not in rolls:
             raise ValueError("roll_first")
         committed.add(key)
-        other = next(player for player in players if str(player) not in committed)
         if len(committed) < 2:
+            other = next(player for player in players if str(player) not in committed)
             return GameTransition({**state, "round_rolls": rolls, "committed": sorted(committed), "abilities_used": used, "active_abilities": active, "hp": hp}, other)
         first_roll, second_roll = int(rolls[str(players[0])]), int(rolls[str(players[1])])
         winner = players[0] if first_roll > second_roll else players[1] if second_roll > first_roll else None
@@ -441,8 +441,8 @@ def _reduce_dice_action(state: dict[str, Any], players: list[int], actor_id: int
         damage = 0
         if winner is not None:
             loser = players[1] if winner == players[0] else players[0]
-            damage = 2 if active.get(str(winner)) == "double" else 1
-            if active.get(str(loser)) == "shield":
+            damage = 2 if "double" in (active.get(str(winner)) or []) else 1
+            if "shield" in (active.get(str(loser)) or []):
                 damage = 0
             hp[str(loser)] = max(0, hp.get(str(loser), 3) - damage)
             scores[str(winner)] = scores.get(str(winner), 0) + 1
