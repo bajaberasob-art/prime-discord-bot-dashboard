@@ -96,7 +96,9 @@ def validate_config(guild_id: int, body: dict[str, Any], old: dict[str, Any] | N
     if color and not __import__("re").fullmatch(r"#?[0-9a-fA-F]{6}", color):
         raise ValueError("لون الإيمبد يجب أن يكون HEX مثل #6366F1.")
     if banner and not banner.startswith(("https://", "http://")):
-        raise ValueError("رابط البانر يجب أن يبدأ بـ https:// أو http://.")
+        valid_attachment = bool(banner_file) and __import__("re").fullmatch(r"attachment://prime-banner\.(png|jpg|webp|gif)", banner)
+        if not valid_attachment:
+            raise ValueError("رابط البانر يجب أن يبدأ بـ https:// أو http://، أو أن يكون صورة مرفوعة صالحة.")
     seconds = body.get("auto_delete_seconds", old.get("auto_delete_seconds", 300))
     try:
         seconds = int(seconds)
