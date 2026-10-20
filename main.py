@@ -400,7 +400,7 @@ class EnterpriseBot(commands.Bot):
             # so unrelated Discord commands stay untouched.
             await publish_command_groups(
                 self,
-                ("game", "tournament", "musical_chairs"),
+                ("game", "tournament", "musical_chairs", "roulette_royale"),
                 guild=self.sync_guild,
             )
 
