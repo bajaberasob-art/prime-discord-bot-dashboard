@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from game_engine import (
     CYAN, GREEN, MUTED, PANEL_EDGE, PURPLE, RED, WHITE,
     _font, draw_arabic_text, get_circular_avatar, create_base_canvas, image_to_file,
-    create_luxury_canvas, draw_glow_panel, draw_status_avatar, UniversalLobbyView,
+    create_luxury_canvas, draw_glow_panel, draw_status_avatar, draw_radial_glow, UniversalLobbyView,
 )
 
 logger = logging.getLogger("PrimeRouletteRoyale")
@@ -91,13 +91,7 @@ def render_royale_victory(players: dict[int, RoyalePlayer], winner_id: int,
     width, height = 1240, 760
     image = create_luxury_canvas(width, height, "روليت الملوك | CHAMPION",
                                  f"تتويج البطل - بعد {round_number} جولات", accent="#ffca60").convert("RGBA")
-    glow = Image.new("RGBA", (width // 3, height // 3), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gcx, gcy = glow.width // 2, glow.height // 2
-    for radius in range(135, 0, -1):
-        alpha = int(1 + 36 * (1 - radius / 135) ** 2)
-        gd.ellipse((gcx-radius, gcy-radius, gcx+radius, gcy+radius), fill=(255, 183, 48, alpha))
-    image.alpha_composite(glow.resize((width, height), Image.Resampling.BICUBIC).filter(ImageFilter.GaussianBlur(24)))
+    draw_radial_glow(image, (width // 2, 315), 300, color="#ffb72e", max_alpha=96, blur=24)
     draw = ImageDraw.Draw(image)
     cx, cy = width // 2, 315
     for i in range(32):
