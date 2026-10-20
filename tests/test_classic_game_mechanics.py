@@ -96,13 +96,13 @@ class ClassicGameMechanicsTests(unittest.TestCase):
             state = _reduce_dice_action(state, players, 101, {"roll": "roll"}).state
             state = _reduce_dice_action(state, players, 101, {"reroll": True}).state
             self.assertEqual(state["round_rolls"]["101"], 6)
+            with self.assertRaisesRegex(ValueError, "ability_used"):
+                _reduce_dice_action(state, players, 101, {"reroll": True})
             state = _reduce_dice_action(state, players, 101, {"lock": True}).state
             state = _reduce_dice_action(state, players, 202, {"roll": "roll"}).state
             state = _reduce_dice_action(state, players, 202, {"lock": True}).state
         self.assertEqual(state["hp"]["202"], 1)
         self.assertEqual(state["last_round"]["damage"], 2)
-        with self.assertRaisesRegex(ValueError, "ability_used"):
-            _reduce_dice_action(state, players, 101, {"reroll": True})
 
 
 if __name__ == "__main__":
