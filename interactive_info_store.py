@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 import aiosqlite
@@ -83,6 +84,13 @@ def validate_config(guild_id: int, body: dict[str, Any], old: dict[str, Any] | N
     description = str(body.get("description", old.get("description", ""))).strip()
     color = str(body.get("color", old.get("color", "#6366F1"))).strip()
     banner = str(body.get("banner_url", old.get("banner_url", ""))).strip()
+    banner_file = str(body.get("banner_file", old.get("banner_file", "")) or "").strip()
+    if banner_file:
+        upload_root = Path(os.getenv("PRIME_PANEL_UPLOAD_DIR") or "data/interactive_info_banners").resolve()
+        resolved_file = Path(banner_file).resolve()
+        if resolved_file.parent != upload_root or not resolved_file.name.startswith(f"{int(guild_id)}-") or resolved_file.suffix.lower() not in {".png", ".jpg", ".webp", ".gif"}:
+            raise ValueError("ملف البانر المرفوع غير صالح لهذا السيرفر؛ ارفع الصورة مرة أخرى.")
+        banner_file = str(resolved_file)
     if len(title) > 256 or len(description) > 4096:
         raise ValueError("العنوان أو الوصف يتجاوز حد Discord.")
     if color and not __import__("re").fullmatch(r"#?[0-9a-fA-F]{6}", color):
@@ -134,6 +142,7 @@ def validate_config(guild_id: int, body: dict[str, Any], old: dict[str, Any] | N
         "description": description,
         "color": color if color.startswith("#") else f"#{color}",
         "banner_url": banner,
+        "banner_file": banner_file or None,
         "auto_delete_seconds": seconds,
         "buttons": clean_buttons,
         "last_published_at": old.get("last_published_at"),
