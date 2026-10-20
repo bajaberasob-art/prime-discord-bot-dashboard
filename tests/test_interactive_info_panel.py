@@ -3,6 +3,7 @@ import tempfile
 import unittest
 
 from interactive_info_store import validate_config
+from cogs.interactive_info_panel import InteractiveInfoPanelView
 
 
 class InteractiveInfoPanelValidationTests(unittest.TestCase):
@@ -53,6 +54,13 @@ class InteractiveInfoPanelValidationTests(unittest.TestCase):
         body["buttons"][0]["response"] = "x" * 2001
         with self.assertRaisesRegex(ValueError, "2000"):
             validate_config(42, body)
+
+    def test_dynamic_button_view_is_persistent_across_restarts(self):
+        config = validate_config(42, self.valid_body())
+        view = InteractiveInfoPanelView(None, 42, config["buttons"])
+        self.assertIsNone(view.timeout)
+        self.assertTrue(view.is_persistent())
+        self.assertEqual(view.children[0].custom_id, "prime:info:42:" + config["buttons"][0]["id"])
 
     def test_uploaded_banner_path_is_scoped_to_guild_and_upload_directory(self):
         with tempfile.TemporaryDirectory() as directory:
