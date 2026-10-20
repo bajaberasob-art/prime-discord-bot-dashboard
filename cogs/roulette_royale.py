@@ -131,8 +131,16 @@ def render_roulette_board(
             ty = cy + math.sin(mid) * radius * 0.67
             avatar = (avatars or {}).get(player.user_id)
             if avatar and not obscure_wheel:
-                size = 48
-                image.alpha_composite(avatar.resize((size, size)), (int(tx-size/2), int(ty-size/2)))
+                size = 52
+                avatar_status = (
+                    "target" if player.user_id == target_id else
+                    "shield" if player.shield else "alive"
+                )
+                draw_status_avatar(
+                    image, avatar, (int(tx-size/2), int(ty-size/2)), size,
+                    status=avatar_status,
+                )
+                draw = ImageDraw.Draw(image)
             if not obscure_wheel:
                 label = player.name[:12]
                 draw_arabic_text(draw, (int(cx + math.cos(mid) * radius * 0.43),
@@ -174,7 +182,15 @@ def render_roulette_board(
                                radius=9, fill=bg, outline=RED if is_target else PANEL_EDGE, width=2 if is_target else 1)
         avatar = (avatars or {}).get(player.user_id)
         if avatar:
-            image.alpha_composite(avatar.resize((30, 30)), (panel_x+24, y-8))
+            avatar_status = (
+                "eliminated" if not is_alive else
+                "target" if is_target else
+                "shield" if player.shield else "alive"
+            )
+            draw_status_avatar(
+                image, avatar, (panel_x+24, y-8), 30, status=avatar_status,
+            )
+            draw = ImageDraw.Draw(image)
         status = "مطـرود" if not is_alive else ("🛡 درع" if player.shield else "حي")
         if player.user_id == winner_id:
             status = "👑 الملك"
