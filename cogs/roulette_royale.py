@@ -693,7 +693,7 @@ class RouletteRoyale(commands.Cog):
                 try:
                     game_message = await start_interaction.followup.send(
                         "👑 استعدوا لروليت الملوك!", embed=game._embed("بدأت اللعبة!"),
-                        file=initial, view=None, wait=True,
+                        file=initial, wait=True,
                     )
                 finally:
                     initial.close()
