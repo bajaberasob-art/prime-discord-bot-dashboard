@@ -572,7 +572,7 @@ class MafiaGame:
                 actions = view.actions
                 mafia_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "godfather" and p.user_id in actions), None)
                 if mafia_target is None:
-                    mafia_target = next((actions[p.user_id] for p in self.players if p.alive and p.role in MAFIA_ROLES and p.role not in {"framer", "silencer"} and p.user_id in actions), None)
+                    mafia_target = next((actions[p.user_id] for p in self.players if p.alive and p.role in MAFIA_ROLES and p.user_id in actions), None)
                 doctor_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "doctor" and p.user_id in actions), None)
                 detective_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "detective" and p.user_id in actions), None)
                 framed_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "framer" and p.user_id in actions), None)
