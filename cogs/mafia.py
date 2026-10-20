@@ -161,15 +161,18 @@ def resolve_night(
         p.visited = False
     if framed_target in living and by_id[framed_target].role not in MAFIA_ROLES:
         by_id[framed_target].framed = True
+    # A Veteran who activated alert is not killed by a visitor; each visitor is retaliated against.
+    for veteran_id in veteran_targets:
+        veteran = by_id.get(veteran_id)
+        if veteran and veteran.alive and veteran.role == "veteran" and veteran.veteran_alerts > 0:
+            visitors = veteran_visitors.get(veteran_id, set())
+            if visitors:
+                deaths.update(uid for uid in visitors if uid in living and uid != veteran_id)
+                veteran.veteran_alerts -= 1
+                events.append("veteran_alert")
     if mafia_target in living:
         by_id[mafia_target].visited = True
-        if mafia_target in veteran_targets and by_id[mafia_target].role == "veteran":
-            veteran = by_id[mafia_target]
-            if veteran.veteran_alerts > 0:
-                veteran.veteran_alerts -= 1
-                deaths.update(uid for uid in living if uid in veteran_targets and uid != veteran.user_id)
-                events.append("veteran_alert")
-        else:
+        if mafia_target not in veteran_targets:
             deaths.add(mafia_target)
     if vigilante_target in living:
         shooter = next((p for p in players if p.alive and p.role == "vigilante" and p.bullets > 0), None)
@@ -558,7 +561,9 @@ class MafiaGame:
                     except asyncio.TimeoutError:
                         break
                 actions = view.actions
-                mafia_target = next((actions[p.user_id] for p in self.players if p.alive and p.role in MAFIA_ROLES and p.user_id in actions), None)
+                mafia_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "godfather" and p.user_id in actions), None)
+                if mafia_target is None:
+                    mafia_target = next((actions[p.user_id] for p in self.players if p.alive and p.role in MAFIA_ROLES and p.role not in {"framer", "silencer"} and p.user_id in actions), None)
                 doctor_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "doctor" and p.user_id in actions), None)
                 detective_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "detective" and p.user_id in actions), None)
                 framed_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "framer" and p.user_id in actions), None)
@@ -567,12 +572,16 @@ class MafiaGame:
                     p.user_id for p in self.players if p.alive and p.role == "veteran"
                     and actions.get(p.user_id) == p.user_id and p.veteran_alerts > 0
                 }
+                veteran_visitors: dict[int, set[int]] = {}
+                for actor_id, target_id in actions.items():
+                    if target_id in veteran_targets and actor_id != target_id:
+                        veteran_visitors.setdefault(target_id, set()).add(actor_id)
                 vigilante_target = next((actions[p.user_id] for p in self.players if p.alive and p.role == "vigilante" and p.bullets > 0 and p.user_id in actions), None)
                 result = resolve_night(
                     self.players, mafia_target=mafia_target, doctor_target=doctor_target,
                     detective_target=detective_target, framed_target=framed_target,
                     silenced_target=silenced_target, veteran_targets=veteran_targets,
-                    vigilante_target=vigilante_target,
+                    veteran_visitors=veteran_visitors, vigilante_target=vigilante_target,
                 )
                 dead = [p for p in self.players if p.user_id in result["deaths"]]
                 clue = random.choice(["شوهد شخص يهرب من قرب الساحة.", "آثار أقدام تتجه نحو المستودع.", "مصباح الشارع انطفأ أثناء الجريمة."]) if self.settings.forensic_newspaper else "لا توجد أدلة جنائية الليلة."
