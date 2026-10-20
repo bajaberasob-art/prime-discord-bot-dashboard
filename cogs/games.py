@@ -1,9 +1,11 @@
 """Discord UI adapter for PRIME's shared, durable mini-game engine."""
 from __future__ import annotations
 
+import io
 import logging
 
 import discord
+from PIL import Image, ImageDraw, ImageFont
 from discord import app_commands
 from discord.ext import commands
 
@@ -663,6 +665,125 @@ class GameBoardView(discord.ui.View):
         return callback
 
 
+_GAME_CATEGORIES = {
+    "all": {
+        "label": "🎮 جميع الألعاب",
+        "description": "كل الألعاب التفاعلية المتاحة ضمن أوامر /game.",
+        "keys": {"xo", "connect4", "rps", "quiz", "memory", "dice", "word"},
+    },
+    "strategy": {
+        "label": "⚔️ المواجهات التكتيكية",
+        "description": "ألعاب المواجهة التي تعتمد على الحركة والتخطيط.",
+        "keys": {"xo", "connect4", "rps", "dice"},
+    },
+    "mind": {
+        "label": "🧠 ألعاب الذكاء والتركيز",
+        "description": "اختبر الذاكرة والمفردات والمعلومات العامة.",
+        "keys": {"memory", "word", "quiz"},
+    },
+}
+
+
+def _game_catalog_embed(category: str = "all") -> discord.Embed:
+    selected = _GAME_CATEGORIES.get(category, _GAME_CATEGORIES["all"])
+    embed = discord.Embed(
+        title="🎮 PRIME • مركز الألعاب",
+        description=(
+            "اختر تصنيفًا من القائمة أسفل البطاقة لاستعراض الألعاب وأوامر تشغيلها.\n"
+            "تحتاج ألعاب المواجهة إلى اختيار خصم من نفس السيرفر.\n\n"
+            f"**{selected['label']}**\n{selected['description']}"
+        ),
+        color=0x7C3AED,
+    )
+    for item in registry.all():
+        if item.key not in selected["keys"]:
+            continue
+        command, description = _GAME_COMMANDS.get(
+            item.key, (f"/game {item.key}", "لعبة تفاعلية")
+        )
+        embed.add_field(
+            name=f"{item.name}  •  🪙 {item.reward_coins} عملة",
+            value=f"{description}\n**طريقة البدء:** `{command}`",
+            inline=False,
+        )
+    embed.set_footer(text="PRIME GAMES • تتجدد القائمة حسب التصنيف المختار")
+    embed.set_image(url="attachment://prime-game-list.png")
+    return embed
+
+
+def _game_catalog_banner() -> discord.File:
+    """Build a compact, branded game-list banner with Pillow (no external assets)."""
+    width, height = 1100, 300
+    image = Image.new("RGB", (width, height), "#100b22")
+    pixels = image.load()
+    for x in range(width):
+        blend = x / max(1, width - 1)
+        left, right = (24, 10, 48), (72, 12, 125)
+        color = tuple(int(left[i] * (1 - blend) + right[i] * blend) for i in range(3))
+        for y in range(height):
+            glow = max(0.0, 1.0 - abs(y - height * 0.48) / (height * 0.9)) * 0.12
+            pixels[x, y] = tuple(min(255, int(channel + 255 * glow)) for channel in color)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((24, 22, width - 24, height - 22), radius=28,
+                           outline="#a855f7", width=3)
+    draw.rounded_rectangle((48, 48, 270, height - 48), radius=22,
+                           fill="#210d3b", outline="#7c3aed", width=2)
+    # Geometric controller mark: robust across hosts without relying on emoji fonts.
+    draw.rounded_rectangle((94, 105, 225, 190), radius=24,
+                           fill="#7c3aed", outline="#e9d5ff", width=4)
+    draw.rounded_rectangle((116, 125, 151, 135), radius=4, fill="#ffffff")
+    draw.rounded_rectangle((129, 113, 139, 148), radius=4, fill="#ffffff")
+    draw.ellipse((177, 125, 191, 139), fill="#ffffff")
+    draw.ellipse((197, 145, 211, 159), fill="#f0abfc")
+    try:
+        title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 68)
+        subtitle_font = ImageFont.truetype("DejaVuSans.ttf", 24)
+        small_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 18)
+    except OSError:
+        title_font = ImageFont.load_default()
+        subtitle_font = ImageFont.load_default()
+        small_font = ImageFont.load_default()
+    draw.text((310, 76), "PRIME GAME CENTER", font=title_font, fill="#ffffff",
+              stroke_width=1, stroke_fill="#c084fc")
+    draw.text((316, 165), "CHOOSE YOUR GAME • CHALLENGE YOUR FRIENDS",
+              font=subtitle_font, fill="#e9d5ff")
+    draw.rounded_rectangle((316, 218, 640, 260), radius=18, fill="#6d28d9")
+    draw.text((338, 228), "VISUAL GAME CATALOG", font=small_font, fill="#ffffff")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    buffer.seek(0)
+    return discord.File(buffer, filename="prime-game-list.png")
+
+
+class GameCatalogSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="جميع الألعاب", value="all", emoji="🎮",
+                                 description="عرض كل ألعاب /game"),
+            discord.SelectOption(label="المواجهات التكتيكية", value="strategy", emoji="⚔️",
+                                 description="XO والنرد وحجر ورقة مقص والتوصيل"),
+            discord.SelectOption(label="الذكاء والتركيز", value="mind", emoji="🧠",
+                                 description="الذاكرة وفك الكلمة وتحدي المعلومات"),
+        ]
+        super().__init__(
+            placeholder="اختر تصنيف الألعاب...",
+            min_values=1, max_values=1, options=options,
+            custom_id="prime:game_catalog:category",
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.edit_message(
+            embed=_game_catalog_embed(self.values[0]),
+            view=self.view,
+        )
+
+
+class GameCatalogView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(GameCatalogSelect())
+
+
 class Games(commands.Cog):
     game = app_commands.Group(name="game", description="ألعاب PRIME التفاعلية")
 
@@ -812,28 +933,14 @@ class Games(commands.Cog):
     async def word(self, interaction: discord.Interaction, opponent: discord.Member) -> None:
         await self._start_duel(interaction, opponent, "word")
 
-    @game.command(name="list", description="عرض ألعاب PRIME وأوامر تشغيلها")
+    @game.command(name="list", description="عرض قائمة ألعاب PRIME بصورة منظمة وتصنيفات")
     async def list_games(self, interaction: discord.Interaction) -> None:
-        embed = discord.Embed(
-            title="🎮 مركز ألعاب PRIME",
-            description=(
-                "اختر لعبة وابدأ تحديًا مع عضو من السيرفر. "
-                "كل لعبة تحفظ تقدمها، وتعود أزرارها بعد إعادة تشغيل البوت.\n"
-                "🏅 مكافآت الفوز تخضع لحد يومي مشترك لكل لاعب."
-            ),
-            color=0x7C3AED,
+        await interaction.response.send_message(
+            embed=_game_catalog_embed("all"),
+            file=_game_catalog_banner(),
+            view=GameCatalogView(),
+            ephemeral=True,
         )
-        for item in registry.all():
-            command, description = _GAME_COMMANDS.get(
-                item.key, (f"/game {item.key}", "لعبة تفاعلية")
-            )
-            embed.add_field(
-                name=f"{item.name} · {item.reward_coins} عملة",
-                value=f"{description}\n▶️ `{command}`",
-                inline=False,
-            )
-        embed.set_footer(text="ابدأ بـ /game ثم اختر اللعبة المناسبة")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
