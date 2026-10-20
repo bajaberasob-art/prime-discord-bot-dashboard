@@ -3,6 +3,7 @@ import re
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import web_server
 
@@ -29,6 +30,22 @@ class AnnouncementAssets(unittest.IsolatedAsyncioTestCase):
             asset = re.search(rf'static/{re.escape(name)}\?v=[^"]+', html)
             self.assertIsNotNone(asset)
             self.assertIn("./" + asset.group(), worker)
+
+    async def test_dashboard_channels_uses_gateway_cache_without_rest_fetch(self):
+        async def unexpected_fetch():
+            raise AssertionError("cached channels must not trigger Discord REST calls")
+
+        channel = SimpleNamespace(
+            id=123,
+            name="general",
+            type="text",
+            position=0,
+            category=None,
+        )
+        guild = SimpleNamespace(id=987654321, channels=[channel], fetch_channels=unexpected_fetch)
+        with patch.object(web_server, "MESSAGE_CHANNEL_TYPES", (SimpleNamespace,)):
+            channels = await web_server.dashboard_channels(guild)
+        self.assertEqual([item["id"] for item in channels], ["123"])
 
     def test_navigation_teardown_and_legible_action_colors(self):
         source = (ROOT / "dashboard/app.js").read_text()
