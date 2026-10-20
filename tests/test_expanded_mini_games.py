@@ -108,6 +108,29 @@ class ExpandedMiniGameTests(unittest.TestCase):
         self.assertEqual(len(quiz_view.children), 4)
         self.assertTrue(all(item.custom_id for item in connect_view.children + rps_view.children + quiz_view.children))
 
+    def test_finished_rps_embed_restores_last_choices_and_shows_health(self):
+        embed = _game_embed({
+            "id": 14,
+            "game_key": "rps",
+            "status": "finished",
+            "players": self.players,
+            "current_player_id": None,
+            "winner_id": 1101,
+            "state": {
+                "choices": {},
+                "hp": {"1101": 3, "2202": 0},
+                "last_round": {
+                    "choices": {"1101": "rock", "2202": "scissors"},
+                    "winner_id": 1101,
+                    "damage": 1,
+                },
+            },
+        })
+        self.assertIn("🪨 حجر", embed.description or "")
+        self.assertIn("✂️ مقص", embed.description or "")
+        self.assertIn("3/3", embed.description or "")
+        self.assertIn("0/3", embed.description or "")
+
     def test_rps_embed_does_not_leak_first_players_choice(self):
         embed = _game_embed({
             "id": 13,
