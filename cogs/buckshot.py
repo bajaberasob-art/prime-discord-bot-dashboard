@@ -23,6 +23,14 @@ MAX_PLAYERS = 6
 TURN_SECONDS = 20
 SHELL_MIN = 2
 SHELL_MAX = 6
+MAX_HP = 3
+TACTICAL_ITEMS = ("magnifier", "saw", "handcuffs", "cigarettes")
+
+
+def deal_round_items(players: list["BuckshotPlayer"], rng: random.Random | None = None) -> dict[int, str]:
+    """Give each living player one random tactical item at the start of a round."""
+    rng = rng or random
+    return {p.user_id: rng.choice(TACTICAL_ITEMS) for p in players if p.alive}
 
 
 @dataclass
@@ -32,10 +40,13 @@ class BuckshotPlayer:
     alive: bool = True
     handcuffed: bool = False
     used_items: set[str] | None = None
+    inventory: set[str] | None = None
 
     def __post_init__(self) -> None:
         if self.used_items is None:
             self.used_items = set()
+        if self.inventory is None:
+            self.inventory = set()
 
     @property
     def user_id(self) -> int:
@@ -57,15 +68,30 @@ def load_shells(rng: random.Random | None = None) -> list[bool]:
 
 
 def resolve_shot(shell_live: bool, *, target_self: bool, shooter_hp: int,
-                 target_hp: int) -> tuple[int, int, bool]:
-    """Resolve one shell. Blank shots at self grant another turn; live shells deal 1 damage."""
+                 target_hp: int, damage: int = 1) -> tuple[int, int, bool]:
+    """Resolve a shell and return (shooter HP, target HP, keep_turn)."""
     if not shell_live:
         return shooter_hp, target_hp, target_self
+    damage = max(1, min(int(damage), 2))
     if target_self:
-        shooter_hp = max(0, shooter_hp - 1)
+        shooter_hp = max(0, shooter_hp - damage)
     else:
-        target_hp = max(0, target_hp - 1)
+        target_hp = max(0, target_hp - damage)
     return shooter_hp, target_hp, False
+
+
+def apply_item(player: "BuckshotPlayer", item: str) -> bool:
+    """Consume a single-use item. False means unavailable or ineffective."""
+    inventory = player.inventory or set()
+    if item not in inventory:
+        return False
+    if item == "cigarettes":
+        if player.hp >= MAX_HP:
+            return False
+        player.hp = min(MAX_HP, player.hp + 1)
+    inventory.remove(item)
+    player.inventory = inventory
+    return True
 
 
 def render_buckshot_board(players: list[BuckshotPlayer], *, shells_left: int,
