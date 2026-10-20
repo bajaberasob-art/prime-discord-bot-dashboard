@@ -200,6 +200,58 @@ def render_musical_chairs_image(
     return image
 
 
+def render_musical_chairs_victory(
+    players: Sequence[object],
+    winner_id: int,
+    round_number: int,
+    avatars: dict[int, Image.Image] | None = None,
+) -> Image.Image:
+    """Render a premium gold champion screen after the final round."""
+    width, height = 1240, 760
+    image = create_luxury_canvas(width, height, "الكراسي الموسيقية | CHAMPION",
+                                 f"تتويج البطل - بعد {round_number} جولات", accent="#ffca60").convert("RGBA")
+    cx, cy = width // 2, 330
+    draw_radial_glow(image, (cx, cy), 260, color="#ffb72e", max_alpha=88, blur=24)
+    ray_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ray_draw = ImageDraw.Draw(ray_layer)
+    for index in range(32):
+        angle = math.tau * index / 32
+        ray_draw.line((cx, cy, cx + math.cos(angle) * 210, cy + math.sin(angle) * 175),
+                      fill=(255, 202, 96, 24), width=2)
+    ray_mask = Image.new("L", image.size, 0)
+    ImageDraw.Draw(ray_mask).rounded_rectangle((278, 180, 962, 680), radius=28, fill=255)
+    ray_layer.putalpha(Image.composite(ray_layer.getchannel("A"), Image.new("L", image.size, 0), ray_mask))
+    image.alpha_composite(ray_layer)
+    draw_glow_panel(image, (270, 170, 970, 690), fill=(10, 12, 28, 232),
+                    outline="#a87927", radius=34, glow="#ffca60", width=3)
+    draw = ImageDraw.Draw(image)
+    crown = [(cx-78, 198), (cx-52, 239), (cx-20, 182), (cx+8, 234),
+             (cx+52, 191), (cx+78, 244), (cx-78, 244)]
+    draw.polygon(crown, fill="#d99a2b", outline="#fff0bd", width=4)
+    draw.rounded_rectangle((cx-79, 240, cx+79, 260), radius=6,
+                           fill="#a66a18", outline="#ffe4a0", width=3)
+    winner = next((p for p in players if int(getattr(p, "id", 0)) == int(winner_id)), None)
+    name = str(getattr(winner, "display_name", getattr(winner, "name", "الفائز")))[:28]
+    avatar = (avatars or {}).get(int(winner_id))
+    if avatar is not None:
+        draw_status_avatar(image, avatar, (cx-82, 282), 164, status="winner")
+    else:
+        draw.ellipse((cx-82, 282, cx+82, 446), fill="#282044", outline="#ffca60", width=4)
+        draw_arabic_text(draw, (cx, 364), name[:1], font=_font(64, True), fill=WHITE, anchor="mm")
+    draw = ImageDraw.Draw(image)
+    draw_arabic_text(draw, (cx, 474), name, font=_font(38, True), fill=WHITE, anchor="mm")
+    draw.rounded_rectangle((cx-140, 508, cx+140, 554), radius=20,
+                           fill=(76, 47, 12, 245), outline="#ffca60", width=2)
+    draw_arabic_text(draw, (cx, 531), "ملك الكراسي", font=_font(23, True), fill="#ffdf8b", anchor="mm")
+    for index, (label, value) in enumerate([("الجولات", str(round_number)), ("الناجون", "01"), ("اللقب", "CHAMPION")]):
+        x = 335 + index * 195
+        draw.rounded_rectangle((x, 590, x+180, 640), radius=14,
+                               fill=(24, 25, 48, 245), outline="#9a722e", width=2)
+        draw_arabic_text(draw, (x+90, 605), value, font=_font(16, True), fill=CYAN, anchor="mm")
+        draw_arabic_text(draw, (x+90, 626), label, font=_font(13, True), fill=MUTED, anchor="mm")
+    return image
+
+
 def eliminate_early_press(alive_ids: Sequence[int], user_id: int) -> tuple[list[int], bool]:
     """Return the living players after a premature click and whether it eliminated them."""
     alive = list(dict.fromkeys(int(value) for value in alive_ids))
@@ -373,6 +425,11 @@ class MusicalChairsGameView(discord.ui.View):
             self._avatar_cache[result[0]] = result[1]
 
     def _render_file(self) -> discord.File:
+        if self.phase == "finished" and self.winner_id is not None:
+            image = render_musical_chairs_victory(
+                list(self.players.values()), self.winner_id, max(1, self.round_number), self._avatar_cache
+            )
+            return image_to_file(image, "prime-musical-chairs-champion.png")
         image = render_musical_chairs_image(
             list(self.players.values()),
             alive_ids=self.alive_ids,
