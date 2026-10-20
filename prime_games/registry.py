@@ -61,7 +61,7 @@ class GameRegistry:
 # ── XO ──────────────────────────────────────────────────────────────────────
 
 def _initial_xo_state(players: list[int]) -> dict[str, Any]:
-    return {"board": [None] * 9}
+    return {"board": [None] * 9, "move_history": []}
 
 
 def _reduce_xo_action(
@@ -73,6 +73,8 @@ def _reduce_xo_action(
     board = list(state.get("board") or [])
     if len(board) != 9:
         raise ValueError("invalid_game_state")
+    if actor_id not in players:
+        raise ValueError("not_a_player")
     try:
         index = int(action.get("index"))
     except (TypeError, ValueError):
@@ -81,12 +83,27 @@ def _reduce_xo_action(
         raise ValueError("invalid_square")
     if board[index] is not None:
         raise ValueError("square_taken")
-    if actor_id not in players:
-        raise ValueError("not_a_player")
 
     mark = "X" if actor_id == players[0] else "O"
+    # Older persisted matches do not have move_history; reconstruct a stable
+    # best-effort history from the existing marks before applying the new rule.
+    history = list(state.get("move_history") or [])
+    if not history and any(value is not None for value in board):
+        for old_index, old_mark in enumerate(board):
+            if old_mark in ("X", "O"):
+                old_player = players[0] if old_mark == "X" else players[1]
+                history.append({"player_id": old_player, "index": old_index})
+
+    owned = [entry for entry in history if int(entry.get("player_id", -1)) == actor_id]
+    if len(owned) >= 3:
+        oldest = owned[0]
+        oldest_index = int(oldest["index"])
+        board[oldest_index] = None
+        history.remove(oldest)
+
     board[index] = mark
-    next_state = {**state, "board": board}
+    history.append({"player_id": actor_id, "index": index})
+    next_state = {**state, "board": board, "move_history": history}
     winning_lines = (
         (0, 1, 2), (3, 4, 5), (6, 7, 8),
         (0, 3, 6), (1, 4, 7), (2, 5, 8),
@@ -94,8 +111,9 @@ def _reduce_xo_action(
     )
     if any(all(board[cell] == mark for cell in line) for line in winning_lines):
         return GameTransition(next_state, None, winner_id=actor_id)
-    if all(cell is not None for cell in board):
-        return GameTransition(next_state, None, is_draw=True)
+
+    # Infinite XO never ends in a full-board draw: each player owns at most
+    # three pieces, and the oldest piece is removed before their fourth move.
     next_player = players[1] if actor_id == players[0] else players[0]
     return GameTransition(next_state, next_player)
 
@@ -272,8 +290,8 @@ _MEMORY_SYMBOLS = ("🍎", "⭐", "🔷", "🌙", "🔥", "🎈", "🍀", "💎"
 
 
 def _initial_memory_state(players: list[int]) -> dict[str, Any]:
-    symbols = random.sample(list(_MEMORY_SYMBOLS), 8)
-    cards = [symbol for symbol in symbols for _ in range(2)]
+    symbols = random.sample(list(_MEMORY_SYMBOLS), 7)
+    cards = [symbol for symbol in symbols for _ in range(2)] + ["🃏", "🃏"]
     random.shuffle(cards)
     return {
         "cards": cards,
@@ -281,7 +299,11 @@ def _initial_memory_state(players: list[int]) -> dict[str, Any]:
         "revealed": [],
         "pending_index": None,
         "scores": {str(player): 0 for player in players},
+        "pairs": {str(player): 0 for player in players},
+        "combo": {str(player): 0 for player in players},
         "last_match": None,
+        "last_combo_multiplier": 0,
+        "last_trap_indices": [],
     }
 
 
@@ -313,8 +335,8 @@ def _reduce_memory_action(
             "revealed": [index],
             "pending_index": index,
             "last_match": None,
+            "last_trap_indices": [],
         }
-        # The same player must choose the second card in their pair attempt.
         return GameTransition(next_state, actor_id)
     pending = int(pending)
     if index == pending:
@@ -322,34 +344,79 @@ def _reduce_memory_action(
 
     pair = [pending, index]
     scores = {str(key): int(value) for key, value in (state.get("scores") or {}).items()}
+    pairs = {str(key): int(value) for key, value in (state.get("pairs") or {}).items()}
+    combo = {str(key): int(value) for key, value in (state.get("combo") or {}).items()}
+
+    # Either trap card triggers a tactical shuffle of two other unmatched cards.
+    # Traps are never a matching pair and cannot be used to finish the board.
+    if cards[pending] == "🃏" or cards[index] == "🃏":
+        candidates = [
+            card_index for card_index in range(len(cards))
+            if card_index not in matched and card_index not in pair
+        ]
+        if len(candidates) >= 2:
+            first, second = random.sample(candidates, 2)
+            cards[first], cards[second] = cards[second], cards[first]
+            trap_indices = [first, second]
+        else:
+            trap_indices = []
+        combo[str(actor_id)] = 0
+        next_player = players[1] if actor_id == players[0] else players[0]
+        next_state = {
+            **state,
+            "cards": cards,
+            "revealed": [],
+            "pending_index": None,
+            "scores": scores,
+            "pairs": pairs,
+            "combo": combo,
+            "last_match": "trap",
+            "last_combo_multiplier": 0,
+            "last_trap_indices": trap_indices,
+            "last_pair": pair,
+        }
+        return GameTransition(next_state, next_player)
+
     if cards[pending] == cards[index]:
         matched.update(pair)
-        scores[str(actor_id)] = scores.get(str(actor_id), 0) + 1
+        combo[str(actor_id)] = combo.get(str(actor_id), 0) + 1
+        multiplier = combo[str(actor_id)]
+        scores[str(actor_id)] = scores.get(str(actor_id), 0) + multiplier
+        pairs[str(actor_id)] = pairs.get(str(actor_id), 0) + 1
         next_state = {
             **state,
             "matched": sorted(matched),
             "revealed": [],
             "pending_index": None,
             "scores": scores,
+            "pairs": pairs,
+            "combo": combo,
             "last_match": True,
+            "last_combo_multiplier": multiplier,
+            "last_trap_indices": [],
             "last_pair": pair,
         }
-        if len(matched) == len(cards):
+        # 14 ordinary cards form seven pairs; two trap cards are not matchable.
+        if len(matched) == len(cards) - cards.count("🃏"):
             first_score = scores.get(str(players[0]), 0)
             second_score = scores.get(str(players[1]), 0)
             if first_score == second_score:
                 return GameTransition(next_state, None, is_draw=True)
             winner_id = players[0] if first_score > second_score else players[1]
             return GameTransition(next_state, None, winner_id=winner_id)
-        # A successful pair earns another turn, matching standard memory-game rules.
         return GameTransition(next_state, actor_id)
     else:
-        # Keep both cards visible until the next player makes their first pick.
+        combo[str(actor_id)] = 0
         next_state = {
             **state,
             "revealed": pair,
             "pending_index": None,
+            "scores": scores,
+            "pairs": pairs,
+            "combo": combo,
             "last_match": False,
+            "last_combo_multiplier": 0,
+            "last_trap_indices": [],
             "last_pair": pair,
         }
     next_player = players[1] if actor_id == players[0] else players[0]
