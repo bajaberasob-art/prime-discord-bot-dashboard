@@ -23,6 +23,14 @@ MAX_PLAYERS = 6
 TURN_SECONDS = 20
 SHELL_MIN = 2
 SHELL_MAX = 6
+MAX_HP = 3
+TACTICAL_ITEMS = ("magnifier", "saw", "handcuffs", "cigarettes")
+
+
+def deal_round_items(players: list["BuckshotPlayer"], rng: random.Random | None = None) -> dict[int, str]:
+    """Give each living player one random tactical item at the start of a round."""
+    rng = rng or random
+    return {p.user_id: rng.choice(TACTICAL_ITEMS) for p in players if p.alive}
 
 
 @dataclass
@@ -32,10 +40,13 @@ class BuckshotPlayer:
     alive: bool = True
     handcuffed: bool = False
     used_items: set[str] | None = None
+    inventory: set[str] | None = None
 
     def __post_init__(self) -> None:
         if self.used_items is None:
             self.used_items = set()
+        if self.inventory is None:
+            self.inventory = set()
 
     @property
     def user_id(self) -> int:
@@ -57,15 +68,30 @@ def load_shells(rng: random.Random | None = None) -> list[bool]:
 
 
 def resolve_shot(shell_live: bool, *, target_self: bool, shooter_hp: int,
-                 target_hp: int) -> tuple[int, int, bool]:
-    """Resolve one shell. Blank shots at self grant another turn; live shells deal 1 damage."""
+                 target_hp: int, damage: int = 1) -> tuple[int, int, bool]:
+    """Resolve a shell and return (shooter HP, target HP, keep_turn)."""
     if not shell_live:
         return shooter_hp, target_hp, target_self
+    damage = max(1, min(int(damage), 2))
     if target_self:
-        shooter_hp = max(0, shooter_hp - 1)
+        shooter_hp = max(0, shooter_hp - damage)
     else:
-        target_hp = max(0, target_hp - 1)
+        target_hp = max(0, target_hp - damage)
     return shooter_hp, target_hp, False
+
+
+def apply_item(player: "BuckshotPlayer", item: str) -> bool:
+    """Consume a single-use item. False means unavailable or ineffective."""
+    inventory = player.inventory or set()
+    if item not in inventory:
+        return False
+    if item == "cigarettes":
+        if player.hp >= MAX_HP:
+            return False
+        player.hp = min(MAX_HP, player.hp + 1)
+    inventory.remove(item)
+    player.inventory = inventory
+    return True
 
 
 def render_buckshot_board(players: list[BuckshotPlayer], *, shells_left: int,
@@ -99,6 +125,8 @@ def render_buckshot_board(players: list[BuckshotPlayer], *, shells_left: int,
         state = "دورك الآن" if active else ("على قيد الحياة" if player.alive else "مقصى")
         if player.handcuffed and player.alive:
             state += " • مقيّد"
+        if player.inventory and player.alive:
+            state += " • أدوات: " + ",".join(player.inventory)
         draw_arabic_text(draw, (x+22, y+96), state, font=_font(14), fill=CYAN if active else MUTED)
     draw_arabic_text(draw, (600, 730), "PRIME • TACTICAL SURVIVAL", font=_font(13, True), fill=MUTED, anchor="mm")
     return image
@@ -128,28 +156,69 @@ class BuckshotTurnView(discord.ui.View):
         await interaction.response.edit_message(view=self)
         self.stop()
 
-    @discord.ui.button(label="أطلق على نفسك", style=discord.ButtonStyle.danger, emoji="🎯")
+    @discord.ui.button(label="أطلق على نفسك", style=discord.ButtonStyle.danger, emoji="🎯", row=0)
     async def shoot_self(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await self._choose(interaction, "self")
 
-    @discord.ui.button(label="أطلق على خصم", style=discord.ButtonStyle.primary, emoji="🔫")
+    @discord.ui.button(label="أطلق على خصم", style=discord.ButtonStyle.primary, emoji="🔫", row=0)
     async def shoot_opponent(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         targets = [p for p in self.game.players if p.alive and p.user_id != self.current_id]
         if not targets:
             await self._choose(interaction, "self")
             return
-        target = random.choice(targets)
-        await self._choose(interaction, "opponent", target.user_id)
+        await self._choose(interaction, "opponent", random.choice(targets).user_id)
 
-    @discord.ui.button(label="استخدم المنظار", style=discord.ButtonStyle.secondary, emoji="🔎")
+    @discord.ui.button(label="🔍 المنظار", style=discord.ButtonStyle.secondary, row=1)
     async def inspect_shell(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if "magnifier" in (self.game.by_id[self.current_id].used_items or set()):
-            await interaction.response.send_message("استخدمت المنظار مسبقًا.", ephemeral=True)
+        player = self.game.by_id[self.current_id]
+        if "magnifier" not in (player.inventory or set()):
+            await interaction.response.send_message("ليس لديك منظار في هذه الجولة.", ephemeral=True)
             return
-        self.game.by_id[self.current_id].used_items.add("magnifier")
-        shell = self.game.shells[0] if self.game.shells else None
-        info = "الطلقة التالية حية 🔴" if shell else "الطلقة التالية فارغة ⚪"
-        await interaction.response.send_message(info, ephemeral=True)
+        if not self.game.shells:
+            await interaction.response.send_message("المخزن فارغ حاليًا.", ephemeral=True)
+            return
+        apply_item(player, "magnifier")
+        await interaction.response.send_message(
+            "الطلقة الحالية حية 🔴" if self.game.shells[0] else "الطلقة الحالية فارغة ⚪",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="🪚 تفعيل المنشار", style=discord.ButtonStyle.secondary, row=1)
+    async def use_saw(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        player = self.game.by_id[self.current_id]
+        if not apply_item(player, "saw"):
+            await interaction.response.send_message("لا تملك منشارًا متاحًا.", ephemeral=True)
+            return
+        self.game.saw_armed.add(self.current_id)
+        await interaction.response.send_message("تم تفعيل المنشار؛ الطلقة الحية التالية تسبب 2 HP.", ephemeral=True)
+
+    @discord.ui.button(label="⛓️ أصفاد الخصم", style=discord.ButtonStyle.secondary, row=1)
+    async def use_handcuffs(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        player = self.game.by_id[self.current_id]
+        if "handcuffs" not in (player.inventory or set()):
+            await interaction.response.send_message("لا تملك أصفادًا متاحة.", ephemeral=True)
+            return
+        targets = [p for p in self.game.players if p.alive and p.user_id != self.current_id]
+        if not targets:
+            await interaction.response.send_message("لا يوجد خصم حي لاستهدافه.", ephemeral=True)
+            return
+        target = random.choice(targets)
+        apply_item(player, "handcuffs")
+        target.handcuffed = True
+        await interaction.response.send_message(
+            f"قُيّد الخصم {target.name} وسيتخطى دوره القادم.", ephemeral=True
+        )
+
+    @discord.ui.button(label="🚬 استعادة الصحة", style=discord.ButtonStyle.secondary, row=1)
+    async def use_cigarettes(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        player = self.game.by_id[self.current_id]
+        if player.hp >= MAX_HP:
+            await interaction.response.send_message("صحتك كاملة بالفعل.", ephemeral=True)
+            return
+        if not apply_item(player, "cigarettes"):
+            await interaction.response.send_message("لا تملك علاجًا متاحًا.", ephemeral=True)
+            return
+        await interaction.response.send_message(f"استعدت نقطة صحة: {player.hp}/{MAX_HP} ❤️", ephemeral=True)
 
     async def on_timeout(self) -> None:
         if self.choice is None:
@@ -168,6 +237,7 @@ class BuckshotGame:
         self.finished = False
         self.message: discord.Message | None = None
         self.last_event = "بدأت المواجهة. اختر قرارك بحذر."
+        self.saw_armed: set[int] = set()
 
     def _render(self, current_id: int | None = None):
         if not self.shells:
@@ -194,43 +264,77 @@ class BuckshotGame:
 
     async def run(self) -> None:
         try:
+            current_index = 0
+            # Distribute a random item to every player for the opening round.
+            for user_id, item in deal_round_items(self.players).items():
+                self.by_id[user_id].inventory.add(item)
             while sum(p.alive for p in self.players) > 1:
                 if not self.shells:
                     self.shells = load_shells()
-                    self.round_number += 1
-                for player in list(self.players):
-                    if not player.alive or sum(p.alive for p in self.players) <= 1:
-                        continue
-                    view = BuckshotTurnView(self, player.user_id)
-                    await self._update(f"دور {player.name}: أمامك {TURN_SECONDS} ثانية.", player.user_id, view)
-                    await view.wait()
-                    action, target_id = view.choice or ("opponent", None)
+                alive_players = [p for p in self.players if p.alive]
+                if len(alive_players) <= 1:
+                    break
+                current_index %= len(self.players)
+                player = self.players[current_index]
+                if not player.alive:
+                    current_index += 1
+                    continue
+                if player.handcuffed:
+                    player.handcuffed = False
+                    self.last_event = f"{player.name} تخطّى دوره بسبب الأصفاد."
+                    await self._update(self.last_event)
+                    current_index += 1
+                    continue
+
+                view = BuckshotTurnView(self, player.user_id)
+                await self._update(f"دور {player.name}: أمامك {TURN_SECONDS} ثانية.", player.user_id, view)
+                await view.wait()
+                action, target_id = view.choice or ("opponent", None)
+                if action == "self":
+                    target = player
+                else:
                     target = self.by_id.get(target_id) if target_id else None
-                    if action == "opponent" and (target is None or not target.alive or target.user_id == player.user_id):
+                    if target is None or not target.alive or target.user_id == player.user_id:
                         candidates = [p for p in self.players if p.alive and p.user_id != player.user_id]
                         target = random.choice(candidates) if candidates else player
-                    else:
-                        target = player
-                    shell = self.shells.pop(0)
-                    shooter_hp, target_hp, repeat = resolve_shot(
-                        shell, target_self=(target.user_id == player.user_id),
-                        shooter_hp=player.hp, target_hp=target.hp,
-                    )
-                    if target.user_id == player.user_id:
-                        player.hp = shooter_hp
-                    else:
-                        target.hp = target_hp
-                    if shell and target.hp <= 0:
-                        target.alive = False
-                    elif shell and player.hp <= 0:
-                        player.alive = False
-                    shell_label = "طلقة حية 🔴" if shell else "طلقة فارغة ⚪"
-                    self.last_event = f"{player.name}: {shell_label}."
-                    await self._update(self.last_event)
-                    await asyncio.sleep(1.3)
-                    if not self.shells:
-                        self.shells = load_shells()
-                        self.round_number += 1
+
+                shell = self.shells.pop(0)
+                damage = 2 if player.user_id in self.saw_armed else 1
+                self.saw_armed.discard(player.user_id)
+                shooter_hp, target_hp, keep_turn = resolve_shot(
+                    shell, target_self=(target.user_id == player.user_id),
+                    shooter_hp=player.hp, target_hp=target.hp, damage=damage,
+                )
+                if target.user_id == player.user_id:
+                    player.hp = shooter_hp
+                else:
+                    target.hp = target_hp
+                if shell and target.hp <= 0:
+                    target.alive = False
+                self.last_event = (
+                    f"{player.name}: {'طلقة حية 🔴' if shell else 'طلقة فارغة ⚪'}"
+                    f"{' — ضرر ' + str(damage) if shell else ''}."
+                )
+                await self._update(self.last_event)
+                await asyncio.sleep(1.0)
+                if sum(p.alive for p in self.players) <= 1:
+                    break
+                # Blank self-shot retains the turn; a live shot passes it.
+                if not keep_turn:
+                    current_index = (self.players.index(player) + 1) % len(self.players)
+                else:
+                    current_index = self.players.index(player)
+                if not self.shells:
+                    self.shells = load_shells()
+                    self.round_number += 1
+                    self.saw_armed.clear()
+                    for p in self.players:
+                        p.inventory = set()
+                        p.handcuffed = False
+                    for user_id, item in deal_round_items(self.players).items():
+                        self.by_id[user_id].inventory.add(item)
+                    await self._update(f"بدأت الجولة {self.round_number}: وُزّعت أدوات عشوائية.")
+
             winner = next((p for p in self.players if p.alive), None)
             self.finished = True
             await self._update(f"🏆 الفائز: {winner.name}" if winner else "انتهت اللعبة دون فائز.")
@@ -246,6 +350,7 @@ class BuckshotGame:
                 await self.message.edit(view=None)
         finally:
             await self.cog._release_game(self)
+
 
 
 class Buckshot(commands.Cog):
