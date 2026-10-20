@@ -91,21 +91,34 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
 
     elif game_key == "rps":
         choices = state.get("choices") or {}
-        description = f"⚔️ <@{players[0]}> ضد <@{players[1]}>\n\n"
+        last_round = state.get("last_round") or {}
+        if status != "active" and not choices:
+            choices = last_round.get("choices") or {}
+        hp = state.get("hp") or {}
+        description = (
+            f"⚔️ <@{players[0]}> ضد <@{players[1]}>\n"
+            f"❤️ <@{players[0]}>: **{int(hp.get(str(players[0]), 3))}/3**"
+            f"  •  ❤️ <@{players[1]}>: **{int(hp.get(str(players[1]), 3))}/3**\n\n"
+        )
         if status == "active":
-            chosen = len(choices)
+            chosen = len(state.get("choices") or {})
             description += (
                 "✅ سُجّل اختيار اللاعب الأول بشكل مخفي. ينتظر PRIME اختيار الخصم."
                 if chosen == 1 else
                 "لم يختر اللاعبان بعد؛ اختر حركتك سرًا."
             )
+            if last_round:
+                previous = last_round.get("choices") or {}
+                previous_first = _RPS_LABELS.get(str(previous.get(str(players[0]), "")), "—")
+                previous_second = _RPS_LABELS.get(str(previous.get(str(players[1]), "")), "—")
+                description += f"\nآخر جولة: {previous_first} مقابل {previous_second}."
+                if last_round.get("winner_id") is not None:
+                    description += f" الضرر: {int(last_round.get('damage', 0))}."
             description += f"\n\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
         else:
             first = _RPS_LABELS.get(str(choices.get(str(players[0]), "")), "—")
             second = _RPS_LABELS.get(str(choices.get(str(players[1]), "")), "—")
             description += f"🧑 <@{players[0]}>: **{first}**\n🧑 <@{players[1]}>: **{second}**"
-            if winner_id is None:
-                description += "\n\n🤝 تعادل! اخترتما الحركة نفسها."
 
     elif game_key == "memory":
         cards = list(state.get("cards") or [])
@@ -118,12 +131,21 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
                 for index in range(row * 4, row * 4 + 4)
             ))
         scores = state.get("scores") or {}
+        pairs = state.get("pairs") or {}
+        combo = state.get("combo") or {}
+        combo_player = str(session.get("current_player_id") or "")
+        first_score = int(scores.get(str(players[0]), 0))
+        second_score = int(scores.get(str(players[1]), 0))
+        first_pairs = int(pairs.get(str(players[0]), first_score))
+        second_pairs = int(pairs.get(str(players[1]), second_score))
         description = (
-            f"🧑 <@{players[0]}>: **{int(scores.get(str(players[0]), 0))}** زوج\n"
-            f"🧑 <@{players[1]}>: **{int(scores.get(str(players[1]), 0))}** زوج\n\n"
+            f"🧑 <@{players[0]}>: **{first_score} نقطة** ({first_pairs} أزواج)\n"
+            f"🧑 <@{players[1]}>: **{second_score} نقطة** ({second_pairs} أزواج)\n\n"
             + "\n".join(board_lines)
             + f"\n\n🧩 الأزواج المكتشفة: **{len(matched) // 2}/8**"
         )
+        if status == "active":
+            description += f"\n🔥 مضاعف الكومبو الحالي: **x{min(int(combo.get(combo_player, 0)), 3)}**"
         if state.get("last_match") is True:
             description += "\n✅ تطابق رائع! حصلت على زوج."
         elif state.get("last_match") is False:
