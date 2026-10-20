@@ -438,9 +438,20 @@ class RouletteRoyaleGame:
             file.close()
 
     async def _spin(self, target_id: int) -> None:
-        # Multiple visual frames create suspense without blocking the event loop.
-        for frame in range(SPIN_FRAMES):
-            angle = random.uniform(0, 360) + frame * 43
+        # Animate toward the exact slice containing the selected target. The
+        # pointer is fixed at the top, so the final angle must align that slice.
+        living = [p.user_id for p in self.players.values() if p.alive]
+        if target_id not in living:
+            raise ValueError("roulette_target_is_not_alive")
+        step = 360.0 / len(living)
+        target_index = living.index(target_id)
+        final_angle = (-(target_index + 0.5) * step) % 360.0
+        start_angle = final_angle + 360.0 * 4 + random.uniform(0, step)
+        for frame in range(1, SPIN_FRAMES + 1):
+            progress = frame / SPIN_FRAMES
+            # Ease-out curve: fast at first, slowing toward the chosen slice.
+            eased = 1.0 - (1.0 - progress) ** 2
+            angle = (start_angle * (1.0 - eased) + final_angle * eased) % 360.0
             await self._update_board("🎡 تدور العجلة... لحظات ويُكشف المستهدف!", angle=angle)
             await asyncio.sleep(SPIN_FRAME_DELAY)
         await self._update_board(f"🎯 توقفت العجلة على <@{target_id}>!", target_id=target_id)
@@ -591,8 +602,10 @@ class RouletteRoyaleGame:
             self._last_eliminated.append(victim)
             if message_parts is not None:
                 message_parts.append(f"🔗 انكسر رباط المصير وأُخرج <@{victim}>.")
-            self._fate_pair = None
-            self._fate_round = None
+        # Fate-link is explicitly for the next round only, whether or not it
+        # triggered, so it cannot unexpectedly eliminate someone later.
+        self._fate_pair = None
+        self._fate_round = None
 
     async def _finish_if_needed(self) -> None:
         if self.finished:
