@@ -285,7 +285,12 @@ async def _game_presentation(
 ) -> tuple[discord.Embed, discord.File | None]:
     """Render every legacy game as a premium Pillow card."""
     try:
-        image = await render_classic_game(session, interaction.guild)
+        image = await render_classic_game(
+            session,
+            interaction.guild,
+            avatar_session=getattr(interaction.client, "session", None),
+            avatar_timeout=2.0,
+        )
         embed = _game_embed(session, reward=reward, reward_capped=reward_capped)
         embed.set_image(url="attachment://prime-classic-game.png")
         return embed, image_to_file(image, "prime-classic-game.png")
