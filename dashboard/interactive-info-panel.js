@@ -21,7 +21,7 @@
     ],
   });
   function mount(host, ctx) {
-    let config = defaults(), channels = [], dirty = false, busy = false;
+    let config = defaults(), channels = [], emojiOptions = [], dirty = false, busy = false;
     const cleanup = [];
     const listen = (node, event, fn) => { node.addEventListener(event, fn); cleanup.push(() => node.removeEventListener(event, fn)); };
     const input = (label, key, value, options = {}) => {
@@ -89,11 +89,26 @@
             ...[["primary","Primary · أزرق"],["secondary","Secondary · رمادي"],["success","Success · أخضر"],["danger","Danger · أحمر"]].map(([value,label]) => h("option", { value, selected: button.style === value, text: label })));
           listen(style, "change", () => { button.style = style.value; dirty = true; });
           const move = (delta) => { const next = index + delta; if (next < 0 || next >= config.buttons.length) return; [config.buttons[index], config.buttons[next]] = [config.buttons[next], config.buttons[index]]; dirty = true; render(); };
+          const commonEmojis = [
+            ["", "بدون إيموجي"], ["📜", "📜 القوانين"], ["📌", "📌 مثبت"], ["📢", "📢 إعلان"],
+            ["🎮", "🎮 ألعاب"], ["🎫", "🎫 تذاكر"], ["👋", "👋 ترحيب"], ["⭐", "⭐ مميز"],
+            ["💎", "💎 ماسي"], ["🛡️", "🛡️ حماية"], ["✨", "✨ لمعة"], ["❤️", "❤️ قلب"],
+          ];
+          const emojiChoices = [...commonEmojis.map(([value, label]) => ({ value, label }))];
+          for (const emoji of emojiOptions) emojiChoices.push({ value: emoji.value, label: emoji.label });
+          if (button.emoji && !emojiChoices.some(option => option.value === button.emoji)) {
+            emojiChoices.push({ value: button.emoji, label: "الإيموجي الحالي" });
+          }
+          const emojiSelect = h("select", { class: "iip-input" }, ...emojiChoices.map(option => h("option", {
+            value: option.value, selected: option.value === (button.emoji || ""), text: option.label,
+          })));
+          listen(emojiSelect, "change", () => { button.emoji = emojiSelect.value; dirty = true; });
+          const emojiField = h("label", { class: "iip-field" }, h("span", { text: "الإيموجي (اختر من السيرفر أو من القائمة)" }), emojiSelect);
           card.append(h("div", { class: "iip-row" }, h("strong", { text: "زر " + (index + 1) }), h("div", { class: "iip-actions" },
             h("button", { type: "button", class: "iip-icon-btn", text: "↑", title: "تحريك للأعلى", disabled: index === 0, onClick: () => move(-1) }),
             h("button", { type: "button", class: "iip-icon-btn", text: "↓", title: "تحريك للأسفل", disabled: index === config.buttons.length - 1, onClick: () => move(1) }),
             h("button", { type: "button", class: "iip-icon-btn danger", text: "حذف", onClick: () => { config.buttons.splice(index, 1); dirty = true; render(); } }))),
-            h("div", { class: "iip-two-col" }, field("اسم الزر", "label", { maxlength: 80 }), field("Emoji (اختياري)", "emoji")),
+            h("div", { class: "iip-two-col" }, field("اسم الزر", "label", { maxlength: 80 }), emojiField),
             h("label", { class: "iip-field" }, h("span", { text: "لون الزر" }), style),
             field("الرد الخاص (يدعم Markdown ومنشن القنوات والرتب)", "response", { textarea: true }));
           return card;
