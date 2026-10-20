@@ -92,6 +92,7 @@ def render_musical_chairs_image(
     eliminated = {int(value) for value in eliminated_ids}
     assignments = chair_assignments or {}
     active_chairs = active_chair_indices or set()
+    avatar_map = avatars or {}
     columns = 4
     rows = max(1, (len(player_list) + columns - 1) // columns)
     width = 1200
