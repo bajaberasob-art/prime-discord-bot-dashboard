@@ -349,8 +349,9 @@ def _reduce_memory_action(state: dict[str, Any], players: list[int], actor_id: i
         first, second = random.sample(eligible, 2)
         cards[first], cards[second] = cards[second], cards[first]
         trap_used[key] = True
+        combo = {str(player): 0 for player in players}
         next_player = players[1] if actor_id == players[0] else players[0]
-        return GameTransition({**state, "cards": cards, "trap_used": trap_used, "trap_event": {"player_id": actor_id, "indices": [first, second]}, "combo": {**combo, key: 0}}, next_player)
+        return GameTransition({**state, "cards": cards, "trap_used": trap_used, "trap_event": {"player_id": actor_id, "indices": [first, second]}, "combo": combo}, next_player)
     try:
         index = int(action.get("index"))
     except (TypeError, ValueError):
@@ -380,7 +381,7 @@ def _reduce_memory_action(state: dict[str, Any], players: list[int], actor_id: i
                 return GameTransition(next_state, None, is_draw=True)
             return GameTransition(next_state, None, winner_id=players[0] if first_score > second_score else players[1])
         return GameTransition(next_state, actor_id)
-    combo[key] = 0
+    combo = {str(player): 0 for player in players}
     next_state = {**state, "revealed": pair, "pending_index": None, "last_match": False,
                   "last_pair": pair, "combo": combo, "combo_multiplier": 0, "trap_event": None}
     return GameTransition(next_state, players[1] if actor_id == players[0] else players[0])
