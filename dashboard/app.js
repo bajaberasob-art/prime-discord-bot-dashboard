@@ -698,6 +698,7 @@
     clan: { label: "الكلان والتنافس", icon: "♛", hint: "Clan Ops" },
     broadcast: { label: "استوديو البث", icon: "✦", hint: "Broadcast Studio" },
     announcements: { label: "📢 المساحة الإعلانية", icon: "📢", hint: "Auto Reactions" },
+    interactiveInfo: { label: "لوحة الأزرار التفاعلية", icon: "▣", hint: "Ephemeral Info Panel" },
     tempVoice: { label: "الرومات المؤقتة", icon: "◉", hint: "Temporary Voice" },
     commands: { label: "الأوامر والأتمتة", icon: "⌘", hint: "Commands" },
     onboarding: { label: "الترحيب والأدوار", icon: "✦", hint: "Onboarding" },
@@ -858,6 +859,7 @@
       navButton("clan"),
       navButton("broadcast"),
       navButton("announcements"),
+      navButton("interactiveInfo"),
       navButton("tempVoice"),
       navButton("security"),
       navButton("moderation"),
@@ -875,7 +877,7 @@
     const moreButton = el(
       "button",
       {
-         class: `nav-item ${["onboarding", "gaming", "subscriptions", "clan", "security", "moderation", "analytics", "leveling", "economy", "community", "ai", "talk", "appearance", "settings", "backup", "system", "tempVoice"].includes(state.activeView) ? "active" : ""}`,
+         class: `nav-item ${["onboarding", "gaming", "subscriptions", "clan", "security", "moderation", "analytics", "leveling", "economy", "community", "ai", "talk", "appearance", "settings", "backup", "system", "tempVoice", "interactiveInfo"].includes(state.activeView) ? "active" : ""}`,
         type: "button",
         "aria-expanded": "false",
         onClick: () => {
@@ -10291,6 +10293,10 @@
       state.announcementCleanup();
       state.announcementCleanup = null;
     }
+    if (typeof state.interactiveInfoCleanup === "function") {
+      state.interactiveInfoCleanup();
+      state.interactiveInfoCleanup = null;
+    }
     if (typeof state.tempVoiceCleanup === "function") {
       state.tempVoiceCleanup();
       state.tempVoiceCleanup = null;
@@ -10337,6 +10343,17 @@
         });
       } else {
         host.append(el("p", { class: "notice", text: "اختر سيرفرًا لفتح المساحة الإعلانية." }));
+      }
+    }
+    else if (view === "interactiveInfo") {
+      const host = el("section", { id: "view-interactive-info" });
+      main.append(host);
+      if (state.guild && window.PrimeInteractiveInfoPanel) {
+        state.interactiveInfoCleanup = window.PrimeInteractiveInfoPanel.mount(host, {
+          guildId: String(state.guild.id), api, writeApi, readJson, toast, getCsrf: () => state.session?.csrf || "", refreshSession,
+        });
+      } else {
+        host.append(el("p", { class: "notice", text: "اختر سيرفرًا لفتح لوحة الأزرار التفاعلية." }));
       }
     }
     else if (view === "tempVoice") {

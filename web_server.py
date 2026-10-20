@@ -1671,9 +1671,11 @@ async def api_guild_stats(req):
 
 from announcement_dashboard import register_routes as register_announcement_routes
 from temp_voice_dashboard import register_routes as register_temp_voice_routes
+from interactive_info_dashboard import register_routes as register_interactive_info_routes
 
 register_announcement_routes(routes)
 register_temp_voice_routes(routes)
+register_interactive_info_routes(routes)
 
 
 def _subscription_actor_id(session: dict) -> int:
@@ -6929,7 +6931,7 @@ register_public_leaderboard_routes(
 async def start_web_server(bot):
     global bot_ref
     bot_ref = bot
-    app = web.Application(middlewares=[private_responses], client_max_size=MAX_BODY)
+    app = web.Application(middlewares=[private_responses], client_max_size=max(MAX_BODY, 9 * 1024 * 1024))
     app['bot'] = bot
     app.add_routes(routes)
     # Access logs include callback query strings; do not log authorization codes.

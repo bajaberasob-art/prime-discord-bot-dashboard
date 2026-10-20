@@ -385,6 +385,7 @@ class EnterpriseBot(commands.Bot):
             "cogs.roulette_royale",
             "cogs.community",
             "cogs.announcement_reactions",
+            "cogs.interactive_info_panel",
             "cogs.ai_tools",
         ]
 
