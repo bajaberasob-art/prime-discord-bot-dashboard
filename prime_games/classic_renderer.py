@@ -86,9 +86,9 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
         scores = state.get("scores") or {}
         combo = state.get("combo") or {}
         current = str(session.get("current_player_id") or (players[0] if players else ""))
-        _text(draw, (600, 675), f"PAIRS {len(matched)//2}/8 • SCORE {scores.get(current, 0)} • COMBO x{min(int(combo.get(current, 0)), 3)}", 18, accent, anchor="mm")
+        _text(draw, (600, 690), f"PAIRS {len(matched)//2}/8 • SCORE {scores.get(current, 0)} • COMBO x{min(int(combo.get(current, 0)), 3)}", 18, accent, anchor="mm")
         if state.get("trap_event"):
-            _text(draw, (600, 704), "TRAP CARD • TWO CLOSED CARDS SHUFFLED", 15, RED, anchor="mm")
+            _text(draw, (600, 712), "TRAP CARD • TWO CLOSED CARDS SHUFFLED", 15, RED, anchor="mm")
     elif key == "word":
         puzzles = list(state.get("puzzles") or [])
         idx = int(state.get("round_index") or 0)
@@ -117,7 +117,7 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
             roll = rolls.get(str(uid), "—")
             x = 390 if i == 0 else 810
             _text(draw, (x, 425), f"🎲  {roll}", 48, CYAN if i == 0 else RED, anchor="mm", bold=True)
-        _text(draw, (600, 530), f"ROUND {int(state.get('round') or 1)} / 5", 25, WHITE, anchor="mm")
+        _text(draw, (600, 530), f"ROUND {int(state.get('round') or 1)} • THREE-HEART DUEL", 25, WHITE, anchor="mm")
         _text(draw, (600, 585), "ROLL • READ • OUTPLAY", 18, MUTED, anchor="mm")
     elif key == "rps":
         choices = state.get("choices") or {}
