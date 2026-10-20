@@ -8,6 +8,7 @@ and UI callback failures consistent at the dispatch boundary.
 from __future__ import annotations
 
 import functools
+import asyncio
 import inspect
 import logging
 import time
@@ -37,16 +38,34 @@ async def defer_if_needed(interaction: Any, *, ephemeral: bool = False) -> bool:
     except Exception:
         LOGGER.exception("[INTERACTION] response state check failed")
         return False
+    started = time.perf_counter()
     try:
-        await response.defer(ephemeral=ephemeral)
+        # Keep acknowledgement bounded so a transient Discord REST stall is
+        # logged distinctly from a slow command callback.
+        await asyncio.wait_for(response.defer(ephemeral=ephemeral), timeout=2.0)
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if elapsed_ms >= 750.0:
+            LOGGER.warning(
+                "[INTERACTION] slow_ack_ms=%.1f guild=%s command=%s",
+                elapsed_ms,
+                getattr(getattr(interaction, "guild", None), "id", None),
+                getattr(getattr(interaction, "command", None), "qualified_name", None),
+            )
         return True
     except discord.InteractionResponded:
         return True
+    except asyncio.TimeoutError:
+        LOGGER.error(
+            "[INTERACTION] acknowledgement timed out after 2000ms guild=%s command=%s",
+            getattr(getattr(interaction, "guild", None), "id", None),
+            getattr(getattr(interaction, "command", None), "qualified_name", None),
+        )
+        return False
     except (discord.NotFound, discord.HTTPException):
         LOGGER.error(
-            "[INTERACTION] acknowledgement failed guild=%s user=%s",
+            "[INTERACTION] acknowledgement failed guild=%s command=%s",
             getattr(getattr(interaction, "guild", None), "id", None),
-            getattr(getattr(interaction, "user", None), "id", None),
+            getattr(getattr(interaction, "command", None), "qualified_name", None),
             exc_info=True,
         )
         return False
