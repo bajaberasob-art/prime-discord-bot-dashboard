@@ -5,6 +5,8 @@ import logging
 import os
 import uuid
 from pathlib import Path
+
+import discord
 from aiohttp import web
 from PIL import Image
 
@@ -31,7 +33,7 @@ async def api_get(req):
             "buttons": [
                 {"id": "a1b2c3d4e5f6", "label": "القوانين", "emoji": "📜",
                  "style": "primary", "response": "يرجى الالتزام بقوانين السيرفر واحترام جميع الأعضاء."},
-                {"id": "b1c2d3e4f5a6", "label": "من نحن؟", "emoji": "✦",
+                {"id": "b1c2d3e4f5a6", "label": "من نحن؟", "emoji": "✨",
                  "style": "secondary", "response": "أهلًا بك في مجتمعنا!"},
             ],
         }
@@ -42,6 +44,16 @@ async def api_get(req):
             "channels": [
                 {"id": str(ch.id), "name": ch.name}
                 for ch in guild.text_channels
+            ],
+            # Use gateway-cached guild emojis; never make one Discord REST call
+            # per dashboard refresh just to populate the emoji selector.
+            "emojis": [
+                {
+                    "id": str(emoji.id),
+                    "name": emoji.name,
+                    "animated": bool(getattr(emoji, "animated", False)),
+                }
+                for emoji in sorted(guild.emojis, key=lambda item: item.name.casefold())
             ],
             "bot_ready": bool(cog),
         })
@@ -67,6 +79,14 @@ async def api_save(req):
                 config = await cog.publish(guild, config)
             except ValueError as error:
                 return web.json_response({"error": "publish_failed", "message": str(error), "config": config}, status=400)
+            except discord.HTTPException as error:
+                log.exception("Discord rejected interactive panel guild=%s code=%s", guild.id, getattr(error, "code", None))
+                if getattr(error, "code", None) == 50035:
+                    return web.json_response({
+                        "error": "invalid_component",
+                        "message": "رفض Discord أحد مكونات الرسالة (غالبًا إيموجي غير صالح). اختر إيموجيًا من قائمة إيموجيات السيرفر أو استخدم إيموجيًا Unicode صحيحًا ثم أعد النشر.",
+                    }, status=400)
+                return web.json_response({"error": "publish_failed", "message": "تعذر النشر عبر Discord. تحقق من صلاحيات البوت والقناة ثم حاول مجددًا."}, status=502)
             except Exception:
                 log.exception("Could not publish interactive panel guild=%s", guild.id)
                 return web.json_response({"error": "publish_failed", "message": "تعذر نشر الرسالة. تحقق من صلاحيات البوت والقناة."}, status=502)

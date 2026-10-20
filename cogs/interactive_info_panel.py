@@ -22,6 +22,53 @@ STYLE_MAP = {
     "danger": discord.ButtonStyle.danger,
 }
 
+_CUSTOM_EMOJI_MARKER = re.compile(r"custom:(\d{15,22})")
+_CUSTOM_EMOJI_MENTION = re.compile(r"<a?:[A-Za-z0-9_]{1,32}:(\d{15,22})>")
+
+
+def _resolve_button_emoji(
+    bot: commands.Bot | None,
+    guild_id: int,
+    value: Any,
+    *,
+    guild: discord.Guild | None = None,
+    strict: bool = False,
+) -> Any | None:
+    """Resolve a selected server emoji marker to Discord's Emoji object.
+
+    Plain Unicode emoji remain supported. Custom emoji are stored as custom:<id>
+    so renames do not invalidate the saved panel.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    marker = _CUSTOM_EMOJI_MARKER.fullmatch(raw)
+    mention = _CUSTOM_EMOJI_MENTION.fullmatch(raw)
+    if marker or mention:
+        emoji_id = int((marker or mention).group(1))
+        selected_guild = guild
+        if selected_guild is None and bot is not None:
+            selected_guild = bot.get_guild(int(guild_id))
+        emoji = next(
+            (candidate for candidate in getattr(selected_guild, "emojis", ())
+             if int(getattr(candidate, "id", 0)) == emoji_id),
+            None,
+        )
+        if emoji is not None:
+            return emoji
+        if strict:
+            raise ValueError(
+                "أحد إيموجيات السيرفر لم يعد متاحًا. اختر الإيموجي من القائمة الحالية ثم أعد النشر."
+            )
+        # Startup may run before the gateway cache is ready; omit the visual
+        # emoji temporarily rather than preventing persistent callbacks loading.
+        return None
+    if raw.startswith("custom:") or raw.startswith("<:") or raw.startswith("<a:"):
+        if strict:
+            raise ValueError("صيغة الإيموجي المخصص غير صحيحة. اختر إيموجيًا من قائمة السيرفر.")
+        return None
+    return raw
+
 
 def _make_embed(config: dict[str, Any]) -> discord.Embed:
     color = str(config.get("color") or "#6366F1").lstrip("#")
@@ -44,7 +91,14 @@ def _make_embed(config: dict[str, Any]) -> discord.Embed:
 class InteractiveInfoPanelView(discord.ui.View):
     """Persistent, dynamically-built buttons; callbacks reload the saved config."""
 
-    def __init__(self, bot: commands.Bot, guild_id: int, buttons: list[dict[str, Any]]):
+    def __init__(
+        self,
+        bot: commands.Bot | None,
+        guild_id: int,
+        buttons: list[dict[str, Any]],
+        *,
+        guild: discord.Guild | None = None,
+    ):
         super().__init__(timeout=None)
         self.bot = bot
         self.guild_id = int(guild_id)
@@ -55,7 +109,7 @@ class InteractiveInfoPanelView(discord.ui.View):
             style = STYLE_MAP.get(str(item.get("style") or "primary"), discord.ButtonStyle.primary)
             button = discord.ui.Button(
                 label=str(item.get("label") or "معلومات")[:80],
-                emoji=(str(item["emoji"])[:100] if item.get("emoji") else None),
+                emoji=_resolve_button_emoji(self.bot, self.guild_id, item.get("emoji"), guild=guild),
                 style=style,
                 custom_id=f"prime:info:{self.guild_id}:{button_id}",
                 row=min(len(self.children) // 5, 4),
@@ -124,7 +178,12 @@ class InteractiveInfoPanel(commands.Cog):
         channel = guild.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
             raise ValueError("اختر قناة نصية موجودة في السيرفر.")
-        view = InteractiveInfoPanelView(self.bot, guild.id, config.get("buttons") or [])
+        # Validate custom emoji IDs against the current guild before contacting
+        # Discord's send-message endpoint, so an unavailable emoji gets a clear
+        # validation error instead of a generic HTTP 502.
+        for item in config.get("buttons") or []:
+            _resolve_button_emoji(self.bot, guild.id, item.get("emoji"), guild=guild, strict=True)
+        view = InteractiveInfoPanelView(self.bot, guild.id, config.get("buttons") or [], guild=guild)
         if not view.children:
             raise ValueError("أضف زرًا واحدًا على الأقل قبل النشر.")
         embed = _make_embed(config)
