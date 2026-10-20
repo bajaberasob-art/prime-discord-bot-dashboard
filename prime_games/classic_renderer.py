@@ -183,6 +183,17 @@ def _render_classic_game_sync(
             draw.ellipse((x, y, x + 42, y + 42), fill=color, outline=accent, width=2)
     status = str(session.get("status") or "active").upper()
     winner = session.get("winner_id")
-    footer = "DRAW • REMATCH?" if status == "FINISHED" and winner is None else f"WINNER • {names[players.index(int(winner))] if int(winner) in players else "WINNER"}" if winner else f"TURN • {names[players.index(int(session.get("current_player_id") or players[0]))] if int(session.get("current_player_id") or players[0]) in players else "PLAYER"}" if players else status
+    if status == "FINISHED" and winner is None:
+        footer = "DRAW • REMATCH?"
+    elif winner is not None:
+        winner_id = int(winner)
+        winner_name = names[players.index(winner_id)] if winner_id in players else "WINNER"
+        footer = f"WINNER • {winner_name}"
+    elif players:
+        current_id = int(session.get("current_player_id") or players[0])
+        current_name = names[players.index(current_id)] if current_id in players else "PLAYER"
+        footer = f"TURN • {current_name}"
+    else:
+        footer = status
     _text(draw, (600, 670), footer, 21, GREEN if winner else MUTED, anchor="mm", bold=True)
     return image
