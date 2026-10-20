@@ -915,7 +915,7 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v41";
+    return """const CACHE = "prime-dashboard-shell-v42";
 const STATIC = [
   "./",
   "./static/app.css?v=prime-auto-responder-conflicts-1",
@@ -926,10 +926,12 @@ const STATIC = [
   "./static/announcement-space.js?v=announcements-3",
   "./static/temp-voice.css?v=temp-voice-5",
   "./static/temp-voice.js?v=temp-voice-5",
+  "./static/interactive-info-panel.css?v=iip-2",
+  "./static/interactive-info-panel.js?v=iip-2",
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
-  "./static/app.js?v=prime-auto-responder-conflicts-1",
+  "./static/app.js?v=interactive-panel-render-fix-2",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",
@@ -6308,6 +6310,8 @@ async def static_asset(req):
         "announcement-space.js": "application/javascript",
         "temp-voice.css": "text/css",
         "temp-voice.js": "application/javascript",
+        "interactive-info-panel.css": "text/css",
+        "interactive-info-panel.js": "application/javascript",
         "app.js": "application/javascript",
     }
     if name not in types:
