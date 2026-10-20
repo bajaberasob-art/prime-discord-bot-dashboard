@@ -44,7 +44,7 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
             guild_id=910, channel_id=501, game_key="memory", players=self.players
         )
         cards = session["state"]["cards"]
-        first_index = 0
+        first_index = next(i for i, symbol in enumerate(cards) if symbol != "🃏")
         matching_index = cards.index(cards[first_index], first_index + 1)
 
         first = await apply_action(session["id"], self.players[0], {"index": first_index})
@@ -68,8 +68,8 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
             guild_id=919, channel_id=510, game_key="memory", players=self.players
         )
         cards = session["state"]["cards"]
-        first_index = 0
-        other_index = next(index for index, symbol in enumerate(cards) if symbol != cards[first_index])
+        first_index = next(i for i, symbol in enumerate(cards) if symbol not in {"🃏"})
+        other_index = next(index for index, symbol in enumerate(cards) if symbol not in {"🃏"} and symbol != cards[first_index])
 
         first = await apply_action(session["id"], self.players[0], {"index": first_index})
         self.assertTrue(first["ok"], first)
@@ -90,7 +90,7 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(item.custom_id for item in view.children))
         embed = _game_embed(session)
         self.assertIn("تحدّي الذاكرة", embed.title)
-        self.assertIn("❔", embed.description or "")
+        self.assertIn("Combo", embed.description or "")
 
     async def test_dice_duel_finishes_five_rounds_and_pays_existing_wallet(self):
         session = await create_session(
@@ -172,7 +172,9 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         for index, symbol in enumerate(session["state"]["cards"]):
             groups.setdefault(symbol, []).append(index)
         result = None
-        for pair in groups.values():
+        for symbol, pair in groups.items():
+            if symbol == "🃏":
+                continue
             current = await get_session(session["id"])
             actor_id = current["current_player_id"]
             first = await apply_action(session["id"], actor_id, {"index": pair[0]})
@@ -182,7 +184,7 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["finished"])
         self.assertFalse(result["is_draw"])
         self.assertEqual(result["winner_id"], self.players[0])
-        self.assertEqual(len(result["session"]["state"]["matched"]), 16)
+        self.assertEqual(len(result["session"]["state"]["matched"]), 14)
         self.assertEqual(result["reward"], 20)
         account = await database.get_or_create_user(self.players[0], 917)
         self.assertEqual(account["balance"], 120)
