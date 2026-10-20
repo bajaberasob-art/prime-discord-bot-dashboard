@@ -475,12 +475,12 @@ class MafiaTargetSelect(discord.ui.Select):
 
 
 class MafiaGame:
-    def __init__(self, cog: "Mafia", host: discord.Member, members: Sequence[discord.Member]):
+    def __init__(self, cog: "Mafia", host: discord.Member, members: Sequence[discord.Member], settings: MafiaSettings | None = None):
         self.cog = cog
         self.host_id = int(host.id)
         self.host_name = str(getattr(host, "display_name", host.name))
         self.members = list(members)
-        self.settings = MafiaSettings()
+        self.settings = settings or MafiaSettings()
         self.players: list[MafiaPlayer] = []
         self.by_id: dict[int, MafiaPlayer] = {}
         self.avatars: dict[int, Image.Image] = {}
@@ -645,6 +645,95 @@ class MafiaNominationSelect(discord.ui.Select):
         await interaction.response.send_message("تم تسجيل الترشيح.", ephemeral=True)
 
 
+
+class MafiaLobbySettingsView(discord.ui.View):
+    """Ephemeral, host-only role and rule toggles available before the lobby starts."""
+    def __init__(self, lobby: "MafiaLobbyView"):
+        super().__init__(timeout=300)
+        self.lobby = lobby
+        for role_index, role in enumerate(ROLE_ORDER):
+            button = discord.ui.Button(
+                label=ROLE_LABELS[role],
+                style=discord.ButtonStyle.success if role in lobby.mafia_settings.enabled_roles else discord.ButtonStyle.secondary,
+                row=role_index // 5,
+            )
+            button.callback = self._role_callback(role)
+            self.add_item(button)
+        for option, label in (
+            ("night_weather", "🌧️ الطقس الليلي"),
+            ("forensic_newspaper", "📰 الأدلة الجنائية"),
+            ("auto_mute", "🎙️ الميوت التلقائي"),
+        ):
+            button = discord.ui.Button(
+                label=label,
+                style=discord.ButtonStyle.success if getattr(lobby.mafia_settings, option) else discord.ButtonStyle.secondary,
+                row=2,
+            )
+            button.callback = self._option_callback(option)
+            self.add_item(button)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if int(interaction.user.id) != int(self.lobby.host.id):
+            await interaction.response.send_message("لوحة تخصيص الأدوار للمضيف فقط.", ephemeral=True)
+            return False
+        return True
+
+    def summary(self) -> str:
+        settings = self.lobby.mafia_settings
+        active = "، ".join(ROLE_LABELS[r] for r in ROLE_ORDER if r in settings.enabled_roles)
+        inactive = "، ".join(ROLE_LABELS[r] for r in ROLE_ORDER if r not in settings.enabled_roles)
+        return (f"**الأدوار المفعّلة:** {active}\n**الأدوار المعطّلة:** {inactive}\n"
+                f"🌧️ الطقس: {'ON' if settings.night_weather else 'OFF'} • "
+                f"📰 الأدلة: {'ON' if settings.forensic_newspaper else 'OFF'} • "
+                f"🎙️ الميوت: {'ON' if settings.auto_mute else 'OFF'}")
+
+    def _role_callback(self, role: str):
+        async def callback(interaction: discord.Interaction):
+            try:
+                self.lobby.mafia_settings.toggle_role(role)
+            except ValueError as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            for child in self.children:
+                if isinstance(child, discord.ui.Button) and child.label == ROLE_LABELS[role]:
+                    child.style = discord.ButtonStyle.success if role in self.lobby.mafia_settings.enabled_roles else discord.ButtonStyle.secondary
+            await interaction.response.edit_message(content=self.summary(), view=self)
+        return callback
+
+    def _option_callback(self, option: str):
+        async def callback(interaction: discord.Interaction):
+            self.lobby.mafia_settings.toggle_option(option)
+            for child in self.children:
+                if isinstance(child, discord.ui.Button):
+                    if (option == "night_weather" and child.label == "🌧️ الطقس الليلي"
+                        or option == "forensic_newspaper" and child.label == "📰 الأدلة الجنائية"
+                        or option == "auto_mute" and child.label == "🎙️ الميوت التلقائي"):
+                        child.style = discord.ButtonStyle.success if getattr(self.lobby.mafia_settings, option) else discord.ButtonStyle.secondary
+            await interaction.response.edit_message(content=self.summary(), view=self)
+        return callback
+
+
+class MafiaLobbyView(UniversalLobbyView):
+    def __init__(self, host: discord.Member, *, on_start, avatar_session=None):
+        self.mafia_settings = MafiaSettings()
+        super().__init__(
+            host, game_name="Mafia Royale",
+            rules="خصص الأدوار والميزات من زر ⚙️ المخصص للمضيف. نفّذ الأدوار سرًا ليلًا، ناقش الأدلة نهارًا، ثم صوّت للمحاكمة.",
+            on_start=on_start, min_players=MIN_PLAYERS, max_players=MAX_PLAYERS,
+            timeout=300, avatar_session=avatar_session,
+        )
+
+    @discord.ui.button(label="⚙️ تخصيص الأدوار والقواعد", style=discord.ButtonStyle.secondary, row=1)
+    async def host_setup(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if int(interaction.user.id) != int(self.host.id):
+            await interaction.response.send_message("هذه اللوحة للمضيف فقط.", ephemeral=True)
+            return
+        view = MafiaLobbySettingsView(self)
+        await interaction.response.send_message(
+            content=view.summary(), view=view, ephemeral=True
+        )
+
+
 class Mafia(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -674,7 +763,7 @@ class Mafia(commands.Cog):
             if not MIN_PLAYERS <= len(members) <= MAX_PLAYERS:
                 await lobby_interaction.followup.send(f"المافيا تحتاج من {MIN_PLAYERS} إلى {MAX_PLAYERS} لاعبًا.", ephemeral=True)
                 return
-            game = MafiaGame(self, interaction.user, members)
+            game = MafiaGame(self, interaction.user, members, settings=lobby.mafia_settings)
             async with self.lock:
                 if guild_id in self.games:
                     await lobby_interaction.followup.send("توجد مباراة نشطة بالفعل.", ephemeral=True)
@@ -694,13 +783,7 @@ class Mafia(commands.Cog):
                 f.close()
             game.message = message
 
-        lobby = UniversalLobbyView(
-            interaction.user,
-            game_name="Mafia Royale",
-            rules="مافيا ملكية: خصص الأدوار من لوحة المضيف. الليل للأدوار السرية، النهار للجريدة والترشيح والمحاكمة. من 5 إلى 15 لاعبًا.",
-            on_start=on_start, min_players=MIN_PLAYERS, max_players=MAX_PLAYERS,
-            timeout=300, avatar_session=getattr(self.bot, "session", None),
-        )
+        lobby = MafiaLobbyView(interaction.user, on_start=on_start, avatar_session=getattr(self.bot, "session", None))
         f = await lobby.render_lobby_file()
         try:
             await interaction.response.send_message(embed=lobby.lobby_embed(), file=f, view=lobby)
