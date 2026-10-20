@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import re
+import os
 import uuid
 from typing import Any
 
@@ -127,6 +128,14 @@ class InteractiveInfoPanel(commands.Cog):
         if not view.children:
             raise ValueError("أضف زرًا واحدًا على الأقل قبل النشر.")
         embed = _make_embed(config)
+        banner_file = None
+        banner_path = str(config.get("banner_file") or "").strip()
+        if banner_path:
+            if not os.path.isfile(banner_path):
+                raise ValueError("ملف البانر المحفوظ غير موجود؛ ارفع الصورة مرة أخرى.")
+            banner_name = os.path.basename(str(config.get("banner_url") or "attachment://prime-banner.png").replace("attachment://", ""))
+            banner_file = discord.File(banner_path, filename=banner_name)
+            embed.set_image(url=f"attachment://{banner_name}")
         message = None
         previous_id = config.get("message_id")
         if previous_id:
@@ -135,9 +144,9 @@ class InteractiveInfoPanel(commands.Cog):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 message = None
         if message is not None:
-            await message.edit(embed=embed, view=view, content=None)
+            await message.edit(embed=embed, view=view, content=None, attachments=[banner_file] if banner_file else [])
         else:
-            message = await channel.send(embed=embed, view=view)
+            message = await channel.send(embed=embed, view=view, file=banner_file)
         config["message_id"] = str(message.id)
         config["channel_id"] = str(channel.id)
         pinned = False
