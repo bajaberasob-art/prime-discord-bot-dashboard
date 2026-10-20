@@ -5,6 +5,7 @@ import asyncio
 import logging
 import random
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Sequence
 
 import discord
@@ -539,8 +540,14 @@ class MafiaGame:
                 living = [p for p in self.players if p.alive]
                 if not living:
                     break
+                if self.settings.auto_mute:
+                    await self._apply_voice_mutes(night=True)
                 if self.message:
-                    await self.message.edit(embed=discord.Embed(title=f"🌑 الليل الدامس — ليلة {self.day_number}", description="تتحرك المافيا في الظلام…", color=discord.Color.dark_purple()), attachments=[image_to_file(render_mafia_board(self.players, phase="night", headline="الليل الدامس", avatars=self.avatars), "mafia-night.png")], view=MafiaActionView(self, phase="night"))
+                    night_file = image_to_file(render_mafia_board(self.players, phase="night", headline="الليل الدامس", avatars=self.avatars), "mafia-night.png")
+                    try:
+                        await self.message.edit(embed=discord.Embed(title=f"🌑 الليل الدامس — ليلة {self.day_number}", description="تتحرك المافيا في الظلام…", color=discord.Color.dark_purple()), attachments=[night_file], view=MafiaActionView(self, phase="night"))
+                    finally:
+                        night_file.close()
                 view = MafiaActionView(self, phase="night")
                 # Wait for all enabled living roles to submit an action, or end the night after 90 seconds.
                 required = {
@@ -583,6 +590,15 @@ class MafiaGame:
                     silenced_target=silenced_target, veteran_targets=veteran_targets,
                     veteran_visitors=veteran_visitors, vigilante_target=vigilante_target,
                 )
+                for event in result["events"]:
+                    if event.startswith("investigation:"):
+                        _, detective_id, verdict = event.split(":", 2)
+                        detective = self.by_id.get(int(detective_id))
+                        if detective:
+                            try:
+                                await detective.member.send("🔍 نتيجة تحقيقك: " + ("المشتبه به يبدو من المافيا." if verdict == "mafia" else "المشتبه به يبدو بريئًا."))
+                            except (discord.HTTPException, AttributeError):
+                                logger.debug("Could not DM investigation result", exc_info=True)
                 dead = [p for p in self.players if p.user_id in result["deaths"]]
                 clue = random.choice(["شوهد شخص يهرب من قرب الساحة.", "آثار أقدام تتجه نحو المستودع.", "مصباح الشارع انطفأ أثناء الجريمة."]) if self.settings.forensic_newspaper else "لا توجد أدلة جنائية الليلة."
                 wills = "\n".join(f"📜 وصية {p.name}: {p.will}" for p in dead if p.will)
@@ -592,7 +608,14 @@ class MafiaGame:
                     await self.message.edit(content=self.last_newspaper, attachments=[f], view=MafiaActionView(self, phase="day"))
                     f.close()
                 if self.settings.auto_mute:
-                    await self._apply_voice_mutes()
+                    await self._apply_voice_mutes(night=False)
+                for player in self.players:
+                    if player.alive and player.silenced:
+                        try:
+                            await player.member.timeout(timedelta(seconds=60), reason="Mafia Royale: Silencer role")
+                        except (discord.Forbidden, discord.HTTPException, AttributeError):
+                            logger.debug("Could not enforce text silence for %s", player.user_id, exc_info=True)
+                        player.silenced = False
                 if check_victory(self.players):
                     await self.end_game(check_victory(self.players) or "town")
                     return
@@ -640,18 +663,18 @@ class MafiaGame:
         if self.message:
             await self.message.edit(content=f"نتيجة المحاكمة: إعدام {result['execute_votes']} — براءة {result['spare_votes']}.", view=None)
 
-    async def _apply_voice_mutes(self) -> None:
-        # Voice mute applies only to members currently connected to voice; text silence is separately tracked.
+    async def _apply_voice_mutes(self, *, night: bool = False) -> None:
+        # Voice mute is best-effort and only affects members currently connected to voice.
         for player in self.players:
             member = player.member
-            if not player.alive and getattr(member, "voice", None) and member.voice.channel:
-                try:
-                    await member.edit(mute=True, reason="Mafia Royale: eliminated player")
-                except (discord.Forbidden, discord.HTTPException):
-                    logger.debug("Could not mute eliminated player %s", player.user_id, exc_info=True)
-        for player in self.players:
-            if player.alive and player.silenced:
-                player.silenced = False
+            voice = getattr(member, "voice", None)
+            if not voice or not voice.channel:
+                continue
+            desired = (night and player.alive) or not player.alive
+            try:
+                await member.edit(mute=desired, reason="Mafia Royale: night/dead-player voice mute")
+            except (discord.Forbidden, discord.HTTPException, AttributeError):
+                logger.debug("Could not apply voice mute to %s", player.user_id, exc_info=True)
 
     async def end_game(self, winner: str) -> None:
         self.finished = True
