@@ -61,7 +61,7 @@ def resolve_heist_stage(state:HeistState,decisions:Mapping[int,str],*,rng:random
     final=state.stage==3
     choices={p.user_id:normalize_decision(decisions.get(p.user_id,"cooperate"),final_stage=final) for p in active}
     coop=sum(v=="cooperate" for v in choices.values())
-    heat=min(100,state.heat+STAGE_HEAT[state.stage])
+    heat=min(100,state.heat+STAGE_HEAT[state.stage]+max(0,coop-1)*5)
     chance=max(.15,min(.92,.86-state.heat/150+coop*.025))
     success=(rng.random()<chance) if stage_success is None else bool(stage_success)
     if heat>=100:success=False
@@ -72,9 +72,10 @@ def resolve_heist_stage(state:HeistState,decisions:Mapping[int,str],*,rng:random
         p.decision=choices[p.user_id]
         if p.decision=="withdraw":p.status="withdrawn";withdrawn.append(p.user_id)
     # Withdrawals receive and remove their guaranteed equal share.
+    withdrawal_share=state.loot//max(1,len(active))
     for p in active:
         if p.user_id in withdrawn:
-            share=state.loot//max(1,len(active));p.payout+=share;state.loot=max(0,state.loot-share)
+            p.payout+=withdrawal_share;state.loot=max(0,state.loot-withdrawal_share)
     arrested=[]
     betrayers=[uid for uid,v in choices.items() if v=="betray"]
     if not success or state.heat>=100:
@@ -167,7 +168,7 @@ class HeistBoardView(discord.ui.View):
         if p.decision is not None:await interaction.response.send_message("تم تسجيل قرارك بالفعل لهذه المرحلة.",ephemeral=True);return
         view=HeistDecisionView(self.game,p.user_id)
         if self.game.state.stage!=3:view.betray.disabled=True
-        await interaction.response.send_message("المرحلة {}/4: اختر سرًا. الغنيمة الحالية $"+format(self.game.state.loot,",")+" والإنذار {}%.".format(self.game.state.stage+1,self.game.state.heat),view=view,ephemeral=True)
+        await interaction.response.send_message("المرحلة {}/4: اختر سرًا. الغنيمة الحالية $".format(self.game.state.stage+1)+format(self.game.state.loot,",")+" والإنذار {}%.".format(self.game.state.heat),view=view,ephemeral=True)
 
 class BankHeistGame:
     def __init__(self,cog:"BankHeist",members:Sequence[object]):
