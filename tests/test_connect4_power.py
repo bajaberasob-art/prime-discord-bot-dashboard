@@ -88,9 +88,14 @@ class Connect4RulesTests(unittest.TestCase):
         result = apply_move(state, 1, 3, power="disk_bomb", used_powers=used)
         self.assertIn("disk_bomb", used)
         self.assertTrue(result["removed"])
-        for r in range(4, 6):
+        # The explosion is centered on the newly landed disk, not on
+        # the bottom of the column when the center column is already stacked.
+        center_row = int(result["row"])
+        for r in range(max(0, center_row - 1), min(6, center_row + 2)):
             for c in range(2, 5):
                 self.assertEqual(state.board[r][c], 0)
+        # A disk outside the 3x3 blast radius must remain untouched.
+        self.assertEqual(state.board[5][2], 1)
 
     def test_each_power_is_single_use(self):
         state = Connect4State()
