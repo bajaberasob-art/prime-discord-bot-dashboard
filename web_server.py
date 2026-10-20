@@ -915,7 +915,7 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v41";
+    return """const CACHE = "prime-dashboard-shell-v42";
 const STATIC = [
   "./",
   "./static/app.css?v=prime-auto-responder-conflicts-1",
@@ -926,10 +926,12 @@ const STATIC = [
   "./static/announcement-space.js?v=announcements-3",
   "./static/temp-voice.css?v=temp-voice-5",
   "./static/temp-voice.js?v=temp-voice-5",
+  "./static/interactive-info-panel.css?v=iip-2",
+  "./static/interactive-info-panel.js?v=iip-2",
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
-  "./static/app.js?v=prime-auto-responder-conflicts-1",
+  "./static/app.js?v=interactive-panel-render-fix-2",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",
@@ -1242,24 +1244,27 @@ async def guild_meta(guild) -> dict:
             "position": int(getattr(role, "position", 0)),
             "assignable": bool(top and role < top and not role.managed),
         })
+    # Gateway-cached assets are already authoritative for this connected bot.
+    # Do not hit Discord's REST API for stickers/emojis on every dashboard meta
+    # refresh; fall back to REST only when the cache is actually empty.
     stickers = list(getattr(guild, "stickers", ()) or ())
     fetch_stickers = getattr(guild, "fetch_stickers", None)
-    if fetch_stickers is not None:
+    if not stickers and callable(fetch_stickers):
         try:
             fetched_stickers = await fetch_stickers()
             if fetched_stickers:
                 stickers = list(fetched_stickers)
         except (discord.Forbidden, discord.HTTPException):
-            logger.debug("Unable to refresh stickers for guild %s", guild.id, exc_info=True)
+            logger.debug("Unable to fetch stickers for guild %s", guild.id, exc_info=True)
     emojis = list(getattr(guild, "emojis", ()) or ())
     fetch_emojis = getattr(guild, "fetch_emojis", None)
-    if fetch_emojis is not None:
+    if not emojis and callable(fetch_emojis):
         try:
             fetched_emojis = await fetch_emojis()
             if fetched_emojis:
                 emojis = list(fetched_emojis)
         except (discord.Forbidden, discord.HTTPException):
-            logger.debug("Unable to refresh emojis for guild %s", guild.id, exc_info=True)
+            logger.debug("Unable to fetch emojis for guild %s", guild.id, exc_info=True)
     members = [
         {
             "id": str(member.id),
@@ -1314,18 +1319,35 @@ async def guild_meta(guild) -> dict:
     }
 
 
+_CHANNEL_FETCH_NEXT_ALLOWED: dict[int, float] = {}
+_CHANNEL_FETCH_LOCKS: dict[int, asyncio.Lock] = {}
+_CHANNEL_FETCH_COOLDOWN_SECONDS = 60.0
+
+
 async def dashboard_channels(guild) -> list[dict]:
-    """Return every message-capable guild channel with string snowflake IDs."""
-    cached = list(getattr(guild, "channels", ()) or ())
+    """Return message-capable channels, preferring the gateway cache.
+
+    Fetching all channels over REST on every /meta request can exhaust Discord's
+    route bucket when several dashboard widgets refresh together. Use REST only
+    if the gateway cache is empty, and serialize/cool down that fallback.
+    """
+    channels = list(getattr(guild, "channels", ()) or ())
     fetch_channels = getattr(guild, "fetch_channels", None)
-    channels = cached
-    if callable(fetch_channels):
-        try:
-            fetched = list(await fetch_channels())
-            if fetched:
-                channels = fetched
-        except (discord.Forbidden, discord.HTTPException, asyncio.TimeoutError):
-            logger.debug("Unable to refresh channel list for guild %s", guild.id, exc_info=True)
+    if not channels and callable(fetch_channels):
+        guild_id = int(guild.id)
+        lock = _CHANNEL_FETCH_LOCKS.setdefault(guild_id, asyncio.Lock())
+        async with lock:
+            # Another concurrent request may have populated the gateway cache.
+            channels = list(getattr(guild, "channels", ()) or ())
+            now = time.monotonic()
+            if not channels and now >= _CHANNEL_FETCH_NEXT_ALLOWED.get(guild_id, 0.0):
+                _CHANNEL_FETCH_NEXT_ALLOWED[guild_id] = now + _CHANNEL_FETCH_COOLDOWN_SECONDS
+                try:
+                    fetched = list(await fetch_channels())
+                    if fetched:
+                        channels = fetched
+                except (discord.Forbidden, discord.HTTPException, asyncio.TimeoutError):
+                    logger.debug("Unable to fetch channel list for guild %s", guild_id, exc_info=True)
 
     channels = [
         channel for channel in channels
@@ -6308,6 +6330,8 @@ async def static_asset(req):
         "announcement-space.js": "application/javascript",
         "temp-voice.css": "text/css",
         "temp-voice.js": "application/javascript",
+        "interactive-info-panel.css": "text/css",
+        "interactive-info-panel.js": "application/javascript",
         "app.js": "application/javascript",
     }
     if name not in types:

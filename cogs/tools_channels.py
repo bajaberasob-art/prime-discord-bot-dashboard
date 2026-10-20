@@ -112,10 +112,22 @@ class ToolsChannelsCog(commands.Cog):
         payload["ephemeral"] = ephemeral or policy.get("response_style") == "silent"
         message = None
         try:
+            # discord.py rejects an explicitly supplied `view=None`. Only
+            # include the keyword when a real View was provided.
+            view_kwargs = {"view": view} if view is not None else {}
             if interaction.response.is_done():
-                message = await interaction.followup.send(wait=True, allowed_mentions=discord.AllowedMentions.none(), view=view, **payload)
+                message = await interaction.followup.send(
+                    wait=True,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                    **view_kwargs,
+                    **payload,
+                )
             else:
-                await interaction.response.send_message(allowed_mentions=discord.AllowedMentions.none(), view=view, **payload)
+                await interaction.response.send_message(
+                    allowed_mentions=discord.AllowedMentions.none(),
+                    **view_kwargs,
+                    **payload,
+                )
                 with contextlib.suppress(discord.HTTPException, discord.NotFound):
                     message = await interaction.original_response()
         except (discord.Forbidden, discord.HTTPException, discord.NotFound, discord.InteractionResponded):
