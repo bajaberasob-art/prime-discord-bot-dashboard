@@ -314,21 +314,18 @@ class RoyaleTurnView(discord.ui.View):
             if value == "none":
                 await interaction.response.send_message("لا يوجد هدف متاح.", ephemeral=True)
                 return
-            # Keep the skill selected by the player; the same menu serves
-            # elimination, revival, and fate-link targeting.
-            if self.action == "heal":
-                if self.game.players[int(value)].alive:
-                    await interaction.response.send_message("اختر لاعبًا مطرودًا لإنعاشه.", ephemeral=True)
-                    return
-            elif self.action in {"eliminate", "chain"}:
-                if not self.game.players[int(value)].alive or int(value) == self.target_id:
-                    await interaction.response.send_message("هذا الهدف غير متاح لهذا القرار.", ephemeral=True)
-                    return
-            else:
-                await interaction.response.send_message("اختر مهارة أولًا.", ephemeral=True)
+            if self.action not in {"eliminate", "gamble", "breaker"}:
+                await interaction.response.send_message("اختر مهارة تتطلب هدفًا أولًا.", ephemeral=True)
+                return
+            chosen = self.game.players[int(value)]
+            if not chosen.alive or int(value) == self.target_id:
+                await interaction.response.send_message("هذا الهدف غير متاح.", ephemeral=True)
+                return
+            if self.action == "breaker" and not chosen.shield:
+                await interaction.response.send_message("اختر لاعبًا يحمل درعًا لكسره.", ephemeral=True)
                 return
             self.choice_id = int(value)
-            labels = {"eliminate": "للطرد", "heal": "للإنعاش", "chain": "لربط المصير"}
+            labels = {"eliminate": "للإقصاء", "gamble": "للمقامرة", "breaker": "لكسر الدرع"}
             await interaction.response.send_message(
                 f"تم تحديد <@{self.choice_id}> {labels.get(self.action, 'كهدف')}. "
                 "اضغط تأكيد القرار خلال الوقت المتبقي.",
@@ -339,11 +336,11 @@ class RoyaleTurnView(discord.ui.View):
 
     def _build_skill_buttons(self) -> None:
         specs = [
-            ("shield", "🛡️ الدرع", discord.ButtonStyle.success),
-            ("heal", "❤️ إنعاش", discord.ButtonStyle.primary),
-            ("chain", "🔗 ربط المصير", discord.ButtonStyle.secondary),
-            ("reverse", "🔄 مقامرة عكسية", discord.ButtonStyle.danger),
-            ("inspect", "🔍 فحص الأسرار", discord.ButtonStyle.secondary),
+            ("eliminate", "إقصاء", discord.ButtonStyle.danger),
+            ("shield", "تفعيل درع", discord.ButtonStyle.success),
+            ("gamble", "مقامرة 50/50", discord.ButtonStyle.primary),
+            ("breaker", "كاسر الدروع", discord.ButtonStyle.danger),
+            ("pass", "تمرير العجلة", discord.ButtonStyle.secondary),
         ]
         for index, (skill, label, style) in enumerate(specs):
             button = discord.ui.Button(label=label, style=style, row=1 + index // 3)
@@ -378,59 +375,35 @@ class RoyaleTurnView(discord.ui.View):
                 player.used_skills.add(skill)
                 player.shield = True
                 self.resolved = True
-                await interaction.response.send_message("🛡️ فُعّل الدرع. سيحميك من محاولة طرد واحدة في الجولة القادمة.", ephemeral=True)
+                await interaction.response.send_message("تم تفعيل درعك للجولة القادمة.", ephemeral=True)
                 await self.game.resolve_turn(self.target_id, action="shield")
                 self.stop()
                 return
-            if skill == "inspect":
+            if skill == "pass":
                 player.used_skills.add(skill)
                 self.resolved = True
-                next_target = choose_target(self.game.alive_ids, excluded_id=self.target_id)
-                shielded = [f"<@{p.user_id}>" for p in self.game.players.values()
-                            if p.alive and p.shield and p.user_id != self.target_id]
-                info = f"المستهدف المحتمل التالي: <@{next_target}>" if next_target else "لا يوجد مستهدف آخر."
-                info += "\nأصحاب الدروع: " + (", ".join(shielded) if shielded else "لا أحد")
-                await interaction.response.send_message("🔍 **نتيجة الفحص**\n" + info, ephemeral=True)
-                await self.game.resolve_turn(self.target_id, action="inspect")
-                self.stop()
-                return
-            if skill == "reverse":
-                player.used_skills.add(skill)
-                self.resolved = True
-                await interaction.response.send_message("🔄 بدأت المقامرة العكسية؛ سيتم إعلان النتيجة في لوحة اللعبة.", ephemeral=True)
-                await self.game.resolve_turn(self.target_id, action="reverse")
+                await interaction.response.send_message("تمرير العجلة وإعادة تدويرها الآن.", ephemeral=True)
+                await self.game.resolve_turn(self.target_id, action="pass")
                 self.stop()
                 return
             self.action = skill
             self.choice_id = None
-            # Reconfigure the existing select to match the selected skill.
             select = next((item for item in self.children if isinstance(item, discord.ui.Select)), None)
             if select is not None:
-                if skill == "heal":
-                    candidates = [p for p in self.game.players.values() if not p.alive]
-                    placeholder = "اختر لاعبًا مطرودًا لإنعاشه"
-                else:
-                    candidates = [p for p in self.game.players.values() if p.alive and p.user_id != self.target_id]
-                    placeholder = "اختر خصمًا لربط المصير به"
+                candidates = [p for p in self.game.players.values() if p.alive and p.user_id != self.target_id
+                              and (skill != "breaker" or p.shield)]
                 select.options = [discord.SelectOption(label=p.name[:100], value=str(p.user_id))
-                                  for p in candidates[:25]] or [discord.SelectOption(label="لا توجد خيارات", value="none")]
-                select.placeholder = placeholder
-            await interaction.response.send_message(
-                "اختر الهدف من القائمة ثم اضغط **تأكيد القرار** قبل انتهاء الوقت.", ephemeral=True
-            )
+                                  for p in candidates[:25]] or [discord.SelectOption(label="لا توجد أهداف", value="none")]
+                select.placeholder = {"eliminate": "اختر خصمًا للإقصاء", "gamble": "اختر خصمًا للمقامرة",
+                                      "breaker": "اختر لاعبًا مدرعًا"}.get(skill, "اختر هدفًا")
+            await interaction.response.send_message("اختر الهدف ثم أكد القرار قبل انتهاء المهلة.", ephemeral=True)
         return callback
 
     async def _confirm(self, interaction: discord.Interaction) -> None:
         if not await self._authorize(interaction):
             return
-        if self.action in {"heal", "chain"} and self.choice_id is None:
+        if self.action in {"eliminate", "gamble", "breaker"} and self.choice_id is None:
             await interaction.response.send_message("اختر هدفًا من القائمة أولًا.", ephemeral=True)
-            return
-        if self.action == "eliminate" and self.choice_id is None:
-            await interaction.response.send_message("اختر لاعبًا للطرد أولًا.", ephemeral=True)
-            return
-        if self.action == "heal" and self.choice_id is not None and self.game.players[self.choice_id].alive:
-            await interaction.response.send_message("هذا اللاعب ليس مطرودًا؛ حدّث اختيارك.", ephemeral=True)
             return
         self.resolved = True
         await interaction.response.defer(ephemeral=True)
@@ -557,6 +530,23 @@ class RouletteRoyaleGame:
             await asyncio.sleep(SPIN_FRAME_DELAY)
         await self._update_board(f"توقفت العجلة على <@{target_id}>!", target_id=target_id)
 
+    async def _reroll_target(self, target_id: int) -> None:
+        if self.finished or target_id not in self.alive_ids:
+            return
+        await self._spin(target_id)
+        self.current_target = target_id
+        view = RoyaleTurnView(self, target_id)
+        self._turn_view = view
+        await self._update_board(f"الدور ينتقل إلى <@{target_id}>! أمامك {TURN_SECONDS} ثانية.",
+                                 target_id=target_id, view=view)
+        try:
+            await asyncio.wait_for(self._wait_until_turn_resolved(view), timeout=TURN_SECONDS + 1)
+        except asyncio.TimeoutError:
+            if not view.resolved:
+                view.resolved = True
+                await self.resolve_turn(target_id, action="timeout")
+        view.stop()
+
     async def run(self) -> None:
         try:
             while not self.finished and len(self.alive_ids) > 1:
@@ -624,25 +614,46 @@ class RouletteRoyaleGame:
                 message = f"⏰ انتهى الوقت! {'انكسر الدرع وأنقذ' if broken else 'تم طرد'} <@{target_id}>."
             elif action == "shield":
                 message = f"🛡️ <@{target_id}> فعّل الدرع، وسيصد محاولة طرد واحدة في الجولة القادمة."
-            elif action == "inspect":
-                message = f"🔍 <@{target_id}> استخدم فحص الأسرار."
+            elif action == "pass":
+                actor.used_skills.add("pass")
+                candidates = [uid for uid in self.alive_ids if uid != target_id]
+                if candidates:
+                    next_target = random.choice(candidates)
+                    message = f"تم تمرير العجلة؛ الدور ينتقل إلى <@{next_target}>."
+                    asyncio.create_task(self._reroll_target(next_target))
+                else:
+                    message = "لا يوجد لاعب آخر لإعادة تدوير العجلة."
             elif action == "eliminate":
                 if choice_id is None or choice_id not in self.players or not self.players[choice_id].alive or choice_id == target_id:
-                    # Invalid or stale selection defaults to self-elimination, preventing a free turn.
                     eliminated, broken = apply_eliminations(self.players, [target_id])
-                    message = f"⚠️ الهدف لم يعد متاحًا؛ {'انكسر درعك' if broken else 'تم طردك'}."
+                    message = "الهدف غير صالح؛ تم تطبيق عقوبة الدور."
                 else:
+                    actor.used_skills.add("eliminate")
                     eliminated, broken = apply_eliminations(self.players, [choice_id])
-                    message = f"⚔️ <@{target_id}> اختار طرد <@{choice_id}>."
-            elif action == "heal":
-                if choice_id is None or choice_id not in self.players or self.players[choice_id].alive:
-                    message = "❤️ لم يعد هدف الإنعاش متاحًا؛ لم تُستهلك المهارة."
+                    message = f"<@{target_id}> اختار إقصاء <@{choice_id}>."
+            elif action == "breaker":
+                if choice_id is None or choice_id not in self.players or not self.players[choice_id].alive or not self.players[choice_id].shield:
+                    eliminated, broken = apply_eliminations(self.players, [target_id])
+                    message = "لم يعد الهدف مدرعًا؛ فشل كاسر الدروع."
                 else:
-                    self.players[choice_id].alive = True
+                    actor.used_skills.add("breaker")
                     self.players[choice_id].shield = False
-                    self.alive_ids.append(choice_id)
-                    actor.used_skills.add("heal")
-                    message = f"❤️ <@{target_id}> أعاد <@{choice_id}> إلى المنافسة!"
+                    self.players[choice_id].alive = False
+                    eliminated = [choice_id]
+                    message = f"كاسر الدروع اخترق درع <@{choice_id}> وأقصاه."
+            elif action == "gamble":
+                if choice_id is None or choice_id not in self.players or not self.players[choice_id].alive or choice_id == target_id:
+                    eliminated, broken = apply_eliminations(self.players, [target_id])
+                    message = "هدف المقامرة غير صالح؛ انقلبت المخاطرة عليك."
+                else:
+                    actor.used_skills.add("gamble")
+                    if random.random() < 0.5:
+                        eliminated, broken = apply_eliminations(self.players, [choice_id])
+                        actor.shield = True
+                        message = f"نجحت المقامرة: أُقصي <@{choice_id}> وحصلت على درع."
+                    else:
+                        eliminated, broken = apply_eliminations(self.players, [target_id])
+                        message = f"فشلت المقامرة؛ أُقصي <@{target_id}>."
             elif action == "chain":
                 if choice_id is None or choice_id not in self.players or not self.players[choice_id].alive or choice_id == target_id:
                     message = "🔗 لم يعد هدف الربط متاحًا؛ لم تُستهلك المهارة."
