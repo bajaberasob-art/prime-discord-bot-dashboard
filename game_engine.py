@@ -403,6 +403,34 @@ def draw_glow_panel(
                                              fill=fill, outline=glow or outline, width=width)
 
 
+def draw_radial_glow(
+    image: Image.Image,
+    center: tuple[int, int],
+    radius: int,
+    *,
+    color: str = "#ffca60",
+    max_alpha: int = 96,
+    blur: int = 20,
+) -> None:
+    """Composite a smooth radial glow for premium game panels and winner portraits."""
+    radius = max(1, min(int(radius), max(image.size)))
+    scale = 3
+    layer = Image.new("RGBA", (radius * 2 // scale + 2, radius * 2 // scale + 2), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    rgb = tuple(int(color[index:index + 2], 16) for index in (1, 3, 5))
+    cx = cy = layer.width // 2
+    for r in range(max(1, radius // scale), 0, -1):
+        alpha = int(max_alpha * (1 - r / max(1, radius // scale)) ** 2)
+        if alpha:
+            draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=(*rgb, alpha))
+    layer = layer.resize((radius * 2, radius * 2), Image.Resampling.BICUBIC)
+    if blur:
+        layer = layer.filter(ImageFilter.GaussianBlur(max(1, int(blur))))
+    x = int(center[0] - radius)
+    y = int(center[1] - radius)
+    image.alpha_composite(layer, (x, y))
+
+
 def draw_status_avatar(
     image: Image.Image,
     avatar: Image.Image,
