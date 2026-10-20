@@ -84,7 +84,7 @@ class MusicalChairsRenderingTests(unittest.TestCase):
         self.assertEqual(image.size, (1240, 760))
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
-        self.assertTrue(buffer.getvalue().startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertTrue(buffer.getvalue().startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_board_renders_png_compatible_image_for_music_phase(self):
         image = render_musical_chairs_image(
