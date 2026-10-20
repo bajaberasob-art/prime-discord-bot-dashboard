@@ -9,6 +9,7 @@ import asyncio
 import io
 import logging
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Awaitable, Callable, Sequence
 
@@ -44,6 +45,7 @@ DEFAULT_FONT_CANDIDATES = (
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
+@lru_cache(maxsize=64)
 def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     """Load an available project/system font and fall back to Pillow's bitmap font."""
     candidates = []
@@ -119,7 +121,7 @@ def draw_arabic_text(
         try:
             if features.check("raqm"):
                 # Let libraqm handle shaping and bidi exactly once. Do not pre-reorder.
-                draw.text(xy, raw_text, direction="rtl", language="ar", **options)
+                draw.text(xy, raw_text, direction=direction or "rtl", language="ar", **options)
                 return
         except (AttributeError, TypeError, ValueError, OSError):
             logger.debug("Native Arabic rendering unavailable; trying compatibility path", exc_info=True)
@@ -130,6 +132,89 @@ def draw_arabic_text(
     except (TypeError, ValueError, OSError):
         logger.debug("Pillow rejected styled text options; using basic text", exc_info=True)
         draw.text(xy, shaped, font=text_font, fill=fill)
+
+\n
+def fit_text(
+    value: object,
+    max_width: int,
+    *,
+    font_size: int = 22,
+    min_font_size: int = 12,
+    bold: bool = False,
+) -> tuple[str, ImageFont.ImageFont]:
+    """Return sanitized text and the largest cached font that fits a pixel width.
+
+    The helper is useful for untrusted Discord display names, where a single
+    very long name must not spill into neighboring cards.
+    """
+    text = _safe_text(value)
+    max_width = max(1, int(max_width))
+    min_size = max(8, int(min_font_size))
+    size = max(min_size, int(font_size))
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    while size > min_size:
+        font = _font(size, bold)
+        try:
+            if probe.textlength(text, font=font) <= max_width:
+                return text, font
+        except (TypeError, ValueError, OSError):
+            break
+        size -= 1
+    font = _font(min_size, bold)
+    try:
+        if probe.textlength(text, font=font) <= max_width:
+            return text, font
+    except (TypeError, ValueError, OSError):
+        return text[: max(1, max_width // max(1, min_size // 2))], font
+
+    # Truncate by characters until the ellipsis also fits. Pillow's native
+    # RAQM path measures the original logical string, matching draw_arabic_text.
+    ellipsis = "…"
+    candidate = text
+    while candidate:
+        candidate = candidate[:-1]
+        shortened = candidate + ellipsis
+        try:
+            if probe.textlength(shortened, font=font) <= max_width:
+                return shortened, font
+        except (TypeError, ValueError, OSError):
+            break
+    return ellipsis, font
+
+
+def draw_progress_bar(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int, int, int],
+    value: float,
+    *,
+    maximum: float = 100.0,
+    track: str = PANEL_EDGE,
+    fill: str = CYAN,
+    radius: int = 8,
+    outline: str | None = None,
+) -> None:
+    """Draw a clamped, rounded progress bar for timers, scores or lobby capacity."""
+    x1, y1, x2, y2 = (int(part) for part in xy)
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError("progress_bar_bounds_must_have_positive_area")
+    maximum = float(maximum)
+    if maximum <= 0:
+        raise ValueError("progress_bar_maximum_must_be_positive")
+    ratio = max(0.0, min(1.0, float(value) / maximum))
+    radius = max(0, min(int(radius), (x2 - x1) // 2, (y2 - y1) // 2))
+    draw.rounded_rectangle((x1, y1, x2, y2), radius=radius, fill=track, outline=outline)
+    inset = 2
+    inner_x1, inner_y1 = x1 + inset, y1 + inset
+    inner_x2, inner_y2 = x2 - inset, y2 - inset
+    usable_width = max(0, inner_x2 - inner_x1)
+    filled_width = int(usable_width * ratio)
+    if filled_width <= 0 or inner_y2 <= inner_y1:
+        return
+    draw.rounded_rectangle(
+        (inner_x1, inner_y1, min(inner_x2, inner_x1 + filled_width), inner_y2),
+        radius=max(0, radius - inset),
+        fill=fill,
+    )
 
 
 def _placeholder_avatar(size: int, label: str = "?") -> Image.Image:
