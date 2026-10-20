@@ -102,6 +102,30 @@ class MafiaResolutionTests(unittest.TestCase):
         self.assertIn(ps[1].user_id, result["deaths"])
         self.assertIn("vigilante_regret", result["events"])
 
+    def test_framer_marks_target_for_investigation(self):
+        ps = players_with_roles("godfather", "framer", "detective", "citizen", "citizen")
+        result = resolve_night(ps, mafia_target=None, framed_target=ps[3].user_id)
+        self.assertTrue(ps[3].framed)
+        self.assertEqual(investigate(ps[3]), "mafia")
+        self.assertNotIn(ps[3].user_id, result["deaths"])
+
+    def test_silencer_marks_living_target(self):
+        ps = players_with_roles("godfather", "silencer", "doctor", "citizen", "detective")
+        resolve_night(ps, mafia_target=None, silenced_target=ps[3].user_id)
+        self.assertTrue(ps[3].silenced)
+
+    def test_veteran_alert_kills_visitors_twice_at_most(self):
+        ps = players_with_roles("godfather", "veteran", "doctor", "citizen", "detective")
+        veteran = ps[1]
+        result = resolve_night(
+            ps, mafia_target=veteran.user_id, veteran_targets={veteran.user_id},
+            veteran_visitors={veteran.user_id: {ps[0].user_id, ps[2].user_id}},
+        )
+        self.assertIn(ps[0].user_id, result["deaths"])
+        self.assertIn(ps[2].user_id, result["deaths"])
+        self.assertTrue(veteran.alive)
+        self.assertEqual(veteran.veteran_alerts, 1)
+
     def test_trial_tie_acquits_and_execution_awards_jester(self):
         result = tally_trial({1: "execute", 2: "spare", 3: "execute"}, candidate_id=4, living_ids={1, 2, 3, 4})
         self.assertFalse(result["executed"])
