@@ -18,7 +18,19 @@ async def api_get(req):
     ws = _context()
     _, guild = await ws.authorize(req, management_tier="admin")
     try:
-        config = await store.get_panel(guild.id) or store.validate_config(guild.id, {})
+        config = await store.get_panel(guild.id) or {
+            "guild_id": str(guild.id), "enabled": False, "channel_id": None,
+            "message_id": None, "pin_message": False, "pinned": False,
+            "title": "دليل السيرفر",
+            "description": "اختر أحد الأزرار بالأسفل لعرض المعلومات المطلوبة.",
+            "color": "#6366F1", "banner_url": "", "auto_delete_seconds": 300,
+            "buttons": [
+                {"id": "a1b2c3d4e5f6", "label": "القوانين", "emoji": "📜",
+                 "style": "primary", "response": "يرجى الالتزام بقوانين السيرفر واحترام جميع الأعضاء."},
+                {"id": "b1c2d3e4f5a6", "label": "من نحن؟", "emoji": "✦",
+                 "style": "secondary", "response": "أهلًا بك في مجتمعنا!"},
+            ],
+        }
         cog = ws.bot_ref.get_cog("InteractiveInfoPanel") if ws.bot_ref else None
         return web.json_response({
             "ok": True,
