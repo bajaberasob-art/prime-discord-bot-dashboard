@@ -1,6 +1,7 @@
 """Discord UI adapter for PRIME's shared, durable mini-game engine."""
 from __future__ import annotations
 
+import io
 import logging
 
 import discord
@@ -20,6 +21,8 @@ from prime_games.engine import (
 )
 from prime_games.registry import registry
 from cogs.card_generator import generate_xo_game_card
+from game_engine import get_circular_avatar
+from prime_games.visual_renderers import render_memory_board, render_xo_board
 
 logger = logging.getLogger("PrimeGamesCog")
 
@@ -256,43 +259,72 @@ async def _game_presentation(
     reward: int = 0,
     reward_capped: bool = False,
 ) -> tuple[discord.Embed, discord.File | None]:
-    """Render the XO card when possible; keep every other game lightweight."""
-    if session.get("game_key") != "xo":
+    """Build the text summary plus a Pillow board for the upgraded XO/memory games."""
+    game_key = str(session.get("game_key") or "")
+    if game_key not in {"xo", "memory"}:
         return _game_embed(session, reward=reward, reward_capped=reward_capped), None
 
+    players = [int(value) for value in session.get("players") or []]
+    state = session.get("state") or {}
     guild = interaction.guild
-    players = list(session.get("players") or [])
-    names: list[str] = []
-    for index, user_id in enumerate(players[:2]):
-        member = guild.get_member(int(user_id)) if guild is not None else None
-        names.append(str(member.display_name) if member is not None else f"Player {index + 1}")
+    members = [
+        guild.get_member(player_id) if guild is not None else None
+        for player_id in players[:2]
+    ]
+    names = [
+        str(getattr(member, "display_name", f"Player {index + 1}"))
+        for index, member in enumerate(members)
+    ]
     while len(names) < 2:
         names.append(f"Player {len(names) + 1}")
 
-    winner_id = session.get("winner_id")
-    winner_name = None
-    if winner_id is not None:
-        winner_name = names[players.index(int(winner_id))] if int(winner_id) in players else "Winner"
-    current_id = session.get("current_player_id")
-    current_name = names[players.index(int(current_id))] if current_id in players else "Waiting"
-
-    state = session.get("state") or {}
     try:
-        image = await generate_xo_game_card(
-            names[0],
-            names[1],
-            list(state.get("board") or [None] * 9),
-            current_name,
-            game_id=int(session["id"]),
-            winner_name=winner_name,
-            is_draw=bool(session.get("status") == "finished" and session.get("result") == "draw"),
-            reward=int(reward),
-        )
+        if game_key == "xo":
+            avatars = []
+            client_session = getattr(interaction.client, "session", None)
+            for index, member in enumerate(members):
+                if member is None:
+                    from PIL import Image
+                    avatars.append(Image.new("RGBA", (64, 64), (35, 33, 60, 255)))
+                else:
+                    avatars.append(await get_circular_avatar(
+                        member,
+                        64,
+                        session=client_session,
+                        border_color="#36e0d0" if index == 0 else "#ff5577",
+                    ))
+            image = render_xo_board(
+                state,
+                players,
+                names,
+                avatars,
+                session.get("current_player_id"),
+                session.get("winner_id"),
+                str(session.get("status") or "active"),
+            )
+            filename = "prime-infinite-neon-xo.png"
+        else:
+            image = render_memory_board(
+                state,
+                players,
+                names,
+                session.get("current_player_id"),
+                str(session.get("status") or "active"),
+            )
+            filename = "prime-visual-memory-royale.png"
+
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG", optimize=True)
+        buffer.seek(0)
         embed = _game_embed(session, reward=reward, reward_capped=reward_capped)
-        embed.set_image(url="attachment://prime-xo.png")
-        return embed, discord.File(image, filename="prime-xo.png")
+        embed.set_image(url=f"attachment://{filename}")
+        return embed, discord.File(buffer, filename=filename)
     except Exception:
-        logger.exception("Could not render XO card for session %s; using embed fallback", session.get("id"))
+        logger.exception(
+            "Could not render visual %s board for session %s; using embed fallback",
+            game_key,
+            session.get("id"),
+        )
         return _game_embed(session, reward=reward, reward_capped=reward_capped), None
 
 
