@@ -179,8 +179,18 @@ def render_musical_chairs_image(
         draw_arabic_text(draw, (x+cell_w//2, y+41), label, font=_font(10, True),
                          fill=WHITE if active or occupied else "#c0c5d0", anchor="mm")
         if occupied:
-            owner = names.get(int(occupant), str(occupant))[:10]
-            draw_arabic_text(draw, (x+cell_w//2, y+16), owner, font=_font(9, True), fill=CYAN, anchor="mm")
+            owner_id = int(occupant)
+            owner = names.get(owner_id, str(occupant))[:8]
+            owner_avatar = avatar_map.get(owner_id)
+            if owner_avatar is not None:
+                draw_status_avatar(
+                    image, owner_avatar, (x+3, y+15), 24,
+                    status="winner" if owner_id == winner_id else "shield",
+                )
+                draw = ImageDraw.Draw(image)
+                draw_arabic_text(draw, (x+cell_w//2+8, y+16), owner, font=_font(9, True), fill=CYAN, anchor="mm")
+            else:
+                draw_arabic_text(draw, (x+cell_w//2, y+16), owner, font=_font(9, True), fill=CYAN, anchor="mm")
 
     avatars = avatars or {}
     for index, player in enumerate(player_list):
