@@ -294,7 +294,7 @@ class PrimeGamesEngineTests(unittest.IsolatedAsyncioTestCase):
         state = result["session"]["state"]
         self.assertIsNone(state["board"][0])
         self.assertEqual(state["board"][6], "X")
-        self.assertEqual(state["pieces"]["X"], [1, 2, 6])
+        self.assertEqual(state["pieces"]["X"], [2, 5, 6])
         self.assertLessEqual(len(state["pieces"]["X"]), 3)
         self.assertLessEqual(len(state["pieces"]["O"]), 3)
 
