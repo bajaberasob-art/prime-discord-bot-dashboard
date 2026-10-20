@@ -94,12 +94,19 @@ def render_royale_victory(players: dict[int, RoyalePlayer], winner_id: int,
     draw_radial_glow(image, (width // 2, 315), 300, color="#ffb72e", max_alpha=96, blur=24)
     draw = ImageDraw.Draw(image)
     cx, cy = width // 2, 315
+    # Draw the rays on a separate layer and clip them to the inner frame.
+    ray_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ray_draw = ImageDraw.Draw(ray_layer)
     for i in range(32):
         angle = math.tau * i / 32
-        draw.line((cx, cy, cx + math.cos(angle) * 310, cy + math.sin(angle) * 260), fill=(255, 202, 96, 34), width=2)
+        ray_draw.line((cx, cy, cx + math.cos(angle) * 230, cy + math.sin(angle) * 200), fill=(255, 202, 96, 28), width=2)
+    ray_mask = Image.new("L", image.size, 0)
+    ImageDraw.Draw(ray_mask).rounded_rectangle((278, 183, 962, 682), radius=30, fill=255)
+    ray_layer.putalpha(Image.composite(ray_layer.getchannel("A"), Image.new("L", image.size, 0), ray_mask))
+    image.alpha_composite(ray_layer)
     winner = players.get(int(winner_id))
     name = winner.name if winner else "الفائز"
-    draw_glow_panel(image, (270, 145, 970, 690), fill=(10, 12, 28, 232), outline="#a87927", radius=34, glow="#ffca60", width=3)
+    draw_glow_panel(image, (270, 175, 970, 690), fill=(10, 12, 28, 232), outline="#a87927", radius=34, glow="#ffca60", width=3)
     draw = ImageDraw.Draw(image)
     crown = [(cx-78, 180), (cx-52, 222), (cx-20, 164), (cx+8, 218), (cx+52, 173), (cx+78, 228), (cx-78, 228)]
     draw.polygon(crown, fill="#d99a2b", outline="#fff0bd", width=4)
@@ -287,6 +294,7 @@ class RoyaleTurnView(discord.ui.View):
         self.action = "eliminate"
         self.choice_id: int | None = None
         self.resolved = False
+        self.decision_made = False
         self._build_target_select()
         self._build_skill_buttons()
 
@@ -351,8 +359,17 @@ class RoyaleTurnView(discord.ui.View):
         confirm.callback = self._confirm
         self.add_item(confirm)
 
+    def _claim_decision(self) -> bool:
+        """Atomically claim this turn before any await; timeout and clicks cannot both win."""
+        if self.decision_made or self.resolved or self.game.finished:
+            return False
+        self.decision_made = True
+        self.resolved = True
+        self.stop()
+        return True
+
     async def _authorize(self, interaction: discord.Interaction) -> bool:
-        if self.resolved or self.game.finished:
+        if self.decision_made or self.resolved or self.game.finished:
             await interaction.response.send_message("انتهى هذا الدور.", ephemeral=True)
             return False
         if int(interaction.user.id) != self.target_id:
@@ -372,19 +389,21 @@ class RoyaleTurnView(discord.ui.View):
                 await interaction.response.send_message("استخدمت هذه المهارة مسبقًا في هذه اللعبة.", ephemeral=True)
                 return
             if skill == "shield":
+                if not self._claim_decision():
+                    await interaction.response.send_message("انتهى هذا الدور بالفعل.", ephemeral=True)
+                    return
                 player.used_skills.add(skill)
                 player.shield = True
-                self.resolved = True
                 await interaction.response.send_message("تم تفعيل درعك للجولة القادمة.", ephemeral=True)
                 await self.game.resolve_turn(self.target_id, action="shield")
-                self.stop()
                 return
             if skill == "pass":
+                if not self._claim_decision():
+                    await interaction.response.send_message("انتهى هذا الدور بالفعل.", ephemeral=True)
+                    return
                 player.used_skills.add(skill)
-                self.resolved = True
                 await interaction.response.send_message("تمرير العجلة وإعادة تدويرها الآن.", ephemeral=True)
                 await self.game.resolve_turn(self.target_id, action="pass")
-                self.stop()
                 return
             self.action = skill
             self.choice_id = None
@@ -405,15 +424,16 @@ class RoyaleTurnView(discord.ui.View):
         if self.action in {"eliminate", "gamble", "breaker"} and self.choice_id is None:
             await interaction.response.send_message("اختر هدفًا من القائمة أولًا.", ephemeral=True)
             return
-        self.resolved = True
+        if not self._claim_decision():
+            await interaction.response.send_message("انتهى هذا الدور بالفعل.", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         await self.game.resolve_turn(self.target_id, action=self.action, choice_id=self.choice_id)
-        self.stop()
 
     async def on_timeout(self) -> None:
-        if self.resolved or self.game.finished:
+        # Timeout may resolve only a turn that no interaction has already claimed.
+        if not self._claim_decision():
             return
-        self.resolved = True
         await self.game.resolve_turn(self.target_id, action="timeout")
 
     async def on_error(self, interaction: discord.Interaction, error: Exception,
@@ -446,6 +466,7 @@ class RouletteRoyaleGame:
         self._turn_view: RoyaleTurnView | None = None
         self._last_eliminated: list[int] = []
         self._last_message_text: str | None = None
+        self._pending_pass_target: int | None = None
 
     async def start(self, message: discord.Message) -> None:
         self.message = message
@@ -542,8 +563,8 @@ class RouletteRoyaleGame:
         try:
             await asyncio.wait_for(self._wait_until_turn_resolved(view), timeout=TURN_SECONDS + 1)
         except asyncio.TimeoutError:
-            if not view.resolved:
-                view.resolved = True
+            # Watchdog fallback; the View timeout normally claims the turn at 15 seconds.
+            if view._claim_decision():
                 await self.resolve_turn(target_id, action="timeout")
         view.stop()
 
@@ -577,10 +598,16 @@ class RouletteRoyaleGame:
                 try:
                     await asyncio.wait_for(self._wait_until_turn_resolved(view), timeout=TURN_SECONDS + 1)
                 except asyncio.TimeoutError:
-                    if not view.resolved:
-                        view.resolved = True
+                    if view._claim_decision():
                         await self.resolve_turn(target_id, action="timeout")
                 view.stop()
+
+                # A pass rerolls serially inside the same round; no competing background task.
+                while self._pending_pass_target is not None and not self.finished and len(self.alive_ids) > 1:
+                    next_target = self._pending_pass_target
+                    self._pending_pass_target = None
+                    if next_target in self.alive_ids:
+                        await self._reroll_target(next_target)
                 self.current_target = None
                 if self.finished:
                     break
@@ -618,9 +645,8 @@ class RouletteRoyaleGame:
                 actor.used_skills.add("pass")
                 candidates = [uid for uid in self.alive_ids if uid != target_id]
                 if candidates:
-                    next_target = random.choice(candidates)
-                    message = f"تم تمرير العجلة؛ الدور ينتقل إلى <@{next_target}>."
-                    asyncio.create_task(self._reroll_target(next_target))
+                    self._pending_pass_target = random.choice(candidates)
+                    message = f"تم تمرير العجلة؛ الدور ينتقل إلى <@{self._pending_pass_target}>."
                 else:
                     message = "لا يوجد لاعب آخر لإعادة تدوير العجلة."
             elif action == "eliminate":
