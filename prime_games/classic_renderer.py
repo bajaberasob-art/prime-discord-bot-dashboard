@@ -121,6 +121,8 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
         _text(draw, (600, 585), "ROLL • READ • OUTPLAY", 18, MUTED, anchor="mm")
     elif key == "rps":
         choices = state.get("choices") or {}
+        if str(session.get("status") or "").lower() != "active" and not choices:
+            choices = (state.get("last_round") or {}).get("choices") or {}
         hp = state.get("hp") or {}
         for i, uid in enumerate(players):
             value = max(0, min(3, int(hp.get(str(uid), 3))))
