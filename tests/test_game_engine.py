@@ -284,7 +284,7 @@ class PrimeGamesEngineTests(unittest.IsolatedAsyncioTestCase):
         )
         await attach_message(session["id"], 8861)
         for player_id, square in [
-            (71, 0), (72, 3), (71, 1), (72, 4), (71, 2), (72, 5),
+            (71, 0), (72, 3), (71, 2), (72, 4), (71, 5), (72, 7),
         ]:
             result = await apply_action(session["id"], player_id, {"index": square})
             self.assertTrue(result["ok"])
