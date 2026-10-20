@@ -544,13 +544,13 @@ class MafiaGame:
                     break
                 if self.settings.auto_mute:
                     await self._apply_voice_mutes(night=True)
+                view = MafiaActionView(self, phase="night")
                 if self.message:
                     night_file = image_to_file(render_mafia_board(self.players, phase="night", headline="الليل الدامس", avatars=self.avatars), "mafia-night.png")
                     try:
-                        await self.message.edit(embed=discord.Embed(title=f"🌑 الليل الدامس — ليلة {self.day_number}", description="تتحرك المافيا في الظلام…", color=discord.Color.dark_purple()), attachments=[night_file], view=MafiaActionView(self, phase="night"))
+                        await self.message.edit(embed=discord.Embed(title=f"🌑 الليل الدامس — ليلة {self.day_number}", description="تتحرك المافيا في الظلام…", color=discord.Color.dark_purple()), attachments=[night_file], view=view)
                     finally:
                         night_file.close()
-                view = MafiaActionView(self, phase="night")
                 # Wait for all enabled living roles to submit an action, or end the night after 90 seconds.
                 required = {
                     p.user_id for p in self.players if p.alive and (
