@@ -132,7 +132,7 @@ def validate_config(guild_id: int, body: dict[str, Any], old: dict[str, Any] | N
         # Migrate a legacy decorative glyph rejected by Discord as a button emoji.
         if emoji == "✦":
             emoji = "✨"
-        if emoji and emoji.startswith("custom:") and not __import__("re").fullmatch(r"custom:\\d{15,22}", emoji):
+        if emoji and emoji.startswith("custom:") and not __import__("re").fullmatch(r"custom:\d{15,22}", emoji):
             raise ValueError("معرّف الإيموجي المخصص غير صالح؛ اختر إيموجيًا من قائمة السيرفر.")
         clean_buttons.append({"id": button_id, "label": label, "emoji": emoji, "style": style, "response": response})
     channel_id = str(body.get("channel_id", old.get("channel_id", "")) or "").strip()
