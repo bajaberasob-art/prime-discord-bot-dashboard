@@ -21,7 +21,7 @@
     ],
   });
   function mount(host, ctx) {
-    let config = defaults(), channels = [], dirty = false, busy = false;
+    let config = defaults(), channels = [], serverEmojis = [], dirty = false, busy = false;
     const cleanup = [];
     const listen = (node, event, fn) => { node.addEventListener(event, fn); cleanup.push(() => node.removeEventListener(event, fn)); };
     const input = (label, key, value, options = {}) => {
@@ -93,7 +93,18 @@
             h("button", { type: "button", class: "iip-icon-btn", text: "↑", title: "تحريك للأعلى", disabled: index === 0, onClick: () => move(-1) }),
             h("button", { type: "button", class: "iip-icon-btn", text: "↓", title: "تحريك للأسفل", disabled: index === config.buttons.length - 1, onClick: () => move(1) }),
             h("button", { type: "button", class: "iip-icon-btn danger", text: "حذف", onClick: () => { config.buttons.splice(index, 1); dirty = true; render(); } }))),
-            h("div", { class: "iip-two-col" }, field("اسم الزر", "label", { maxlength: 80 }), field("Emoji (اختياري)", "emoji")),
+            h("div", { class: "iip-two-col" }, field("اسم الزر", "label", { maxlength: 80 }), field("Emoji Unicode (اختياري)", "emoji")),
+            (() => {
+              const current = String(button.emoji || "");
+              const known = serverEmojis.some(emoji => emoji.value === current);
+              const options = [{ value: "", label: "بدون إيموجي" }];
+              if (current && !known && current.startsWith("<")) options.push({ value: current, label: "الإيموجي الحالي (غير متاح في القائمة)" });
+              options.push(...serverEmojis.map(emoji => ({ value: emoji.value, label: (emoji.animated ? "GIF " : "") + emoji.name + "  " + emoji.value })));
+              const picker = h("select", { class: "iip-input", value: current }, ...options.map(option => h("option", { value: option.value, selected: option.value === current, text: option.label })));
+              listen(picker, "change", () => { button.emoji = picker.value; dirty = true; render(); });
+              return h("label", { class: "iip-field" }, h("span", { text: "أو اختر إيموجيًا مخصصًا من السيرفر" }), picker,
+                h("small", { class: "iip-help", text: "إذا لم يظهر الإيموجي، تأكد أنه موجود في السيرفر وأن البوت يستطيع رؤيته." }));
+            })(),
             h("label", { class: "iip-field" }, h("span", { text: "لون الزر" }), style),
             field("الرد الخاص (يدعم Markdown ومنشن القنوات والرتب)", "response", { textarea: true }));
           return card;
