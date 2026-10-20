@@ -133,7 +133,6 @@ def draw_arabic_text(
         logger.debug("Pillow rejected styled text options; using basic text", exc_info=True)
         draw.text(xy, shaped, font=text_font, fill=fill)
 
-\n
 def fit_text(
     value: object,
     max_width: int,
