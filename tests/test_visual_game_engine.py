@@ -2,6 +2,7 @@ import asyncio
 import time
 import io
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 from PIL import Image, ImageChops
@@ -51,7 +52,7 @@ class VisualGameEngineTests(unittest.IsolatedAsyncioTestCase):
             time.sleep(0.15)
             return Image.new("RGB", (1200, 760), "#101020")
 
-        with unittest.mock.patch(
+        with patch(
             "prime_games.classic_renderer._render_classic_game_sync",
             side_effect=slow_renderer,
         ):
