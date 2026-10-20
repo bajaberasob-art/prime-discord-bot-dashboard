@@ -104,11 +104,11 @@ class InteractiveInfoPanel(commands.Cog):
         for config in await store.list_enabled_panels():
             self.register_view(config)
 
-    def register_view(self, config: dict[str, Any]) -> None:
+    def register_view(self, config: dict[str, Any], *, replace: bool = False) -> None:
         guild_id = int(config["guild_id"])
         message_id = int(config.get("message_id") or 0)
         key = (guild_id, message_id)
-        if not message_id or key in self._registered:
+        if not message_id or (key in self._registered and not replace):
             return
         self.bot.add_view(
             InteractiveInfoPanelView(self.bot, guild_id, config.get("buttons") or []),
@@ -138,6 +138,8 @@ class InteractiveInfoPanel(commands.Cog):
             await message.edit(embed=embed, view=view, content=None)
         else:
             message = await channel.send(embed=embed, view=view)
+        config["message_id"] = str(message.id)
+        config["channel_id"] = str(channel.id)
         pinned = False
         if config.get("pin_message"):
             try:
@@ -145,13 +147,15 @@ class InteractiveInfoPanel(commands.Cog):
                 pinned = True
             except discord.HTTPException:
                 log.warning("Could not pin interactive info panel guild=%s channel=%s", guild.id, channel.id, exc_info=True)
-                raise ValueError("تم نشر الرسالة، لكن تعذّر تثبيتها. تحقق من صلاحية Manage Messages.")
-        config["message_id"] = str(message.id)
-        config["channel_id"] = str(channel.id)
+                config["pinned"] = False
+                config["last_published_at"] = discord.utils.utcnow().isoformat()
+                await store.save_panel(guild.id, config)
+                self.register_view(config, replace=True)
+                raise ValueError("تم نشر الرسالة وتحديثها، لكن تعذّر تثبيتها. تحقق من صلاحية Manage Messages.")
         config["last_published_at"] = discord.utils.utcnow().isoformat()
         config["pinned"] = pinned
         await store.save_panel(guild.id, config)
-        self.register_view(config)
+        self.register_view(config, replace=True)
         return config
 
 
