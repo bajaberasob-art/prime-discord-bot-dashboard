@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 
 from interactive_info_store import validate_config
@@ -51,6 +53,23 @@ class InteractiveInfoPanelValidationTests(unittest.TestCase):
         body["buttons"][0]["response"] = "x" * 2001
         with self.assertRaisesRegex(ValueError, "2000"):
             validate_config(42, body)
+
+    def test_uploaded_banner_path_is_scoped_to_guild_and_upload_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["PRIME_PANEL_UPLOAD_DIR"] = directory
+            try:
+                body = self.valid_body()
+                body["banner_file"] = os.path.join(directory, "42-banner.png")
+                config = validate_config(42, body)
+                self.assertEqual(config["banner_file"], os.path.join(directory, "42-banner.png"))
+                body["banner_file"] = os.path.join(directory, "43-banner.png")
+                with self.assertRaisesRegex(ValueError, "غير صالح"):
+                    validate_config(42, body)
+                body["banner_file"] = os.path.join(directory, "..", "42-banner.png")
+                with self.assertRaisesRegex(ValueError, "غير صالح"):
+                    validate_config(42, body)
+            finally:
+                os.environ.pop("PRIME_PANEL_UPLOAD_DIR", None)
 
     def test_preserves_published_message_reference_on_draft_save(self):
         old = {"message_id": "987654321098765432", "last_published_at": "2026-10-21T00:00:00"}
