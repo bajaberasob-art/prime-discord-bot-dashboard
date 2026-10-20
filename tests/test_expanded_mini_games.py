@@ -8,7 +8,7 @@ class ExpandedMiniGameTests(unittest.TestCase):
     def setUp(self):
         self.players = [1101, 2202]
 
-    def test_registry_exposes_all_four_playable_games(self):
+    def test_registry_exposes_all_seven_playable_games(self):
         self.assertEqual(
             {game.key for game in registry.all()},
             {"xo", "connect4", "rps", "quiz", "memory", "dice", "word"},
@@ -40,6 +40,31 @@ class ExpandedMiniGameTests(unittest.TestCase):
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome.winner_id, 1101)
         self.assertEqual(outcome.state["board"][5 * 7:6 * 7], ["R", "R", "R", "R", None, "Y", "Y"])
+
+    def test_connect_four_finds_vertical_and_both_diagonal_winners(self):
+        game = registry.get("connect4")
+        winning_sequences = {
+            "vertical": [0, 1, 0, 1, 0, 2, 0],
+            "diagonal_up_right": [0, 1, 1, 2, 4, 2, 2, 3, 4, 3, 5, 3, 3],
+            "diagonal_up_left": [6, 5, 5, 4, 2, 4, 4, 3, 2, 3, 1, 3, 3],
+        }
+
+        for direction, columns in winning_sequences.items():
+            with self.subTest(direction=direction):
+                state = game.initial_state(self.players)
+                outcome = None
+                for move_index, column in enumerate(columns):
+                    player = self.players[move_index % 2]
+                    outcome = game.reduce_action(
+                        state, self.players, player, {"column": column}
+                    )
+                    state = outcome.state
+                    if outcome.winner_id is not None:
+                        break
+
+                self.assertIsNotNone(outcome)
+                self.assertEqual(outcome.winner_id, self.players[0])
+                self.assertIsNone(outcome.next_player_id)
 
     def test_connect_four_rejects_a_full_column(self):
         game = registry.get("connect4")
