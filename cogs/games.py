@@ -109,31 +109,28 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
                 description += "\n\n🤝 تعادل! اخترتما الحركة نفسها."
 
     elif game_key == "memory":
-        cards = list(state.get("cards") or [])
-        matched = {int(value) for value in state.get("matched") or []}
-        revealed = {int(value) for value in state.get("revealed") or []}
-        board_lines = []
-        for row in range(4):
-            board_lines.append("  ".join(
-                cards[index] if index in matched or index in revealed else "❔"
-                for index in range(row * 4, row * 4 + 4)
-            ))
         scores = state.get("scores") or {}
+        pairs = state.get("pairs") or {}
+        combo = state.get("combo") or {}
         description = (
-            f"🧑 <@{players[0]}>: **{int(scores.get(str(players[0]), 0))}** زوج\n"
-            f"🧑 <@{players[1]}>: **{int(scores.get(str(players[1]), 0))}** زوج\n\n"
-            + "\n".join(board_lines)
-            + f"\n\n🧩 الأزواج المكتشفة: **{len(matched) // 2}/8**"
+            f"🧑 <@{players[0]}>: **{int(scores.get(str(players[0]), 0))}** نقطة "
+            f"({int(pairs.get(str(players[0]), 0))} أزواج)\n"
+            f"🧑 <@{players[1]}>: **{int(scores.get(str(players[1]), 0))}** نقطة "
+            f"({int(pairs.get(str(players[1]), 0))} أزواج)\n\n"
+            "اكشف البطاقات من اللوحة المرئية المرفقة. كل زوج متتالٍ يرفع مضاعف الـ Combo."
         )
         if state.get("last_match") is True:
-            description += "\n✅ تطابق رائع! حصلت على زوج."
+            description += (
+                f"\n✅ تطابق! مضاعف هذه الجولة x{int(state.get('last_combo_multiplier') or 1)}."
+            )
         elif state.get("last_match") is False:
-            description += "\n👀 البطاقتان مختلفتان؛ تذكّر مكانهما."
+            description += "\n👀 لم يتطابقا؛ انخفض الـ Combo إلى الصفر."
+        elif state.get("last_match") == "trap":
+            description += "\n🃏 بطاقة فخ! أُعيد خلط بطاقتين غير مكتملتين وانكسر الـ Combo."
         if status == "active":
             description += f"\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
         elif status == "finished" and winner_id is None:
             description += "\n\n🤝 انتهت اللعبة بالتعادل."
-
     elif game_key == "dice":
         scores = state.get("scores") or {}
         description = (
