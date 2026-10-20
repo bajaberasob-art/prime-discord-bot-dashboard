@@ -184,6 +184,7 @@
         const data = await ctx.readJson(response, {});
         if (!response.ok) throw Error(data.message || "تعذر تحميل الإعدادات");
         channels = data.channels || [];
+        emojiOptions = data.emoji_options || [];
         config = { ...defaults(), ...(data.config || {}) };
         if (!Array.isArray(config.buttons)) config.buttons = [];
         render();
