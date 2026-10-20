@@ -10348,12 +10348,21 @@
     else if (view === "interactiveInfo") {
       const host = el("section", { id: "view-interactive-info" });
       main.append(host);
-      if (state.guild && window.PrimeInteractiveInfoPanel) {
+      if (!state.guild) {
+        host.append(el("div", { class: "notice", role: "status" }, 
+          el("strong", { text: "اختر سيرفرًا أولًا" }),
+          el("p", { text: "اختر سيرفر PRIME من القائمة العلوية حتى نحمّل قنواته وإعدادات لوحة الأزرار." })
+        ));
+      } else if (!window.PrimeInteractiveInfoPanel?.mount) {
+        host.append(el("div", { class: "notice", role: "alert" },
+          el("strong", { text: "تعذّر تحميل منشئ لوحة الأزرار" }),
+          el("p", { text: "ملف الواجهة التفاعلية لم يُحمّل. حدّث الصفحة؛ إذا استمرت المشكلة، افحص تحميل static/interactive-info-panel.js." })
+        ));
+      } else {
+        state.interactiveInfoCleanup?.();
         state.interactiveInfoCleanup = window.PrimeInteractiveInfoPanel.mount(host, {
           guildId: String(state.guild.id), api, writeApi, readJson, toast, getCsrf: () => state.session?.csrf || "", refreshSession,
         });
-      } else {
-        host.append(el("p", { class: "notice", text: "اختر سيرفرًا لفتح لوحة الأزرار التفاعلية." }));
       }
     }
     else if (view === "tempVoice") {
