@@ -30,6 +30,18 @@ class InteractiveInfoPanelValidationTests(unittest.TestCase):
         self.assertEqual(config["buttons"][0]["style"], "primary")
         self.assertEqual(config["auto_delete_seconds"], 300)
 
+    def test_accepts_server_custom_emoji_markup(self):
+        body = self.valid_body()
+        body["buttons"][0]["emoji"] = "<:prime_rules:123456789012345678>"
+        config = validate_config(42, body)
+        self.assertEqual(config["buttons"][0]["emoji"], "<:prime_rules:123456789012345678>")
+
+    def test_rejects_malformed_custom_emoji_markup(self):
+        body = self.valid_body()
+        body["buttons"][0]["emoji"] = "<:broken:abc>"
+        with self.assertRaisesRegex(ValueError, "صيغة الإيموجي"):
+            validate_config(42, body)
+
     def test_rejects_more_than_14_minutes(self):
         body = self.valid_body()
         body["auto_delete_seconds"] = 900
