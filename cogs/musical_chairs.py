@@ -83,6 +83,7 @@ def render_musical_chairs_image(
     winner_id: int | None = None,
     avatars: dict[int, Image.Image] | None = None,
     chair_assignments: dict[int, int] | None = None,
+    active_chair_indices: set[int] | None = None,
 ) -> Image.Image:
     """Render the game board, green chair grid, player states and winner."""
     player_list = list(players)
@@ -90,10 +91,11 @@ def render_musical_chairs_image(
     seated = {int(value) for value in seated_ids}
     eliminated = {int(value) for value in eliminated_ids}
     assignments = chair_assignments or {}
+    active_chairs = active_chair_indices or set()
     columns = 4
     rows = max(1, (len(player_list) + columns - 1) // columns)
     width = 1200
-    height = max(560, 385 + rows * 126)
+    height = max(820, 620 + rows * 108)
     if phase == "music":
         subtitle = f"ROUND {round_number} • الموسيقى تعمل 🎵"
     elif phase == "seating":
@@ -113,36 +115,58 @@ def render_musical_chairs_image(
         anchor="ra",
     )
 
-    # A visible chair grid complements the individual Discord chair buttons.
+    # Neon arena ring; player avatars orbit the dark central stage.
+    cx, cy, radius = 300, 360, 205
+    halo = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(halo).ellipse((cx-radius-12, cy-radius-12, cx+radius+12, cy+radius+12),
+                                 outline=(54, 224, 208, 180), width=10)
+    image.alpha_composite(halo.filter(ImageFilter.GaussianBlur(20)))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill="#0b1222",
+                 outline="#36e0d0" if phase == "seating" else "#8b5cf6", width=4)
+    draw.ellipse((cx-65, cy-65, cx+65, cy+65), fill="#101a2c", outline="#f7c76a", width=3)
+    draw_arabic_text(draw, (cx, cy-8), "MUSIC" if phase == "music" else "SIT!",
+                     font=_font(22, True), fill="#36e0d0" if phase == "seating" else WHITE, anchor="mm")
+    draw_arabic_text(draw, (cx, cy+22), f"{len(alive)} لاعبين", font=_font(14, True), fill=MUTED, anchor="mm")
+
+    # A visible 5x5 chair grid complements the individual Discord chair buttons.
     names = {
         int(getattr(player, "id", 0)): str(
             getattr(player, "display_name", getattr(player, "name", f"Player {getattr(player, 'id', 0)}"))
         )
         for player in player_list
     }
-    for index in range(max(0, chair_count)):
+    grid_x, grid_y, cell_w, cell_h, gap = 690, 185, 88, 55, 8
+    for index in range(25):
         column, row = index % 5, index // 5
-        x, y = 92 + column * 210, 184 + row * 78
+        x, y = grid_x + column * (cell_w + gap), grid_y + row * (cell_h + gap)
         occupant = assignments.get(index)
         occupied = occupant is not None
-        fill = "#164e35" if not occupied else "#173b50"
-        outline = CYAN if occupied else GREEN
-        draw.rounded_rectangle((x, y, x + 174, y + 61), radius=12, fill=fill, outline=outline, width=3)
-        draw.rounded_rectangle((x + 12, y + 10, x + 162, y + 34), radius=7, fill="#14532d" if not occupied else "#155e75")
-        draw.line((x + 22, y + 40, x + 22, y + 53), fill=outline, width=4)
-        draw.line((x + 152, y + 40, x + 152, y + 53), fill=outline, width=4)
-        label = f"كرسي {index + 1}"
+        active = phase == "seating" and index in active_chairs and not occupied
+        if phase == "music":
+            fill, outline = "#303744", "#737b91"
+        elif active:
+            fill, outline = "#14532d", "#4ade80"
+        elif occupied:
+            fill, outline = "#123e48", CYAN
+        else:
+            fill, outline = "#202735", "#4b5563"
+        draw.rounded_rectangle((x, y, x+cell_w, y+cell_h), radius=9, fill=fill, outline=outline, width=3 if active or occupied else 2)
+        draw.rounded_rectangle((x+8, y+7, x+cell_w-8, y+27), radius=5,
+                               fill="#166534" if active else "#1f2937")
+        label = f"كرسي {index+1}" if not occupied else "محجوز"
+        draw_arabic_text(draw, (x+cell_w//2, y+41), label, font=_font(10, True),
+                         fill=WHITE if active or occupied else "#c0c5d0", anchor="mm")
         if occupied:
-            owner = names.get(int(occupant), str(occupant))[:15]
-            label = f"{label} • {owner}"
-        draw_arabic_text(draw, (x + 87, y + 46), label, font=_font(12, True), fill=WHITE, anchor="mm")
+            owner = names.get(int(occupant), str(occupant))[:10]
+            draw_arabic_text(draw, (x+cell_w//2, y+16), owner, font=_font(9, True), fill=CYAN, anchor="mm")
 
     avatars = avatars or {}
     for index, player in enumerate(player_list):
         user_id = int(getattr(player, "id", 0))
         name = str(getattr(player, "display_name", getattr(player, "name", f"Player {user_id}")))
         column, row = index % columns, index // columns
-        x, y = 54 + column * 278, 350 + row * 126
+        x, y = 54 + column * 278, 620 + row * 108
         is_alive = user_id in alive
         if user_id == winner_id:
             outline, status, status_color = GREEN, "الفائز 🏆", GREEN
