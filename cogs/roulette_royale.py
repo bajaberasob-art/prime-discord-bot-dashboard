@@ -483,7 +483,7 @@ class RouletteRoyaleGame:
     async def start(self, message: discord.Message) -> None:
         self.message = message
         await self._load_avatars()
-        await self._update_board("👑 بدأت **روليت الملوك**! استعدوا...")
+        await self._update_board("بدأت روليت الملوك! استعدوا...")
         self._runner = asyncio.create_task(self.run(), name=f"prime-roulette-royale-{self.guild_id}")
 
     async def _load_avatars(self) -> None:
@@ -559,9 +559,9 @@ class RouletteRoyaleGame:
             # Ease-out curve: fast at first, slowing toward the chosen slice.
             eased = 1.0 - (1.0 - progress) ** 2
             angle = start_angle * (1.0 - eased) + final_angle * eased
-            await self._update_board("🎡 تدور العجلة... لحظات ويُكشف المستهدف!", angle=angle)
+            await self._update_board("تدور العجلة... لحظات ويُكشف المستهدف!", angle=angle)
             await asyncio.sleep(SPIN_FRAME_DELAY)
-        await self._update_board(f"🎯 توقفت العجلة على <@{target_id}>!", target_id=target_id)
+        await self._update_board(f"توقفت العجلة على <@{target_id}>!", target_id=target_id)
 
     async def run(self) -> None:
         try:
@@ -572,12 +572,12 @@ class RouletteRoyaleGame:
                 if self.round_number % 3 == 0:
                     # Blind Storm is a visual-only event; it never changes game fairness.
                     self.event_text = random.choice([
-                        "🌪️ العاصفة العمياء: تفاصيل العجلة مخفية!",
-                        "⚡ اضطراب الطاقة: الجولة مشحونة!",
-                        "🌑 كسوف الملوك: لا تثق بالحظ!",
+                        "العاصفة العمياء: تفاصيل العجلة مخفية!",
+                        "اضطراب الطاقة: الجولة مشحونة!",
+                        "كسوف الملوك: لا تثق بالحظ!",
                     ])
                     if "العاصفة العمياء" in self.event_text:
-                        await self._update_board("🌪️ العاصفة العمياء! العجلة مخفية مؤقتًا.", obscure=True)
+                        await self._update_board("العاصفة العمياء! العجلة مخفية مؤقتًا.", obscure=True)
                         await asyncio.sleep(1.8)
                 target_id = random.choice(self.alive_ids)
                 await self._spin(target_id)
@@ -585,7 +585,7 @@ class RouletteRoyaleGame:
                 view = RoyaleTurnView(self, target_id)
                 self._turn_view = view
                 await self._update_board(
-                    f"🎯 دور <@{target_id}>! أمامك **{TURN_SECONDS} ثانية** لاختيار قرارك. "
+                    f"دور <@{target_id}>! أمامك **{TURN_SECONDS} ثانية** لاختيار قرارك. "
                     "عدم اتخاذ قرار يعني الطرد تلقائيًا.",
                     target_id=target_id, view=view,
                 )
