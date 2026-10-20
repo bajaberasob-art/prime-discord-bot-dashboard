@@ -28,7 +28,7 @@
       const control = options.textarea
         ? h("textarea", { class: "iip-input", rows: options.rows || 3, maxlength: options.maxlength || 4096, placeholder: options.placeholder || "" }, value || "")
         : h("input", { class: "iip-input", type: options.type || "text", value: value || "", maxlength: options.maxlength || 4096, placeholder: options.placeholder || "" });
-      listen(control, "input", () => { config[key] = options.type === "checkbox" ? control.checked : control.value; dirty = true; });
+      listen(control, "input", () => { config[key] = options.type === "checkbox" ? control.checked : control.value; if (key === "banner_url" && control.value.trim().startsWith(("http://")) || key === "banner_url" && control.value.trim().startsWith("https://")) config.banner_file = null; dirty = true; });
       return h("label", { class: "iip-field" }, h("span", { text: label }), control);
     };
     const select = (label, key, value, opts) => {
