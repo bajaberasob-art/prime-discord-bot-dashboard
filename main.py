@@ -343,6 +343,7 @@ class EnterpriseBot(commands.Bot):
             "cogs.gaming",
             "cogs.games",
             "cogs.musical_chairs",
+            "cogs.roulette_royale",
             "cogs.community",
             "cogs.announcement_reactions",
             "cogs.ai_tools",
