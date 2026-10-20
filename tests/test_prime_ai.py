@@ -4653,6 +4653,8 @@ class PrimeAIActionEngineTests(unittest.IsolatedAsyncioTestCase):
     async def test_action_planner_keeps_server_owned_intent_and_registered_targets(self):
         guild, actor, channel, _bot, _channels, _members = self._runtime_context()
         config = self._action_config("send_message")
+        # The planner only includes reviewed adapters whose action is enabled.
+        config["actions"]["set_channel_mode"]["enabled"] = True
         prompt = "send a message here"
         provider_plan = json.dumps({
             "intent": "private user text echoed by provider",
