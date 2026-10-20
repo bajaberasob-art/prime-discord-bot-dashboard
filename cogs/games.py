@@ -19,6 +19,8 @@ from prime_games.engine import (
     list_active_sessions,
 )
 from prime_games.registry import registry
+from prime_games.classic_renderer import render_classic_game
+from game_engine import image_to_file
 from cogs.card_generator import generate_xo_game_card
 
 logger = logging.getLogger("PrimeGamesCog")
@@ -38,8 +40,8 @@ _GAME_COMMANDS = {
     "rps": ("/game rps @عضو", "اختر حجرًا أو ورقة أو مقصًا؛ الاختيار الأول مخفي."),
     "quiz": ("/game quiz @عضو", "ستة أسئلة عربية، نقطة للإجابة الصحيحة."),
     "memory": ("/game memory @عضو", "اكشف البطاقات المتطابقة واجمع الأزواج قبل خصمك."),
-    "dice": ("/game dice @عضو", "خمس جولات نرد؛ الأعلى نقاطًا يفوز."),
-    "word": ("/game word @عضو", "فكّ ترتيب الحروف واختر الكلمة الصحيحة في ست جولات."),
+    "dice": ("/game dice @عضو", "مواجهة نرد تكتيكية بثلاثة قلوب وقدرات تُستخدم مرة واحدة."),
+    "word": ("/game word @عضو", "فكّ الشفرة عبر نافذة سرية مع تلميح اختياري في ست جولات."),
 }
 _RPS_LABELS = {
     "rock": "🪨 حجر",
@@ -89,21 +91,34 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
 
     elif game_key == "rps":
         choices = state.get("choices") or {}
-        description = f"⚔️ <@{players[0]}> ضد <@{players[1]}>\n\n"
+        last_round = state.get("last_round") or {}
+        if status != "active" and not choices:
+            choices = last_round.get("choices") or {}
+        hp = state.get("hp") or {}
+        description = (
+            f"⚔️ <@{players[0]}> ضد <@{players[1]}>\n"
+            f"❤️ <@{players[0]}>: **{int(hp.get(str(players[0]), 3))}/3**"
+            f"  •  ❤️ <@{players[1]}>: **{int(hp.get(str(players[1]), 3))}/3**\n\n"
+        )
         if status == "active":
-            chosen = len(choices)
+            chosen = len(state.get("choices") or {})
             description += (
                 "✅ سُجّل اختيار اللاعب الأول بشكل مخفي. ينتظر PRIME اختيار الخصم."
                 if chosen == 1 else
-                "اختار كل لاعب حركته سرًا؛ لن تُكشف الخيارات قبل أن يختار الطرفان."
+                "لم يختر اللاعبان بعد؛ اختر حركتك سرًا."
             )
+            if last_round:
+                previous = last_round.get("choices") or {}
+                previous_first = _RPS_LABELS.get(str(previous.get(str(players[0]), "")), "—")
+                previous_second = _RPS_LABELS.get(str(previous.get(str(players[1]), "")), "—")
+                description += f"\nآخر جولة: {previous_first} مقابل {previous_second}."
+                if last_round.get("winner_id") is not None:
+                    description += f" الضرر: {int(last_round.get('damage', 0))}."
             description += f"\n\n🎯 الدور الآن على <@{session.get('current_player_id')}>."
         else:
             first = _RPS_LABELS.get(str(choices.get(str(players[0]), "")), "—")
             second = _RPS_LABELS.get(str(choices.get(str(players[1]), "")), "—")
             description += f"🧑 <@{players[0]}>: **{first}**\n🧑 <@{players[1]}>: **{second}**"
-            if winner_id is None:
-                description += "\n\n🤝 تعادل! اخترتما الحركة نفسها."
 
     elif game_key == "memory":
         cards = list(state.get("cards") or [])
@@ -116,12 +131,21 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
                 for index in range(row * 4, row * 4 + 4)
             ))
         scores = state.get("scores") or {}
+        pairs = state.get("pairs") or {}
+        combo = state.get("combo") or {}
+        combo_player = str(session.get("current_player_id") or "")
+        first_score = int(scores.get(str(players[0]), 0))
+        second_score = int(scores.get(str(players[1]), 0))
+        first_pairs = int(pairs.get(str(players[0]), first_score))
+        second_pairs = int(pairs.get(str(players[1]), second_score))
         description = (
-            f"🧑 <@{players[0]}>: **{int(scores.get(str(players[0]), 0))}** زوج\n"
-            f"🧑 <@{players[1]}>: **{int(scores.get(str(players[1]), 0))}** زوج\n\n"
+            f"🧑 <@{players[0]}>: **{first_score} نقطة** ({first_pairs} أزواج)\n"
+            f"🧑 <@{players[1]}>: **{second_score} نقطة** ({second_pairs} أزواج)\n\n"
             + "\n".join(board_lines)
             + f"\n\n🧩 الأزواج المكتشفة: **{len(matched) // 2}/8**"
         )
+        if status == "active":
+            description += f"\n🔥 مضاعف الكومبو الحالي: **x{min(int(combo.get(combo_player, 0)), 3)}**"
         if state.get("last_match") is True:
             description += "\n✅ تطابق رائع! حصلت على زوج."
         elif state.get("last_match") is False:
@@ -150,7 +174,7 @@ def _game_embed(session: dict, *, reward: int = 0, reward_capped: bool = False) 
             elif last_round.get("winner_id") is not None:
                 description += f" — نقطة لـ <@{last_round['winner_id']}>"
         if status == "active":
-            description += f"\n\n**الجولة {int(state.get('round') or 1)} من 5**"
+            description += f"\n\n**الجولة {int(state.get('round') or 1)} • مواجهة بثلاثة قلوب**"
             current_rolls = state.get("round_rolls") or {}
             if current_rolls:
                 rolling_player = next(iter(current_rolls))
@@ -256,9 +280,19 @@ async def _game_presentation(
     reward: int = 0,
     reward_capped: bool = False,
 ) -> tuple[discord.Embed, discord.File | None]:
-    """Render the XO card when possible; keep every other game lightweight."""
-    if session.get("game_key") != "xo":
-        return _game_embed(session, reward=reward, reward_capped=reward_capped), None
+    """Render every legacy game as a premium Pillow card."""
+    try:
+        image = await render_classic_game(session, interaction.guild)
+        embed = _game_embed(session, reward=reward, reward_capped=reward_capped)
+        embed.set_image(url="attachment://prime-classic-game.png")
+        return embed, image_to_file(image, "prime-classic-game.png")
+    except Exception:
+        logger.exception(
+            "Could not render %s card for session %s; using embed fallback",
+            session.get("game_key"), session.get("id")
+        )
+        if session.get("game_key") != "xo":
+            return _game_embed(session, reward=reward, reward_capped=reward_capped), None
 
     guild = interaction.guild
     players = list(session.get("players") or [])
@@ -294,6 +328,60 @@ async def _game_presentation(
     except Exception:
         logger.exception("Could not render XO card for session %s; using embed fallback", session.get("id"))
         return _game_embed(session, reward=reward, reward_capped=reward_capped), None
+
+
+class WordAnswerModal(discord.ui.Modal, title="🔐 إدخال شفرة الخزنة"):
+    answer = discord.ui.TextInput(
+        label="اكتب الكلمة الصحيحة",
+        placeholder="أدخل الكلمة هنا — لن تظهر في الشات العام",
+        min_length=1,
+        max_length=40,
+        required=True,
+    )
+
+    def __init__(self, session_id: int):
+        super().__init__(timeout=120)
+        self.session_id = int(session_id)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            outcome = await apply_action(
+                self.session_id, interaction.user.id,
+                {"answer_text": str(self.answer.value).strip()},
+            )
+        except Exception:
+            logger.exception("Word modal submission failed for session %s", self.session_id)
+            await interaction.followup.send("تعذر حفظ الإجابة؛ حاول مرة أخرى.", ephemeral=True)
+            return
+        if not outcome.get("ok"):
+            messages = {
+                "not_a_player": "أنت لست أحد لاعبي هذه المباراة.",
+                "not_your_turn": "انتظر دورك قبل إدخال الشفرة.",
+                "invalid_answer": "الإجابة غير صالحة.",
+                "game_finished": "انتهت المباراة بالفعل.",
+            }
+            await interaction.followup.send(messages.get(outcome.get("reason"), "تعذر قبول الإجابة."), ephemeral=True)
+            return
+        session = outcome.get("session")
+        await interaction.followup.send(
+            "✅ تم تسجيل إجابتك السرية." if (session or {}).get("state", {}).get("last_answer", {}).get("correct")
+            else "تم تسجيل الإجابة السرية.", ephemeral=True
+        )
+        if not session:
+            return
+        try:
+            channel = interaction.guild.get_channel(int(session["channel_id"])) if interaction.guild else None
+            if channel is None:
+                channel = await interaction.client.fetch_channel(int(session["channel_id"]))
+            message = await channel.fetch_message(int(session["message_id"]))
+            embed, image_file = await _game_presentation(
+                session, interaction, reward=int(outcome.get("reward") or 0),
+                reward_capped=bool(outcome.get("reward_capped")),
+            )
+            await message.edit(embed=embed, attachments=[image_file] if image_file else [], view=GameBoardView(session))
+        except Exception:
+            logger.exception("Could not refresh word board after modal submit for session %s", self.session_id)
 
 
 class GameBoardView(discord.ui.View):
@@ -341,13 +429,21 @@ class GameBoardView(discord.ui.View):
 
         elif self.game_key == "rps":
             for choice, label in _RPS_LABELS.items():
-                button = discord.ui.Button(
-                    label=label,
-                    style=discord.ButtonStyle.primary,
-                    disabled=terminal,
-                    custom_id=f"primegame:rps:{self.session_id}:{choice}",
-                )
+                button = discord.ui.Button(label=label, style=discord.ButtonStyle.primary,
+                    disabled=terminal or str(session.get("current_player_id")) in (state.get("choices") or {}),
+                    custom_id=f"primegame:rps:{self.session_id}:{choice}")
                 button.callback = self._move({"choice": choice})
+                self.add_item(button)
+            used = state.get("abilities_used") or {}
+            actor = str(session.get("current_player_id"))
+            for ability, label, style in (
+                ("double", "⚔️ ضربة مزدوجة", discord.ButtonStyle.danger),
+                ("shield", "🛡️ درع", discord.ButtonStyle.primary),
+            ):
+                button = discord.ui.Button(label=label, style=style,
+                    disabled=terminal or ability in used.get(actor, []) or actor in (state.get("choices") or {}),
+                    row=1, custom_id=f"primegame:rps:{self.session_id}:{ability}")
+                button.callback = self._move({"ability": ability})
                 self.add_item(button)
 
         elif self.game_key == "memory":
@@ -370,32 +466,60 @@ class GameBoardView(discord.ui.View):
                 )
                 button.callback = self._move({"index": index})
                 self.add_item(button)
+            trap_button = discord.ui.Button(
+                label="🃏 بطاقة الفخ / الخلط",
+                style=discord.ButtonStyle.danger,
+                row=4,
+                disabled=terminal or bool((state.get("trap_used") or {}).get(str(session.get("current_player_id")), False)) or state.get("pending_index") is not None,
+                custom_id=f"primegame:memory:{self.session_id}:trap",
+            )
+            trap_button.callback = self._move({"trap": True})
+            self.add_item(trap_button)
 
         elif self.game_key == "dice":
-            button = discord.ui.Button(
-                label="🎲 ارم النرد",
-                style=discord.ButtonStyle.primary,
-                disabled=terminal,
-                custom_id=f"primegame:dice:{self.session_id}:roll",
-            )
-            button.callback = self._move({"roll": "roll"})
-            self.add_item(button)
+            for action, label, style in (
+                ({"roll": "roll"}, "🎲 ارم النرد", discord.ButtonStyle.primary),
+                ({"reroll": True}, "🔄 إعادة الرمي", discord.ButtonStyle.secondary),
+                ({"lock": True}, "🔒 تثبيت الرمية", discord.ButtonStyle.success),
+                ({"ability": "double"}, "⚔️ ضربة مزدوجة", discord.ButtonStyle.danger),
+                ({"ability": "shield"}, "🛡️ درع", discord.ButtonStyle.primary),
+            ):
+                ability = action.get("ability") or ("reroll" if action.get("reroll") else "")
+                used = state.get("abilities_used") or {}
+                actor = str(session.get("current_player_id"))
+                rolls = state.get("round_rolls") or {}
+                disabled = terminal
+                if action.get("roll") and actor in rolls: disabled = True
+                if action.get("reroll") and (actor not in rolls or "reroll" in used.get(actor, [])): disabled = True
+                if action.get("lock") and (actor not in rolls or actor in set(state.get("committed") or [])): disabled = True
+                if ability in {"double", "shield"} and ability in used.get(actor, []): disabled = True
+                button = discord.ui.Button(label=label, style=style, disabled=disabled,
+                    custom_id=f"primegame:dice:{self.session_id}:{ability or ('lock' if action.get('lock') else 'roll' if action.get('roll') else 'reroll')}")
+                button.callback = self._move(action)
+                self.add_item(button)
 
         elif self.game_key == "word":
             puzzles = list(state.get("puzzles") or [])
             round_index = int(state.get("round_index") or 0)
             if puzzles:
-                puzzle = puzzles[min(round_index, len(puzzles) - 1)]
-                for index, option in enumerate(puzzle.get("options") or []):
-                    button = discord.ui.Button(
-                        label=f"{index + 1}. {str(option)[:70]}",
-                        style=discord.ButtonStyle.secondary,
-                        row=index // 2,
-                        disabled=terminal,
-                        custom_id=f"primegame:word:{self.session_id}:{index}",
-                    )
-                    button.callback = self._move({"answer": index})
-                    self.add_item(button)
+                answer_button = discord.ui.Button(
+                    label="🔐 إدخال الشفرة",
+                    style=discord.ButtonStyle.primary,
+                    row=0, disabled=terminal,
+                    custom_id=f"primegame:word:{self.session_id}:modal",
+                )
+                async def open_word_modal(interaction: discord.Interaction) -> None:
+                    await interaction.response.send_modal(WordAnswerModal(self.session_id))
+                answer_button.callback = open_word_modal
+                self.add_item(answer_button)
+                hint_button = discord.ui.Button(
+                    label="💡 كشف حرف",
+                    style=discord.ButtonStyle.secondary,
+                    row=0, disabled=terminal or str(round_index) in (state.get("hints") or {}),
+                    custom_id=f"primegame:word:{self.session_id}:hint",
+                )
+                hint_button.callback = self._move({"hint": True})
+                self.add_item(hint_button)
 
         elif self.game_key == "quiz":
             questions = list(state.get("questions") or [])
@@ -468,6 +592,14 @@ class GameBoardView(discord.ui.View):
                     "same_card": "اختر بطاقة ثانية مختلفة.",
                     "invalid_roll": "اضغط زر رمي النرد.",
                     "already_rolled": "سُجلت رميتك بالفعل في هذه الجولة.",
+                    "ability_used": "استخدمت هذه القدرة مسبقًا في المواجهة.",
+                    "ability_after_choice": "لا يمكن استخدام القدرة بعد تثبيت اختيارك.",
+                    "ability_after_lock": "لا يمكن استخدام القدرة بعد تثبيت الرمية.",
+                    "trap_used": "استخدمت بطاقة الفخ بالفعل.",
+                    "trap_pending_pair": "أكمل محاولة كشف الزوج قبل استخدام الفخ.",
+                    "no_trap_targets": "لا توجد بطاقتان مغلقتان لتبديلهما.",
+                    "hint_used": "استخدمت التلميح في هذه الجولة بالفعل.",
+                    "roll_first": "ارم النرد أولًا قبل تثبيت الرمية أو إعادتها.",
                 }
                 await interaction.followup.send(
                     messages.get(outcome.get("reason"), "تعذر تسجيل الحركة؛ حاول تحديث اللوحة."),

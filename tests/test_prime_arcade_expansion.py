@@ -80,29 +80,34 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(mismatch["session"]["state"]["last_match"])
         self.assertEqual(mismatch["session"]["state"]["scores"][str(self.players[0])], 0)
 
-    async def test_memory_has_sixteen_persistent_controls_and_renders_hidden_cards(self):
+    async def test_memory_has_sixteen_cards_plus_trap_control_and_renders_hidden_cards(self):
         session = await create_session(
             guild_id=911, channel_id=502, game_key="memory", players=self.players
         )
         view = GameBoardView(session)
         self.assertIsNone(view.timeout)
-        self.assertEqual(len(view.children), 16)
+        self.assertEqual(len(view.children), 17)
+        self.assertEqual(sum(item.custom_id.startswith("primegame:memory:") for item in view.children), 17)
+        self.assertEqual(view.children[-1].label, "🃏 بطاقة الفخ / الخلط")
         self.assertTrue(all(item.custom_id for item in view.children))
         embed = _game_embed(session)
         self.assertIn("تحدّي الذاكرة", embed.title)
         self.assertIn("❔", embed.description or "")
 
-    async def test_dice_duel_finishes_five_rounds_and_pays_existing_wallet(self):
+    async def test_tactical_dice_duel_ends_after_three_hits_and_pays_existing_wallet(self):
         session = await create_session(
             guild_id=912, channel_id=503, game_key="dice", players=self.players
         )
-        with patch("prime_games.registry.random.randint", side_effect=[6, 1] * 5):
+        with patch("prime_games.registry.random.randint", side_effect=[6, 1] * 3):
             result = None
-            for _ in range(10):
-                current = await get_session(session["id"])
-                result = await apply_action(
-                    session["id"], current["current_player_id"], {"roll": "roll"}
-                )
+            for _ in range(3):
+                first_roll = await apply_action(session["id"], self.players[0], {"roll": "roll"})
+                self.assertTrue(first_roll["ok"], first_roll)
+                first_lock = await apply_action(session["id"], self.players[0], {"lock": True})
+                self.assertTrue(first_lock["ok"], first_lock)
+                second_roll = await apply_action(session["id"], self.players[1], {"roll": "roll"})
+                self.assertTrue(second_roll["ok"], second_roll)
+                result = await apply_action(session["id"], self.players[1], {"lock": True})
                 self.assertTrue(result["ok"], result)
         self.assertTrue(result["finished"])
         self.assertEqual(result["winner_id"], self.players[0])
@@ -111,7 +116,7 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         account = await database.get_or_create_user(self.players[0], 912)
         self.assertEqual(account["balance"], 115)
 
-    async def test_word_scramble_tracks_correct_answers_and_shows_four_options(self):
+    async def test_word_scramble_has_private_modal_and_hint_controls(self):
         session = await create_session(
             guild_id=913, channel_id=504, game_key="word", players=self.players
         )
@@ -124,7 +129,11 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["session"]["state"]["scores"][str(self.players[0])], 1)
         self.assertEqual(result["session"]["current_player_id"], self.players[1])
-        self.assertEqual(len(GameBoardView(session).children), 4)
+        self.assertEqual(len(GameBoardView(session).children), 2)
+        self.assertEqual(
+            {item.label for item in GameBoardView(session).children},
+            {"🔐 إدخال الشفرة", "💡 كشف حرف"},
+        )
         embed = _game_embed(result["session"])
         self.assertIn("رتّب الحروف", embed.description or "")
 
@@ -158,9 +167,17 @@ class PrimeArcadeExpansionTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("🪨 حجر", hidden_embed.description or "")
         second = await apply_action(session["id"], self.players[1], {"choice": "scissors"})
         self.assertTrue(second["ok"], second)
-        self.assertTrue(second["finished"])
-        self.assertEqual(second["winner_id"], self.players[0])
-        self.assertEqual(second["reward"], 10)
+        self.assertFalse(second["finished"])
+        self.assertEqual(second["session"]["state"]["hp"][str(self.players[1])], 2)
+        result = second
+        for _ in range(2):
+            first = await apply_action(session["id"], self.players[0], {"choice": "rock"})
+            self.assertTrue(first["ok"], first)
+            result = await apply_action(session["id"], self.players[1], {"choice": "scissors"})
+            self.assertTrue(result["ok"], result)
+        self.assertTrue(result["finished"])
+        self.assertEqual(result["winner_id"], self.players[0])
+        self.assertEqual(result["reward"], 10)
         account = await database.get_or_create_user(self.players[0], 916)
         self.assertEqual(account["balance"], 110)
 

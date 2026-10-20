@@ -85,8 +85,23 @@ def _reduce_xo_action(
         raise ValueError("not_a_player")
 
     mark = "X" if actor_id == players[0] else "O"
+    # Infinite Neon XO: retain only each player's three newest pieces.
+    pieces = {
+        "X": list(state.get("pieces", {}).get("X", [])),
+        "O": list(state.get("pieces", {}).get("O", [])),
+    }
+    # Migrate active games created before the rolling-piece rules existed.
+    if not state.get("pieces"):
+        for cell_index, cell_mark in enumerate(board):
+            if cell_mark in pieces:
+                pieces[cell_mark].append(cell_index)
+        pieces = {key: value[-3:] for key, value in pieces.items()}
+    if len(pieces[mark]) >= 3:
+        oldest = pieces[mark].pop(0)
+        board[oldest] = None
     board[index] = mark
-    next_state = {**state, "board": board}
+    pieces[mark].append(index)
+    next_state = {**state, "board": board, "pieces": pieces}
     winning_lines = (
         (0, 1, 2), (3, 4, 5), (6, 7, 8),
         (0, 3, 6), (1, 4, 7), (2, 5, 8),
@@ -94,8 +109,7 @@ def _reduce_xo_action(
     )
     if any(all(board[cell] == mark for cell in line) for line in winning_lines):
         return GameTransition(next_state, None, winner_id=actor_id)
-    if all(cell is not None for cell in board):
-        return GameTransition(next_state, None, is_draw=True)
+    # The board is rolling, so a full-board draw is impossible by design.
     next_player = players[1] if actor_id == players[0] else players[0]
     return GameTransition(next_state, next_player)
 
@@ -158,37 +172,63 @@ _RPS_WINS = {"rock": "scissors", "scissors": "paper", "paper": "rock"}
 
 
 def _initial_rps_state(players: list[int]) -> dict[str, Any]:
-    return {"choices": {}}
+    return {
+        "choices": {}, "round": 1, "hp": {str(player): 3 for player in players},
+        "abilities_used": {str(player): [] for player in players},
+        "active_abilities": {}, "scores": {str(player): 0 for player in players},
+    }
 
 
 def _reduce_rps_action(
-    state: dict[str, Any],
-    players: list[int],
-    actor_id: int,
-    action: dict[str, Any],
+    state: dict[str, Any], players: list[int], actor_id: int, action: dict[str, Any],
 ) -> GameTransition:
     if actor_id not in players:
         raise ValueError("not_a_player")
+    key = str(actor_id)
+    used = {str(k): list(v) for k, v in (state.get("abilities_used") or {}).items()}
+    active = dict(state.get("active_abilities") or {})
+    choices = dict(state.get("choices") or {})
+    hp = {str(k): int(v) for k, v in (state.get("hp") or {str(p): 3 for p in players}).items()}
+    ability = str(action.get("ability") or "")
+    if ability in {"double", "shield"}:
+        if key in choices:
+            raise ValueError("ability_after_choice")
+        if ability in used.setdefault(key, []):
+            raise ValueError("ability_used")
+        used[key].append(ability)
+        active[key] = list(active.get(key, [])) + [ability]
+        return GameTransition({**state, "abilities_used": used, "active_abilities": active, "hp": hp, "choices": choices}, actor_id)
     choice = str(action.get("choice", "")).strip().lower()
     if choice not in _RPS_CHOICES:
         raise ValueError("invalid_choice")
-    choices = dict(state.get("choices") or {})
-    actor_key = str(actor_id)
-    if actor_key in choices:
+    if key in choices:
         raise ValueError("already_chose")
-    choices[actor_key] = choice
-    next_state = {**state, "choices": choices}
+    choices[key] = choice
     if len(choices) < 2:
-        next_player = next(player for player in players if str(player) not in choices)
-        return GameTransition(next_state, next_player)
-
+        other = next(player for player in players if str(player) not in choices)
+        return GameTransition({**state, "choices": choices, "abilities_used": used, "active_abilities": active, "hp": hp}, other)
     first_choice, second_choice = (choices[str(player)] for player in players)
-    if first_choice == second_choice:
-        next_state["round_result"] = "draw"
-        return GameTransition(next_state, None, is_draw=True)
-    winner_id = players[0] if _RPS_WINS[first_choice] == second_choice else players[1]
-    next_state["round_result"] = "winner"
-    return GameTransition(next_state, None, winner_id=winner_id)
+    scores = {str(k): int(v) for k, v in (state.get("scores") or {}).items()}
+    round_winner = None
+    if first_choice != second_choice:
+        round_winner = players[0] if _RPS_WINS[first_choice] == second_choice else players[1]
+        loser = players[1] if round_winner == players[0] else players[0]
+        damage = 2 if "double" in (active.get(str(round_winner)) or []) else 1
+        if "shield" in (active.get(str(loser)) or []):
+            damage = 0
+        hp[str(loser)] = max(0, hp.get(str(loser), 3) - damage)
+        scores[str(round_winner)] = scores.get(str(round_winner), 0) + 1
+    next_state = {**state, "choices": {}, "hp": hp, "scores": scores,
+                  "abilities_used": used, "active_abilities": {},
+                  "last_round": {"choices": choices, "winner_id": round_winner, "damage": damage if round_winner else 0},
+                  "round": int(state.get("round", 1)) + 1}
+    defeated = [int(player) for player in players if hp[str(player)] <= 0]
+    if defeated:
+        winner = next(player for player in players if player not in defeated)
+        return GameTransition(next_state, None, winner_id=winner)
+    if round_winner is None:
+        return GameTransition(next_state, players[0])
+    return GameTransition(next_state, players[0])
 
 
 # ── Quiz Blitz ───────────────────────────────────────────────────────────────
@@ -276,152 +316,145 @@ def _initial_memory_state(players: list[int]) -> dict[str, Any]:
     cards = [symbol for symbol in symbols for _ in range(2)]
     random.shuffle(cards)
     return {
-        "cards": cards,
-        "matched": [],
-        "revealed": [],
-        "pending_index": None,
+        "cards": cards, "matched": [], "revealed": [], "pending_index": None,
         "scores": {str(player): 0 for player in players},
-        "last_match": None,
+        "pairs": {str(player): 0 for player in players},
+        "combo": {str(player): 0 for player in players},
+        "last_match": None, "trap_used": {str(player): False for player in players},
+        "hint_used": {},
     }
 
 
-def _reduce_memory_action(
-    state: dict[str, Any],
-    players: list[int],
-    actor_id: int,
-    action: dict[str, Any],
-) -> GameTransition:
+def _reduce_memory_action(state: dict[str, Any], players: list[int], actor_id: int, action: dict[str, Any]) -> GameTransition:
     if actor_id not in players:
         raise ValueError("not_a_player")
     cards = list(state.get("cards") or [])
     if len(cards) != 16:
         raise ValueError("invalid_game_state")
+    matched = {int(value) for value in state.get("matched") or []}
+    pending = state.get("pending_index")
+    scores = {str(k): int(v) for k, v in (state.get("scores") or {}).items()}
+    pairs = {str(k): int(v) for k, v in (state.get("pairs") or {}).items()}
+    combo = {str(k): int(v) for k, v in (state.get("combo") or {}).items()}
+    trap_used = {str(k): bool(v) for k, v in (state.get("trap_used") or {}).items()}
+    key = str(actor_id)
+    if action.get("trap"):
+        if trap_used.get(key, False):
+            raise ValueError("trap_used")
+        if pending is not None:
+            raise ValueError("trap_pending_pair")
+        eligible = [i for i in range(len(cards)) if i not in matched and i not in set(state.get("revealed") or [])]
+        if len(eligible) < 2:
+            raise ValueError("no_trap_targets")
+        first, second = random.sample(eligible, 2)
+        cards[first], cards[second] = cards[second], cards[first]
+        trap_used[key] = True
+        combo = {str(player): 0 for player in players}
+        next_player = players[1] if actor_id == players[0] else players[0]
+        return GameTransition({**state, "cards": cards, "trap_used": trap_used, "trap_event": {"player_id": actor_id, "indices": [first, second]}, "combo": combo}, next_player)
     try:
         index = int(action.get("index"))
     except (TypeError, ValueError):
         raise ValueError("invalid_card") from None
     if not 0 <= index < len(cards):
         raise ValueError("invalid_card")
-
-    matched = {int(value) for value in state.get("matched") or []}
     if index in matched:
         raise ValueError("card_matched")
-    pending = state.get("pending_index")
     if pending is None:
-        next_state = {
-            **state,
-            "revealed": [index],
-            "pending_index": index,
-            "last_match": None,
-        }
-        # The same player must choose the second card in their pair attempt.
-        return GameTransition(next_state, actor_id)
+        return GameTransition({**state, "revealed": [index], "pending_index": index, "last_match": None, "trap_event": None}, actor_id)
     pending = int(pending)
     if index == pending:
         raise ValueError("same_card")
-
     pair = [pending, index]
-    scores = {str(key): int(value) for key, value in (state.get("scores") or {}).items()}
     if cards[pending] == cards[index]:
         matched.update(pair)
-        scores[str(actor_id)] = scores.get(str(actor_id), 0) + 1
-        next_state = {
-            **state,
-            "matched": sorted(matched),
-            "revealed": [],
-            "pending_index": None,
-            "scores": scores,
-            "last_match": True,
-            "last_pair": pair,
-        }
+        combo[key] = combo.get(key, 0) + 1
+        multiplier = min(combo[key], 3)
+        scores[key] = scores.get(key, 0) + multiplier
+        pairs[key] = pairs.get(key, 0) + 1
+        next_state = {**state, "matched": sorted(matched), "revealed": [], "pending_index": None,
+                      "scores": scores, "pairs": pairs, "combo": combo, "last_match": True,
+                      "last_pair": pair, "combo_multiplier": multiplier, "trap_event": None}
         if len(matched) == len(cards):
-            first_score = scores.get(str(players[0]), 0)
-            second_score = scores.get(str(players[1]), 0)
+            first_score, second_score = scores.get(str(players[0]), 0), scores.get(str(players[1]), 0)
             if first_score == second_score:
                 return GameTransition(next_state, None, is_draw=True)
-            winner_id = players[0] if first_score > second_score else players[1]
-            return GameTransition(next_state, None, winner_id=winner_id)
-        # A successful pair earns another turn, matching standard memory-game rules.
+            return GameTransition(next_state, None, winner_id=players[0] if first_score > second_score else players[1])
         return GameTransition(next_state, actor_id)
-    else:
-        # Keep both cards visible until the next player makes their first pick.
-        next_state = {
-            **state,
-            "revealed": pair,
-            "pending_index": None,
-            "last_match": False,
-            "last_pair": pair,
-        }
-    next_player = players[1] if actor_id == players[0] else players[0]
-    return GameTransition(next_state, next_player)
+    combo = {str(player): 0 for player in players}
+    next_state = {**state, "revealed": pair, "pending_index": None, "last_match": False,
+                  "last_pair": pair, "combo": combo, "combo_multiplier": 0, "trap_event": None}
+    return GameTransition(next_state, players[1] if actor_id == players[0] else players[0])
 
 
 # ── Dice Duel: five rounds of luck ───────────────────────────────────────────
 def _initial_dice_state(players: list[int]) -> dict[str, Any]:
     return {
-        "round": 1,
-        "round_rolls": {},
+        "round": 1, "round_rolls": {}, "committed": [],
         "scores": {str(player): 0 for player in players},
-        "last_round": None,
+        "hp": {str(player): 3 for player in players},
+        "abilities_used": {str(player): [] for player in players},
+        "active_abilities": {}, "last_round": None,
     }
 
 
-def _reduce_dice_action(
-    state: dict[str, Any],
-    players: list[int],
-    actor_id: int,
-    action: dict[str, Any],
-) -> GameTransition:
+def _reduce_dice_action(state: dict[str, Any], players: list[int], actor_id: int, action: dict[str, Any]) -> GameTransition:
     if actor_id not in players:
         raise ValueError("not_a_player")
-    if action.get("roll") not in (True, "roll"):
-        raise ValueError("invalid_roll")
-    round_number = int(state.get("round") or 1)
-    if not 1 <= round_number <= 5:
-        raise ValueError("invalid_game_state")
+    key = str(actor_id)
     rolls = dict(state.get("round_rolls") or {})
-    actor_key = str(actor_id)
-    if actor_key in rolls:
-        raise ValueError("already_rolled")
-    rolls[actor_key] = random.randint(1, 6)
-    if len(rolls) < 2:
-        next_state = {**state, "round_rolls": rolls}
-        next_player = players[1] if actor_id == players[0] else players[0]
-        return GameTransition(next_state, next_player)
-    if len(rolls) != 2:
-        raise ValueError("invalid_game_state")
-
-    first_roll = int(rolls[str(players[0])])
-    second_roll = int(rolls[str(players[1])])
-    scores = {str(key): int(value) for key, value in (state.get("scores") or {}).items()}
-    round_winner = None
-    if first_roll > second_roll:
-        scores[str(players[0])] = scores.get(str(players[0]), 0) + 1
-        round_winner = players[0]
-    elif second_roll > first_roll:
-        scores[str(players[1])] = scores.get(str(players[1]), 0) + 1
-        round_winner = players[1]
-    next_state = {
-        **state,
-        "round": round_number,
-        "round_rolls": {},
-        "scores": scores,
-        "last_round": {
-            "number": round_number,
-            "rolls": rolls,
-            "winner_id": round_winner,
-            "draw": round_winner is None,
-        },
-    }
-    if round_number == 5:
-        first_score = scores.get(str(players[0]), 0)
-        second_score = scores.get(str(players[1]), 0)
-        if first_score == second_score:
-            return GameTransition(next_state, None, is_draw=True)
-        winner_id = players[0] if first_score > second_score else players[1]
-        return GameTransition(next_state, None, winner_id=winner_id)
-    next_state["round"] = round_number + 1
-    return GameTransition(next_state, players[0])
+    committed = set(str(v) for v in state.get("committed") or [])
+    used = {str(k): list(v) for k, v in (state.get("abilities_used") or {}).items()}
+    active = dict(state.get("active_abilities") or {})
+    hp = {str(k): int(v) for k, v in (state.get("hp") or {str(p): 3 for p in players}).items()}
+    ability = str(action.get("ability") or "")
+    if ability in {"double", "shield"}:
+        if key in committed:
+            raise ValueError("ability_after_lock")
+        if ability in used.setdefault(key, []):
+            raise ValueError("ability_used")
+        used[key].append(ability)
+        active[key] = list(active.get(key, [])) + [ability]
+        return GameTransition({**state, "round_rolls": rolls, "committed": sorted(committed), "abilities_used": used, "active_abilities": active, "hp": hp}, actor_id)
+    if action.get("roll") in (True, "roll"):
+        if key in rolls:
+            raise ValueError("already_rolled")
+        rolls[key] = random.randint(1, 6)
+        return GameTransition({**state, "round_rolls": rolls, "committed": sorted(committed), "abilities_used": used, "active_abilities": active, "hp": hp}, actor_id)
+    if action.get("reroll"):
+        if key not in rolls:
+            raise ValueError("roll_first")
+        if "reroll" in used.setdefault(key, []):
+            raise ValueError("ability_used")
+        used[key].append("reroll")
+        rolls[key] = random.randint(1, 6)
+        return GameTransition({**state, "round_rolls": rolls, "committed": sorted(committed), "abilities_used": used, "active_abilities": active, "hp": hp}, actor_id)
+    if action.get("lock"):
+        if key not in rolls:
+            raise ValueError("roll_first")
+        committed.add(key)
+        if len(committed) < 2:
+            other = next(player for player in players if str(player) not in committed)
+            return GameTransition({**state, "round_rolls": rolls, "committed": sorted(committed), "abilities_used": used, "active_abilities": active, "hp": hp}, other)
+        first_roll, second_roll = int(rolls[str(players[0])]), int(rolls[str(players[1])])
+        winner = players[0] if first_roll > second_roll else players[1] if second_roll > first_roll else None
+        scores = {str(k): int(v) for k, v in (state.get("scores") or {}).items()}
+        damage = 0
+        if winner is not None:
+            loser = players[1] if winner == players[0] else players[0]
+            damage = 2 if "double" in (active.get(str(winner)) or []) else 1
+            if "shield" in (active.get(str(loser)) or []):
+                damage = 0
+            hp[str(loser)] = max(0, hp.get(str(loser), 3) - damage)
+            scores[str(winner)] = scores.get(str(winner), 0) + 1
+        next_state = {**state, "round": int(state.get("round", 1)) + 1, "round_rolls": {}, "committed": [],
+                      "scores": scores, "hp": hp, "abilities_used": used, "active_abilities": {},
+                      "last_round": {"number": int(state.get("round", 1)), "rolls": rolls, "winner_id": winner, "draw": winner is None, "damage": damage}}
+        defeated = [int(player) for player in players if hp[str(player)] <= 0]
+        if defeated:
+            return GameTransition(next_state, None, winner_id=next(player for player in players if player not in defeated))
+        return GameTransition(next_state, players[0])
+    raise ValueError("invalid_roll")
 
 
 # ── Word Scramble: decode the hidden word ────────────────────────────────────
@@ -471,51 +504,61 @@ def _initial_word_state(players: list[int]) -> dict[str, Any]:
     }
 
 
-def _reduce_word_action(
-    state: dict[str, Any],
-    players: list[int],
-    actor_id: int,
-    action: dict[str, Any],
-) -> GameTransition:
+def _reduce_word_action(state: dict[str, Any], players: list[int], actor_id: int, action: dict[str, Any]) -> GameTransition:
     if actor_id not in players:
         raise ValueError("not_a_player")
     puzzles = list(state.get("puzzles") or [])
     round_index = int(state.get("round_index") or 0)
     if not 0 <= round_index < len(puzzles):
         raise ValueError("invalid_game_state")
-    try:
-        answer = int(action.get("answer"))
-    except (TypeError, ValueError):
-        raise ValueError("invalid_answer") from None
     puzzle = puzzles[round_index]
-    options = puzzle.get("options") or []
-    if not 0 <= answer < len(options):
-        raise ValueError("invalid_answer")
-
-    scores = {str(key): int(value) for key, value in (state.get("scores") or {}).items()}
-    is_correct = answer == int(puzzle.get("correct", -1))
+    scores = {str(k): int(v) for k, v in (state.get("scores") or {}).items()}
+    if action.get("hint"):
+        hints = dict(state.get("hints") or {})
+        hint_key = str(round_index)
+        if hint_key in hints:
+            raise ValueError("hint_used")
+        word = str(puzzle.get("options", [""])[int(puzzle.get("correct", 0))])
+        hints[hint_key] = word[0] if word else ""
+        hint_costs = dict(state.get("hint_costs") or {})
+        had_point = scores.get(str(actor_id), 0) > 0
+        if had_point:
+            scores[str(actor_id)] -= 1
+        hint_costs[hint_key] = had_point
+        next_state = {**state, "hints": hints, "hint_costs": hint_costs, "scores": scores, "hint_used_by": actor_id}
+        return GameTransition(next_state, actor_id)
+    if "answer_text" in action:
+        submitted = "".join(str(action.get("answer_text") or "").split()).casefold()
+        options = puzzle.get("options") or []
+        correct_text = str(options[int(puzzle.get("correct", -1))]) if options else ""
+        is_correct = bool(submitted) and submitted == "".join(correct_text.split()).casefold()
+    else:
+        try:
+            answer = int(action.get("answer"))
+        except (TypeError, ValueError):
+            raise ValueError("invalid_answer") from None
+        options = puzzle.get("options") or []
+        if not 0 <= answer < len(options):
+            raise ValueError("invalid_answer")
+        is_correct = answer == int(puzzle.get("correct", -1))
     if is_correct:
-        scores[str(actor_id)] = scores.get(str(actor_id), 0) + 1
+        hinted = str(round_index) in (state.get("hints") or {})
+        # A hint costs one point, but a correct answer still earns the round point.
+        # If the player had no points to spend, the hint forfeits this round's point.
+        round_award = 0 if hinted and not (state.get("hint_costs") or {}).get(str(round_index), False) else 1
+        scores[str(actor_id)] = scores.get(str(actor_id), 0) + round_award
     next_index = round_index + 1
-    next_state = {
-        **state,
-        "round_index": next_index,
-        "scores": scores,
-        "last_answer": {
-            "player_id": actor_id,
-            "round": round_index + 1,
-            "correct": is_correct,
-        },
-    }
+    next_state = {**state, "round_index": next_index, "scores": scores,
+                  "last_answer": {"player_id": actor_id, "round": round_index + 1, "correct": is_correct}}
     if next_index >= len(puzzles):
-        first_score = scores.get(str(players[0]), 0)
-        second_score = scores.get(str(players[1]), 0)
+        first_score, second_score = scores.get(str(players[0]), 0), scores.get(str(players[1]), 0)
         if first_score == second_score:
             return GameTransition(next_state, None, is_draw=True)
-        winner_id = players[0] if first_score > second_score else players[1]
-        return GameTransition(next_state, None, winner_id=winner_id)
-    next_player = players[1] if actor_id == players[0] else players[0]
-    return GameTransition(next_state, next_player)
+        return GameTransition(next_state, None, winner_id=players[0] if first_score > second_score else players[1])
+    return GameTransition(next_state, players[1] if actor_id == players[0] else players[0])
+
+
+
 
 
 

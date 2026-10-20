@@ -1832,16 +1832,17 @@ async def plan_action(
         }
         # Only accept the two reviewed fixed-argument mappings. These hints
         # help translate /lock and /unlock intent; they never widen tool schema.
-        expected_mode = (
-            {"lock": "read_only", "unlock": "open"}.get(command_name)
-            if tool == "set_channel_mode" else None
-        )
-        argument_hints = item.get("argument_hints")
-        if (
-            expected_mode is not None
-            and isinstance(argument_hints, dict)
-            and argument_hints == {"mode": expected_mode}
-        ):
+        if tool == "set_channel_mode":
+            # A fixed-argument bridge is safe to expose only when both the
+            # reviewed command and its exact server-owned mode mapping match.
+            expected_mode = {"lock": "read_only", "unlock": "open"}.get(command_name)
+            argument_hints = item.get("argument_hints")
+            if (
+                expected_mode is None
+                or not isinstance(argument_hints, dict)
+                or argument_hints != {"mode": expected_mode}
+            ):
+                continue
             adapter_context["argument_hints"] = {"mode": expected_mode}
         reviewed_adapter_context.append(adapter_context)
     safe_context = {
