@@ -83,7 +83,12 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
             draw.rounded_rectangle((x, y, x + cw, y + ch), 14,
                                    fill="#171c31" if face else "#202844", outline=color, width=4)
             _text(draw, (x + cw // 2, y + ch // 2), cards[i] if face else "?", 30, color, anchor="mm", bold=True)
-        _text(draw, (600, 690), f"PAIRS {len(matched)//2}/8 • COMBO READY", 18, accent, anchor="mm")
+        scores = state.get("scores") or {}
+        combo = state.get("combo") or {}
+        current = str(session.get("current_player_id") or (players[0] if players else ""))
+        _text(draw, (600, 675), f"PAIRS {len(matched)//2}/8 • SCORE {scores.get(current, 0)} • COMBO x{min(int(combo.get(current, 0)), 3)}", 18, accent, anchor="mm")
+        if state.get("trap_event"):
+            _text(draw, (600, 704), "TRAP CARD • TWO CLOSED CARDS SHUFFLED", 15, RED, anchor="mm")
     elif key == "word":
         puzzles = list(state.get("puzzles") or [])
         idx = int(state.get("round_index") or 0)
@@ -91,12 +96,23 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
             puzzle = puzzles[idx]
             _text(draw, (600, 300), "VAULT CODE", 24, MUTED, anchor="mm")
             _text(draw, (600, 365), "   ".join(list(str(puzzle.get("scrambled", "")))), 54, "#ffca60", anchor="mm", bold=True)
-            _text(draw, (600, 440), f"ROUND {idx+1}/{len(puzzles)} • SELECT THE CORRECT WORD", 20, WHITE, anchor="mm")
+            _text(draw, (600, 440), f"ROUND {idx+1}/{len(puzzles)} • SECRET VAULT ENTRY", 20, WHITE, anchor="mm")
+            hint = (state.get("hints") or {}).get(str(idx))
+            if hint:
+                _text(draw, (600, 470), f"CLUE: FIRST LETTER  {hint}", 23, GREEN, anchor="mm", bold=True)
             for i, option in enumerate(puzzle.get("options") or []):
                 _text(draw, (600, 490 + i * 42), f"{i+1}. {option}", 22, CYAN if i == int(puzzle.get("correct", -1)) else WHITE, anchor="mm")
     elif key == "dice":
         last = state.get("last_round") or {}
         rolls = last.get("rolls") or state.get("round_rolls") or {}
+        hp = state.get("hp") or {}
+        for i, uid in enumerate(players):
+            value = max(0, min(3, int(hp.get(str(uid), 3))))
+            x1, x2 = (300, 500) if i == 0 else (700, 900)
+            draw.rounded_rectangle((x1, 285, x2, 310), 10, fill="#252b42", outline=accent, width=2)
+            if value:
+                draw.rounded_rectangle((x1 + 3, 288, x1 + 3 + int((x2-x1-6)*value/3), 307), 7, fill=GREEN if value > 1 else RED)
+            _text(draw, ((x1+x2)//2, 270), f"HP {value}/3", 18, WHITE, anchor="mm")
         _text(draw, (600, 340), "VS", 60, RED, anchor="mm", bold=True)
         for i, uid in enumerate(players):
             roll = rolls.get(str(uid), "—")
@@ -106,6 +122,14 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
         _text(draw, (600, 585), "ROLL • READ • OUTPLAY", 18, MUTED, anchor="mm")
     elif key == "rps":
         choices = state.get("choices") or {}
+        hp = state.get("hp") or {}
+        for i, uid in enumerate(players):
+            value = max(0, min(3, int(hp.get(str(uid), 3))))
+            x1, x2 = (300, 500) if i == 0 else (700, 900)
+            draw.rounded_rectangle((x1, 285, x2, 310), 10, fill="#252b42", outline=accent, width=2)
+            if value:
+                draw.rounded_rectangle((x1 + 3, 288, x1 + 3 + int((x2-x1-6)*value/3), 307), 7, fill=GREEN if value > 1 else RED)
+            _text(draw, ((x1+x2)//2, 270), f"HP {value}/3", 18, WHITE, anchor="mm")
         _text(draw, (600, 340), "VS", 64, RED, anchor="mm", bold=True)
         labels = {"rock": "ROCK", "paper": "PAPER", "scissors": "SCISSORS"}
         for i, uid in enumerate(players):
