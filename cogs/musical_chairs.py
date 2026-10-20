@@ -475,6 +475,9 @@ class MusicalChairsGameView(discord.ui.View):
             await self._edit_board()
         finally:
             self.stop()
+            release = getattr(self.cog, "_release_game", None)
+            if release is not None:
+                await release(self)
 
     async def on_timeout(self) -> None:
         async with self._lock:
@@ -484,6 +487,9 @@ class MusicalChairsGameView(discord.ui.View):
         if self._runner and not self._runner.done():
             self._runner.cancel()
         await self._edit_board()
+        release = getattr(self.cog, "_release_game", None)
+        if release is not None and (self._runner is None or self._runner.done()):
+            await release(self)
 
     async def on_error(
         self,
@@ -503,6 +509,31 @@ class MusicalChairs(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self.active_games: dict[int, MusicalChairsGameView] = {}
+        self._game_lock = asyncio.Lock()
+
+    async def _release_game(self, view: MusicalChairsGameView) -> None:
+        guild_id = getattr(getattr(view.message, "guild", None), "id", None)
+        if guild_id is None:
+            guild_id = getattr(view, "guild_id", None)
+        if guild_id is None:
+            return
+        async with self._game_lock:
+            if self.active_games.get(int(guild_id)) is view:
+                self.active_games.pop(int(guild_id), None)
+
+    async def cog_unload(self) -> None:
+        views = list(self.active_games.values())
+        for view in views:
+            view.closed = True
+            view.stop()
+            if view._runner and not view._runner.done():
+                view._runner.cancel()
+        tasks = [view._runner for view in views if view._runner is not None]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        async with self._game_lock:
+            self.active_games.clear()
 
     @app_commands.command(
         name="musical_chairs",
@@ -523,7 +554,18 @@ class MusicalChairs(commands.Cog):
             start_interaction: discord.Interaction,
             players: list[discord.Member],
         ) -> None:
-            view = MusicalChairsGameView(self, players)
+            guild_id = int(start_interaction.guild_id or interaction.guild.id)
+            async with self._game_lock:
+                existing = self.active_games.get(guild_id)
+                if existing is not None and not existing.closed:
+                    await start_interaction.followup.send(
+                        "هناك مباراة كراسي موسيقية نشطة في هذا السيرفر. انتظر انتهائها قبل بدء أخرى.",
+                        ephemeral=True,
+                    )
+                    return
+                view = MusicalChairsGameView(self, players)
+                view.guild_id = guild_id
+                self.active_games[guild_id] = view
             game_file = view._render_file()
             try:
                 game_message = await start_interaction.followup.send(
@@ -533,6 +575,9 @@ class MusicalChairs(commands.Cog):
                     view=view,
                     wait=True,
                 )
+            except Exception:
+                await self._release_game(view)
+                raise
             finally:
                 game_file.close()
             await view.start(game_message)
