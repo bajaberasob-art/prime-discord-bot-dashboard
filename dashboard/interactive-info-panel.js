@@ -91,8 +91,8 @@
           const move = (delta) => { const next = index + delta; if (next < 0 || next >= config.buttons.length) return; [config.buttons[index], config.buttons[next]] = [config.buttons[next], config.buttons[index]]; dirty = true; render(); };
           const selectedEmojiId = (value) => {
             const raw = String(value || "");
-            return raw.match(/^custom:(\\d{15,22})$/)?.[1]
-              || raw.match(/^<a?:[A-Za-z0-9_]{1,32}:(\\d{15,22})>$/)?.[1]
+            return raw.match(/^custom:(\d{15,22})$/)?.[1]
+              || raw.match(/^<a?:[A-Za-z0-9_]{1,32}:(\d{15,22})>$/)?.[1]
               || "";
           };
           const currentEmojiId = selectedEmojiId(button.emoji);
@@ -143,7 +143,7 @@
           h("p", { text: config.description || "وصف الرسالة" }),
           config.banner_url ? h("img", { class: "iip-banner", src: config.banner_url, alt: "Banner preview", onError: e => { e.currentTarget.hidden = true; } }) : null,
           h("div", { class: "iip-preview-buttons" }, ...config.buttons.map(b => {
-            const customId = String(b.emoji || "").match(/^(?:custom:|<a?:[A-Za-z0-9_]+:)(\\d{15,22})>?$/)?.[1];
+            const customId = String(b.emoji || "").match(/^(?:custom:|<a?:[A-Za-z0-9_]+:)(\d{15,22})>?$/)?.[1];
             const serverEmoji = customId ? emojis.find(item => String(item.id) === customId) : null;
             const shownEmoji = serverEmoji ? (":" + serverEmoji.name + ":") : (b.emoji || "");
             return h("span", { class: "iip-preview-button " + (b.style || "primary"), text: (shownEmoji ? shownEmoji + " " : "") + (b.label || "زر") });
@@ -214,6 +214,8 @@
         channels = data.channels || [];
         config = { ...defaults(), ...(data.config || {}) };
         if (!Array.isArray(config.buttons)) config.buttons = [];
+        // Migrate the old decorative glyph Discord rejected as an invalid emoji.
+        config.buttons = config.buttons.map(button => ({ ...button, emoji: button.emoji === "✦" ? "✨" : button.emoji }));
         render();
       } catch (error) {
         host.replaceChildren(h("div", { class: "iip-card", text: error.message === "unauth" ? "انتهت الجلسة." : "تعذر تحميل اللوحة. تأكد من صلاحيات الإدارة واتصال البوت." }));
