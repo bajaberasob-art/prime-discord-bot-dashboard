@@ -116,6 +116,7 @@ def apply_move(
     if power == "freeze_column":
         if state.frozen_column is not None:
             raise ValueError("column_already_frozen")
+        used.add(power)
         state.frozen_column = column
         state.freeze_owner = player
         state.last_action = f"❄️ اللاعب {player} جمّد العمود {column + 1}"
