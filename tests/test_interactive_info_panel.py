@@ -3,7 +3,7 @@ import tempfile
 import unittest
 
 from interactive_info_store import validate_config
-from cogs.interactive_info_panel import InteractiveInfoPanelView
+from cogs.interactive_info_panel import InteractiveInfoPanelView, _resolve_button_emoji
 
 
 class InteractiveInfoPanelValidationTests(unittest.TestCase):
@@ -78,6 +78,21 @@ class InteractiveInfoPanelValidationTests(unittest.TestCase):
                     validate_config(42, body)
             finally:
                 os.environ.pop("PRIME_PANEL_UPLOAD_DIR", None)
+
+    def test_custom_emoji_marker_resolves_to_guild_emoji(self):
+        selected = type("GuildEmoji", (), {"id": 123456789012345678, "name": "prime_star"})()
+        guild = type("Guild", (), {"emojis": [selected]})()
+        resolved = _resolve_button_emoji(None, 42, "custom:123456789012345678", guild=guild, strict=True)
+        self.assertIs(resolved, selected)
+
+    def test_missing_custom_emoji_has_clear_validation_error(self):
+        guild = type("Guild", (), {"emojis": []})()
+        with self.assertRaisesRegex(ValueError, "إيموجيات السيرفر"):
+            _resolve_button_emoji(None, 42, "custom:123456789012345678", guild=guild, strict=True)
+
+    def test_invalid_legacy_custom_emoji_mention_is_not_sent_to_discord(self):
+        resolved = _resolve_button_emoji(None, 42, "<:prime_star:123456789012345678>", guild=type("Guild", (), {"emojis": []})())
+        self.assertIsNone(resolved)
 
     def test_preserves_published_message_reference_on_draft_save(self):
         old = {"message_id": "987654321098765432", "last_published_at": "2026-10-21T00:00:00"}
