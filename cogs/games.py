@@ -480,21 +480,10 @@ class GameBoardView(discord.ui.View):
             puzzles = list(state.get("puzzles") or [])
             round_index = int(state.get("round_index") or 0)
             if puzzles:
-                puzzle = puzzles[min(round_index, len(puzzles) - 1)]
-                for index, option in enumerate(puzzle.get("options") or []):
-                    button = discord.ui.Button(
-                        label=f"{index + 1}. {str(option)[:70]}",
-                        style=discord.ButtonStyle.secondary,
-                        row=index // 2,
-                        disabled=terminal,
-                        custom_id=f"primegame:word:{self.session_id}:{index}",
-                    )
-                    button.callback = self._move({"answer": index})
-                    self.add_item(button)
                 answer_button = discord.ui.Button(
                     label="🔐 إدخال الشفرة",
                     style=discord.ButtonStyle.primary,
-                    row=2, disabled=terminal,
+                    row=0, disabled=terminal,
                     custom_id=f"primegame:word:{self.session_id}:modal",
                 )
                 async def open_word_modal(interaction: discord.Interaction) -> None:
@@ -504,7 +493,7 @@ class GameBoardView(discord.ui.View):
                 hint_button = discord.ui.Button(
                     label="💡 كشف حرف",
                     style=discord.ButtonStyle.secondary,
-                    row=2, disabled=terminal or str(round_index) in (state.get("hints") or {}),
+                    row=0, disabled=terminal or str(round_index) in (state.get("hints") or {}),
                     custom_id=f"primegame:word:{self.session_id}:hint",
                 )
                 hint_button.callback = self._move({"hint": True})
