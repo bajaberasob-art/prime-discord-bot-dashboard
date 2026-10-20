@@ -22,8 +22,8 @@ STYLE_MAP = {
     "danger": discord.ButtonStyle.danger,
 }
 
-_CUSTOM_EMOJI_MARKER = re.compile(r"custom:(\\d{15,22})")
-_CUSTOM_EMOJI_MENTION = re.compile(r"<a?:[A-Za-z0-9_]{1,32}:(\\d{15,22})>")
+_CUSTOM_EMOJI_MARKER = re.compile(r"custom:(\d{15,22})")
+_CUSTOM_EMOJI_MENTION = re.compile(r"<a?:[A-Za-z0-9_]{1,32}:(\d{15,22})>")
 
 
 def _resolve_button_emoji(
