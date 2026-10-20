@@ -141,16 +141,26 @@ class MusicalChairsRenderingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid_player_count"):
             MusicalChairsGameView(cog, two_players)
 
-    def test_game_view_builds_one_button_for_each_chair(self):
+    def test_game_view_builds_a_5_by_5_grid_and_only_enables_random_seats(self):
         cog = SimpleNamespace(bot=SimpleNamespace(session=None))
         players = [
             SimpleNamespace(id=index, name=f"Player {index}", display_name=f"Player {index}")
             for index in range(1, 11)
         ]
         view = MusicalChairsGameView(cog, players)
-        self.assertEqual(len(view.chair_buttons), 9)
-        self.assertEqual(len(view.children), 9)
-        self.assertTrue(all(button.style.value == 3 for button in view.chair_buttons.values()))
+        self.assertEqual(len(view.chair_buttons), 25)
+        self.assertEqual(len(view.children), 25)
+        self.assertTrue(all(button.style.value == 2 for button in view.chair_buttons.values()))
+
+        view.phase = "seating"
+        view.active_chair_indices = {2, 7, 13, 19, 24, 4, 9, 15, 21}
+        view._update_controls()
+        self.assertTrue(all(view.chair_buttons[index].style.value == 3
+                            and not view.chair_buttons[index].disabled
+                            for index in view.active_chair_indices))
+        self.assertTrue(all(view.chair_buttons[index].style.value == 2
+                            and view.chair_buttons[index].disabled
+                            for index in set(range(25)) - view.active_chair_indices)))
 
     def test_game_view_rejects_more_than_ten_players(self):
         cog = SimpleNamespace(bot=SimpleNamespace(session=None))
