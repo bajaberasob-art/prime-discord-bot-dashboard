@@ -714,6 +714,14 @@ class MafiaDayView(discord.ui.View):
         self.event = asyncio.Event()
         self.add_item(MafiaNominationSelect(self))
 
+    @discord.ui.button(label="📜 وصيتي الأخيرة", style=discord.ButtonStyle.secondary, row=1)
+    async def last_will_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        player = self.game.by_id.get(int(interaction.user.id))
+        if player is None or not player.alive:
+            await interaction.response.send_message("الوصية متاحة للاعبين الأحياء فقط.", ephemeral=True)
+            return
+        await interaction.response.send_modal(LastWillModal(self.game, player.user_id))
+
     def top_candidate(self) -> int | None:
         if not self.votes:
             return None
