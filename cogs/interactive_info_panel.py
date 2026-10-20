@@ -23,6 +23,27 @@ STYLE_MAP = {
 }
 
 
+def _resolve_button_emoji(bot: commands.Bot, guild_id: int, value: Any) -> discord.PartialEmoji | str | None:
+    """Resolve server custom emojis by ID; ignore stale/invalid emoji values safely."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match = re.fullmatch(r"<(?P<animated>a?):(?P<name>[A-Za-z0-9_]{2,32}):(?P<id>\\d{15,22})>", raw)
+    if match:
+        guild = bot.get_guild(int(guild_id))
+        emoji_id = int(match.group("id"))
+        emoji = discord.utils.get(guild.emojis, id=emoji_id) if guild else None
+        if emoji is None or not emoji.available:
+            log.warning("Ignoring unavailable custom emoji in interactive panel guild=%s emoji_id=%s", guild_id, emoji_id)
+            return None
+        return discord.PartialEmoji(name=emoji.name, id=emoji.id, animated=emoji.animated)
+    # Unicode emoji are valid names; malformed custom emoji markup is not sent to Discord.
+    if raw.startswith("<") or raw.endswith(">"):
+        log.warning("Ignoring malformed emoji value in interactive panel guild=%s", guild_id)
+        return None
+    return raw[:100]
+
+
 def _make_embed(config: dict[str, Any]) -> discord.Embed:
     color = str(config.get("color") or "#6366F1").lstrip("#")
     try:
@@ -55,7 +76,7 @@ class InteractiveInfoPanelView(discord.ui.View):
             style = STYLE_MAP.get(str(item.get("style") or "primary"), discord.ButtonStyle.primary)
             button = discord.ui.Button(
                 label=str(item.get("label") or "معلومات")[:80],
-                emoji=(str(item["emoji"])[:100] if item.get("emoji") else None),
+                emoji=_resolve_button_emoji(bot, self.guild_id, item.get("emoji")),
                 style=style,
                 custom_id=f"prime:info:{self.guild_id}:{button_id}",
                 row=min(len(self.children) // 5, 4),
