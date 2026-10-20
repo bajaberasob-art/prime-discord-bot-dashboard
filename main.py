@@ -123,6 +123,26 @@ SLASH_GROUP_DESCRIPTIONS = {
 class RoutedCommandTree(app_commands.CommandTree):
     """Route selected cog commands into Discord application-command groups."""
 
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
+        command = getattr(interaction, "command", None)
+        command_name = getattr(command, "qualified_name", "unknown")
+        logger.error(
+            "[APP_COMMAND] dispatch_error command=%s guild=%s error_type=%s",
+            command_name,
+            getattr(interaction, "guild_id", None),
+            type(error).__name__,
+            exc_info=(type(error), error, error.__traceback__),
+        )
+        await send_interaction_message(
+            interaction,
+            "⚠️ تعذر تنفيذ الأمر بسبب خطأ داخلي. تم تسجيل التفاصيل للمراجعة.",
+            ephemeral=True,
+        )
+
     def add_command(
         self,
         command,
@@ -229,6 +249,19 @@ class EnterpriseBot(commands.Bot):
             event_method,
             len(args),
             exc_info=True,
+        )
+
+    async def on_interaction(self, interaction: discord.Interaction) -> None:
+        """Log received application commands separately from gateway readiness."""
+        if interaction.type is not discord.InteractionType.application_command:
+            return
+        command = getattr(interaction, "command", None)
+        data = getattr(interaction, "data", None) or {}
+        command_name = getattr(command, "qualified_name", None) or str(data.get("name") or "unknown")
+        logger.info(
+            "[INTERACTION] gateway_received command=%s guild=%s",
+            command_name,
+            getattr(interaction, "guild_id", None),
         )
 
     def install_interaction_guards(self) -> int:

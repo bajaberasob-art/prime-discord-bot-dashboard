@@ -177,15 +177,42 @@ async def _run_callback(
     if interaction is None:
         return await callback(*args, **kwargs)
 
+    command_name = getattr(getattr(interaction, "command", None), "qualified_name", label)
+    guild_id = getattr(interaction, "guild_id", None)
+    started = time.perf_counter()
+    LOGGER.info(
+        "[INTERACTION] callback_started command=%s guild=%s",
+        command_name,
+        guild_id,
+    )
     try:
         # Discord only accepts send_modal as the initial interaction response.
         # Do not acknowledge modal-opening callbacks with defer first.
         if _callback_opens_modal(callback):
-            return await callback(*args, **kwargs)
+            result = await callback(*args, **kwargs)
+            LOGGER.info(
+                "[INTERACTION] callback_completed command=%s duration_ms=%.1f modal_path=true",
+                command_name,
+                (time.perf_counter() - started) * 1000.0,
+            )
+            return result
+        ack_started = time.perf_counter()
         deferred = await defer_if_needed(interaction)
+        LOGGER.info(
+            "[INTERACTION] acknowledgement_result command=%s deferred=%s ack_ms=%.1f",
+            command_name,
+            deferred,
+            (time.perf_counter() - ack_started) * 1000.0,
+        )
         proxy = InteractionProxy(interaction, deferred=deferred)
         replaced = tuple(proxy if value is interaction else value for value in args)
-        return await callback(*replaced, **kwargs)
+        result = await callback(*replaced, **kwargs)
+        LOGGER.info(
+            "[INTERACTION] callback_completed command=%s duration_ms=%.1f",
+            command_name,
+            (time.perf_counter() - started) * 1000.0,
+        )
+        return result
     except Exception as error:
         LOGGER.error(
             "[INTERACTION] %s failed guild=%s user=%s: %s",
