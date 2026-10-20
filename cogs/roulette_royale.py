@@ -613,7 +613,12 @@ class RouletteRoyaleGame:
                 self.alive_ids = [random.choice(living)]
                 text = f"🏆👑 **<@{self.alive_ids[0]}> هو ملك روليت الملوك!**"
             else:
-                text = "انتهت اللعبة دون فائز بسبب حالة غير متوقعة."
+                # A simultaneous chain elimination can theoretically remove everyone.
+                # Recover deterministically to the required single-winner end state.
+                winner_id = random.choice(list(self.players))
+                self.players[winner_id].alive = True
+                self.alive_ids = [winner_id]
+                text = f"🏆👑 **<@{winner_id}> هو ملك روليت الملوك!**\\nحُسمت الجولة بقرار تحكيمي بعد تعادل الإقصاء."
         await self._update_board(text, target_id=self.alive_ids[0] if self.alive_ids else None)
 
     async def cancel(self) -> None:
