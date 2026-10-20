@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 from dataclasses import dataclass, field
 from typing import Sequence
@@ -219,6 +220,7 @@ class UNOState:
                 break
             card = self.draw_pile.pop()
             player.hand.append(card)
+            result.append(card)
         player.uno_called = False
         return result
 
@@ -410,6 +412,8 @@ class UNOGameView(discord.ui.View):
         self.children[-1].callback = self._hand_callback
         self.add_item(discord.ui.Button(label="➕ سحب ورقة", style=discord.ButtonStyle.secondary, row=0, custom_id="uno:draw"))
         self.children[-1].callback = self._draw_callback
+        self.add_item(discord.ui.Button(label="🔊 أونو!", style=discord.ButtonStyle.success, row=0, custom_id="uno:call"))
+        self.children[-1].callback = self._uno_callback
         self.add_item(discord.ui.Button(label="🔥 صيد أونو!", style=discord.ButtonStyle.danger, row=0, custom_id="uno:catch"))
         self.children[-1].callback = self._catch_callback
 
@@ -425,9 +429,6 @@ class UNOGameView(discord.ui.View):
         if not player:
             await interaction.response.send_message("أنت لست ضمن هذه المباراة.", ephemeral=True)
             return
-        if self.state.current_player.user_id != user_id:
-            await interaction.response.send_message("يمكنك عرض يدك، لكن اللعب متاح لصاحب الدور الحالي فقط.", ephemeral=True)
-            # Private hand is still allowed out of turn; present it below.
         view = UNOHandView(self, user_id)
         cards = "\n".join(f"{i+1}. {'✅' if i in self.state.playable_indices(user_id) else '▫️'} {card.label}" for i, card in enumerate(player.hand))
         await interaction.response.send_message(f"**أوراقك الخاصة**\n{cards or 'لا توجد أوراق.'}\n\nالأخضر يعني ورقة قابلة للعب.", view=view, ephemeral=True)
@@ -455,6 +456,17 @@ class UNOGameView(discord.ui.View):
         if not cards or not can_play(cards[0], self.state.top_card, self.state.current_color):
             self.state._advance()
         await self.refresh_board()
+
+    async def _uno_callback(self, interaction: discord.Interaction):
+        user_id = int(interaction.user.id)
+        if not self.state.player(user_id):
+            await interaction.response.send_message("أنت لست ضمن هذه المباراة.", ephemeral=True)
+            return
+        if self.state.call_uno(user_id):
+            await interaction.response.send_message("🔊 تم تسجيل نداء UNO!", ephemeral=True)
+            await self.refresh_board()
+        else:
+            await interaction.response.send_message("يمكنك قول UNO عندما تبقى معك ورقة واحدة، قبل أن يصطادك لاعب آخر.", ephemeral=True)
 
     async def _catch_callback(self, interaction: discord.Interaction):
         catcher_id = int(interaction.user.id)
