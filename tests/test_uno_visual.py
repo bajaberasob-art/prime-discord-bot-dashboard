@@ -96,7 +96,7 @@ class UNORulesTests(unittest.TestCase):
         self.state.play_card(current.user_id, 0)
         self.assertEqual(self.state.current_index, 2)
         current = self.state.current_player
-        current.hand = [UNOCard("blue", "draw2")]
+        current.hand = [UNOCard("blue", "draw2"), UNOCard("green", "4")]
         self.state.discard_pile = [UNOCard("blue", "3")]
         self.state.current_color = "blue"
         self.state.play_card(current.user_id, 0)
