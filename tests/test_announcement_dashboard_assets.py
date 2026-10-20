@@ -15,6 +15,8 @@ class AnnouncementAssets(unittest.IsolatedAsyncioTestCase):
         for name, content_type in (
             ("announcement-space.css", "text/css"),
             ("announcement-space.js", "application/javascript"),
+            ("interactive-info-panel.css", "text/css"),
+            ("interactive-info-panel.js", "application/javascript"),
         ):
             result = await web_server.static_asset(SimpleNamespace(match_info={"name": name}))
             self.assertEqual(result.status, 200)
@@ -23,7 +25,7 @@ class AnnouncementAssets(unittest.IsolatedAsyncioTestCase):
     def test_worker_matches_html_asset_versions(self):
         html = (ROOT / "dashboard/index.html").read_text()
         worker = web_server.service_worker_source()
-        for name in ("announcement-space.css", "announcement-space.js", "app.js"):
+        for name in ("announcement-space.css", "announcement-space.js", "interactive-info-panel.css", "interactive-info-panel.js", "app.js"):
             asset = re.search(rf'static/{re.escape(name)}\?v=[^"]+', html)
             self.assertIsNotNone(asset)
             self.assertIn("./" + asset.group(), worker)
@@ -33,6 +35,8 @@ class AnnouncementAssets(unittest.IsolatedAsyncioTestCase):
         self.assertIn('navButton("announcements")', source)
         self.assertIn("window.PrimeAnnouncements.mount(host", source)
         self.assertIn("state.announcementCleanup();", source)
+        self.assertIn("window.PrimeInteractiveInfoPanel?.mount", source)
+        self.assertIn("تعذّر تحميل منشئ لوحة الأزرار", source)
         styles = (ROOT / "dashboard/announcement-space.css").read_text()
         button = re.search(r"\.announcement-space \.as-btn \{([^}]+)\}", styles).group(1)
         self.assertIn("color: var(--as-text)", button)
