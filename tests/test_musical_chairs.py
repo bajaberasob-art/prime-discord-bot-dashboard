@@ -160,7 +160,7 @@ class MusicalChairsRenderingTests(unittest.TestCase):
                             for index in view.active_chair_indices))
         self.assertTrue(all(view.chair_buttons[index].style.value == 2
                             and view.chair_buttons[index].disabled
-                            for index in set(range(25)) - view.active_chair_indices)))
+                            for index in set(range(25)) - view.active_chair_indices))
 
     def test_game_view_rejects_more_than_ten_players(self):
         cog = SimpleNamespace(bot=SimpleNamespace(session=None))
