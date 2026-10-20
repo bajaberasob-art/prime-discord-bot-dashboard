@@ -519,6 +519,132 @@ def _reduce_word_action(
 
 
 
+
+# ── Emoji Decode: guess the hidden character or title ────────────────────────
+_EMOJI_BANK: tuple[dict[str, Any], ...] = (
+    {"clue": "⚽ 🇦🇷 🐐", "hint": "لاعب كرة قدم أسطوري", "options": ["ليونيل ميسي", "كريستيانو رونالدو", "كيليان مبابي", "نيمار"], "correct": 0},
+    {"clue": "🧽 🍍 🌊", "hint": "شخصية كرتونية تعيش تحت البحر", "options": ["توم وجيري", "سبونج بوب", "شريك", "البحث عن نيمو"], "correct": 1},
+    {"clue": "🕷️ 🕸️ 🦸", "hint": "بطل خارق يتسلق الجدران", "options": ["باتمان", "سبايدرمان", "سوبرمان", "آيرون مان"], "correct": 1},
+    {"clue": "🧊 🚢 💔", "hint": "فيلم شهير عن سفينة", "options": ["تايتانيك", "فروزن", "قراصنة الكاريبي", "جومانجي"], "correct": 0},
+    {"clue": "🧙 ⚡ 🦉", "hint": "ساحر مشهور ونظارته دائرية", "options": ["سيد الخواتم", "هاري بوتر", "علاء الدين", "بينوكيو"], "correct": 1},
+    {"clue": "🦁 👑 🌅", "hint": "فيلم رسوم متحركة عن أمير الغابة", "options": ["مدغشقر", "الأسد الملك", "زوتوبيا", "كتاب الأدغال"], "correct": 1},
+    {"clue": "🟢 👹 🫏", "hint": "غول أخضر وصديقه الحمار", "options": ["شريك", "هالك", "الوحش", "مستر بين"], "correct": 0},
+    {"clue": "🦇 🌃 🦸", "hint": "حامي مدينة غوثام", "options": ["فلاش", "باتمان", "ثور", "سبايدرمان"], "correct": 1},
+    {"clue": "🦖 🌴 🚙", "hint": "فيلم مغامرة في حديقة ديناصورات", "options": ["جوراسيك بارك", "أفاتار", "كينغ كونغ", "مدغشقر"], "correct": 0},
+    {"clue": "🍫 🏭 🎩", "hint": "مصنع شوكولاتة وصاحبه يرتدي قبعة", "options": ["راتاتوي", "ويلي ونكا", "قصة لعبة", "علاء الدين"], "correct": 1},
+)
+
+
+def _initial_emoji_state(players: list[int]) -> dict[str, Any]:
+    puzzles = []
+    for item in random.sample(list(_EMOJI_BANK), 5):
+        options = list(item["options"])
+        answer = options[int(item["correct"])]
+        random.shuffle(options)
+        puzzles.append({
+            "clue": item["clue"],
+            "hint": item["hint"],
+            "options": options,
+            "correct": options.index(answer),
+        })
+    return {
+        "round_index": 0,
+        "puzzles": puzzles,
+        "scores": {str(player): 0 for player in players},
+        "last_answer": None,
+    }
+
+
+def _reduce_emoji_action(
+    state: dict[str, Any], players: list[int], actor_id: int, action: dict[str, Any]
+) -> GameTransition:
+    # Both games share the same tested turn, score, and finish semantics.
+    return _reduce_word_action(state, players, actor_id, action)
+
+
+# ── Treasure Hunt: hidden crates with risks and rewards ───────────────────────
+_TREASURE_POOL: tuple[dict[str, Any], ...] = (
+    {"symbol": "👑", "points": 8},
+    {"symbol": "💎", "points": 5},
+    {"symbol": "💎", "points": 5},
+    {"symbol": "💎", "points": 5},
+    {"symbol": "🪙", "points": 3},
+    {"symbol": "🪙", "points": 3},
+    {"symbol": "🪙", "points": 3},
+    {"symbol": "🪙", "points": 3},
+    {"symbol": "🧭", "points": 2},
+    {"symbol": "🧭", "points": 2},
+    {"symbol": "🧭", "points": 2},
+    {"symbol": "🧭", "points": 2},
+    {"symbol": "🕳️", "points": -2},
+    {"symbol": "🕳️", "points": -2},
+    {"symbol": "🕳️", "points": -2},
+    {"symbol": "🕳️", "points": -2},
+)
+
+
+def _initial_treasure_state(players: list[int]) -> dict[str, Any]:
+    return {
+        "crates": random.sample(list(_TREASURE_POOL), k=len(_TREASURE_POOL)),
+        "revealed": {},
+        "scores": {str(player): 0 for player in players},
+        "turn_count": 0,
+        "last_pick": None,
+    }
+
+
+def _reduce_treasure_action(
+    state: dict[str, Any], players: list[int], actor_id: int, action: dict[str, Any]
+) -> GameTransition:
+    if actor_id not in players:
+        raise ValueError("not_a_player")
+    crates = list(state.get("crates") or [])
+    if len(crates) != 16:
+        raise ValueError("invalid_treasure_state")
+    try:
+        index = int(action.get("index"))
+    except (TypeError, ValueError):
+        raise ValueError("invalid_treasure_crate") from None
+    if not 0 <= index < len(crates):
+        raise ValueError("invalid_treasure_crate")
+    revealed = {str(key): value for key, value in (state.get("revealed") or {}).items()}
+    if str(index) in revealed:
+        raise ValueError("treasure_crate_open")
+    turn_count = int(state.get("turn_count") or 0)
+    if not 0 <= turn_count < 8:
+        raise ValueError("invalid_treasure_state")
+
+    loot = crates[index]
+    points = int(loot.get("points", 0))
+    scores = {str(key): int(value) for key, value in (state.get("scores") or {}).items()}
+    scores[str(actor_id)] = scores.get(str(actor_id), 0) + points
+    revealed[str(index)] = {"symbol": str(loot.get("symbol", "❔")), "points": points}
+    next_turn_count = turn_count + 1
+    next_state = {
+        **state,
+        "revealed": revealed,
+        "scores": scores,
+        "turn_count": next_turn_count,
+        "last_pick": {
+            "player_id": actor_id,
+            "index": index,
+            "symbol": str(loot.get("symbol", "❔")),
+            "points": points,
+        },
+    }
+    if next_turn_count >= 8:
+        first_score = scores.get(str(players[0]), 0)
+        second_score = scores.get(str(players[1]), 0)
+        if first_score == second_score:
+            return GameTransition(next_state, None, is_draw=True)
+        return GameTransition(
+            next_state,
+            None,
+            winner_id=players[0] if first_score > second_score else players[1],
+        )
+    next_player = players[1] if actor_id == players[0] else players[0]
+    return GameTransition(next_state, next_player)
+
 registry = GameRegistry()
 registry.register(GameDefinition(
     key="xo", name="XO · تيك تاك تو", min_players=2, max_players=2,
@@ -547,4 +673,13 @@ registry.register(GameDefinition(
 registry.register(GameDefinition(
     key="word", name="فكّ الكلمة", min_players=2, max_players=2,
     reward_coins=15, initial_state=_initial_word_state, reduce_action=_reduce_word_action,
+))
+
+registry.register(GameDefinition(
+    key="emoji", name="فك شفرة الإيموجي", min_players=2, max_players=2,
+    reward_coins=15, initial_state=_initial_emoji_state, reduce_action=_reduce_emoji_action,
+))
+registry.register(GameDefinition(
+    key="treasure", name="صائد الكنز", min_players=2, max_players=2,
+    reward_coins=20, initial_state=_initial_treasure_state, reduce_action=_reduce_treasure_action,
 ))
