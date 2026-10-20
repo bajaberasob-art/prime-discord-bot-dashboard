@@ -342,6 +342,10 @@ class EnterpriseBot(commands.Bot):
             "cogs.tournaments",
             "cogs.gaming",
             "cogs.games",
+            "cogs.buckshot",
+            "cogs.bank_heist",
+            "cogs.blind_vaults",
+            "cogs.connect4_power",
             "cogs.mafia",
             "cogs.musical_chairs",
             "cogs.uno_visual",
@@ -402,7 +406,7 @@ class EnterpriseBot(commands.Bot):
             # so unrelated Discord commands stay untouched.
             await publish_command_groups(
                 self,
-                ("game", "tournament", "mafia", "musical_chairs", "roulette_royale", "uno_visual"),
+                ("game", "tournament", "mafia", "musical_chairs", "roulette_royale", "uno_visual", "buckshot", "bank_heist", "blind_vaults", "connect4_power"),
                 guild=self.sync_guild,
             )
 
