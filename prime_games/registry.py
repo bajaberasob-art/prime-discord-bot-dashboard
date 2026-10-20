@@ -519,10 +519,12 @@ def _reduce_word_action(state: dict[str, Any], players: list[int], actor_id: int
             raise ValueError("hint_used")
         word = str(puzzle.get("options", [""])[int(puzzle.get("correct", 0))])
         hints[hint_key] = word[0] if word else ""
-        # Hint costs one point if available; otherwise it forfeits this round's point.
-        if scores.get(str(actor_id), 0) > 0:
+        hint_costs = dict(state.get("hint_costs") or {})
+        had_point = scores.get(str(actor_id), 0) > 0
+        if had_point:
             scores[str(actor_id)] -= 1
-        next_state = {**state, "hints": hints, "scores": scores, "hint_used_by": actor_id}
+        hint_costs[hint_key] = had_point
+        next_state = {**state, "hints": hints, "hint_costs": hint_costs, "scores": scores, "hint_used_by": actor_id}
         return GameTransition(next_state, actor_id)
     if "answer_text" in action:
         submitted = "".join(str(action.get("answer_text") or "").split()).casefold()
@@ -539,7 +541,11 @@ def _reduce_word_action(state: dict[str, Any], players: list[int], actor_id: int
             raise ValueError("invalid_answer")
         is_correct = answer == int(puzzle.get("correct", -1))
     if is_correct:
-        scores[str(actor_id)] = scores.get(str(actor_id), 0) + (0 if str(round_index) in (state.get("hints") or {}) else 1)
+        hinted = str(round_index) in (state.get("hints") or {})
+        # A hint costs one point, but a correct answer still earns the round point.
+        # If the player had no points to spend, the hint forfeits this round's point.
+        round_award = 0 if hinted and not (state.get("hint_costs") or {}).get(str(round_index), False) else 1
+        scores[str(actor_id)] = scores.get(str(actor_id), 0) + round_award
     next_index = round_index + 1
     next_state = {**state, "round_index": next_index, "scores": scores,
                   "last_answer": {"player_id": actor_id, "round": round_index + 1, "correct": is_correct}}
