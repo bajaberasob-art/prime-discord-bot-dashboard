@@ -32,7 +32,7 @@ class GameCatalogPresentationTests(unittest.TestCase):
         )
         self.assertEqual(
             {field.name.split("  •")[0] for field in strategy_embed.fields},
-            {"XO", "أربعة على التوالي", "حجر ورقة مقص", "مبارزة النرد"},
+            {"XO · تيك تاك تو", "أربعة على التوالي", "حجر ورقة مقص", "مبارزة النرد"},
         )
         self.assertTrue(all_embed.image.url.endswith("prime-game-list.png"))
 
