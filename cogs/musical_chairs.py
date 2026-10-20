@@ -566,21 +566,28 @@ class MusicalChairs(commands.Cog):
                 view = MusicalChairsGameView(self, players)
                 view.guild_id = guild_id
                 self.active_games[guild_id] = view
-            game_file = view._render_file()
+            game_message = None
             try:
-                game_message = await start_interaction.followup.send(
-                    "🎵 بدأت الكراسي الموسيقية! راقب اللوحة وانتظر توقف الموسيقى.",
-                    embed=view._embed(),
-                    file=game_file,
-                    view=view,
-                    wait=True,
-                )
+                game_file = view._render_file()
+                try:
+                    game_message = await start_interaction.followup.send(
+                        "🎵 بدأت الكراسي الموسيقية! راقب اللوحة وانتظر توقف الموسيقى.",
+                        embed=view._embed(),
+                        file=game_file,
+                        view=view,
+                        wait=True,
+                    )
+                finally:
+                    game_file.close()
+                await view.start(game_message)
             except Exception:
+                if game_message is not None:
+                    try:
+                        await game_message.edit(view=None)
+                    except (discord.Forbidden, discord.HTTPException):
+                        logger.warning("Could not disable incomplete musical chairs board", exc_info=True)
                 await self._release_game(view)
                 raise
-            finally:
-                game_file.close()
-            await view.start(game_message)
 
         lobby = UniversalLobbyView(
             interaction.user,
