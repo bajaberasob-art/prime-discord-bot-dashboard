@@ -28,7 +28,7 @@ def _resolve_button_emoji(bot: commands.Bot, guild_id: int, value: Any) -> disco
     raw = str(value or "").strip()
     if not raw:
         return None
-    match = re.fullmatch(r"<(?P<animated>a?):(?P<name>[A-Za-z0-9_]{2,32}):(?P<id>\\d{15,22})>", raw)
+    match = re.fullmatch(r"<(?P<animated>a?):(?P<name>[A-Za-z0-9_]{2,32}):(?P<id>\d{15,22})>", raw)
     if match:
         guild = bot.get_guild(int(guild_id))
         emoji_id = int(match.group("id"))
@@ -41,7 +41,7 @@ def _resolve_button_emoji(bot: commands.Bot, guild_id: int, value: Any) -> disco
     if raw.startswith("<") or raw.endswith(">"):
         log.warning("Ignoring malformed emoji value in interactive panel guild=%s", guild_id)
         return None
-    if not re.search(r"[\\U0001F000-\\U0001FAFF\\u2600-\\u27BF]", raw):
+    if not re.search(r"[\U0001F000-\U0001FAFF\u2600-\u27BF]", raw):
         log.warning("Ignoring non-emoji button value in interactive panel guild=%s", guild_id)
         return None
     return raw[:100]
