@@ -11,12 +11,12 @@ from typing import Iterable
 import discord
 from discord import app_commands
 from discord.ext import commands
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from game_engine import (
     CYAN, GREEN, MUTED, PANEL_EDGE, PURPLE, RED, WHITE,
     _font, draw_arabic_text, get_circular_avatar, create_base_canvas, image_to_file,
-    UniversalLobbyView,
+    create_luxury_canvas, draw_glow_panel, draw_status_avatar, UniversalLobbyView,
 )
 
 logger = logging.getLogger("PrimeRouletteRoyale")
@@ -102,12 +102,21 @@ def render_roulette_board(
     all_players = list(players.values())
     living = [p for p in all_players if p.user_id in alive]
     width, height = 1240, 760
-    image = create_base_canvas(width, height, "روليت الملوك • ROULETTE ROYALE",
-                               f"الجولة {round_number} • آخر لاعب يبقى هو الملك").convert("RGBA")
+    image = create_luxury_canvas(
+        width, height, "روليت الملوك • ROULETTE ROYALE",
+        f"الجولة {round_number} • آخر لاعب يبقى هو الملك", accent=PURPLE,
+    ).convert("RGBA")
     draw = ImageDraw.Draw(image)
     cx, cy, radius = 385, 430, 260
+    wheel_halo = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(wheel_halo).ellipse(
+        (cx-radius-13, cy-radius-13, cx+radius+13, cy+radius+13),
+        outline="#36e0d0", width=12,
+    )
+    image.alpha_composite(wheel_halo.filter(ImageFilter.GaussianBlur(18)))
+    draw = ImageDraw.Draw(image)
     draw.ellipse((cx-radius-10, cy-radius-10, cx+radius+10, cy+radius+10),
-                 fill="#080a12", outline=CYAN, width=4)
+                 fill="#080a12", outline="#f7c76a", width=5)
     if living:
         step = 360.0 / len(living)
         # Draw slices using a stable start angle; the needle's angle determines the stop.
@@ -131,15 +140,27 @@ def render_roulette_board(
                                  label, font=_font(13, True), fill=WHITE, anchor="mm")
         draw.ellipse((cx-58, cy-58, cx+58, cy+58), fill="#0b1020", outline=WHITE, width=3)
         draw_arabic_text(draw, (cx, cy-5), "ROYALE", font=_font(18, True), fill=CYAN, anchor="mm")
-        draw.polygon([(cx, cy-radius-28), (cx-18, cy-radius+8), (cx+18, cy-radius+8)],
-                     fill="#fbbf24", outline=WHITE)
+        # Gold needle with a soft halo, aligned to the wheel's selected sector.
+        needle_glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        ImageDraw.Draw(needle_glow).polygon(
+            [(cx, cy-radius-32), (cx-22, cy-radius+10), (cx+22, cy-radius+10)],
+            fill=(255, 202, 96, 210),
+        )
+        image.alpha_composite(needle_glow.filter(ImageFilter.GaussianBlur(9)))
+        draw = ImageDraw.Draw(image)
+        draw.polygon([(cx, cy-radius-32), (cx-22, cy-radius+10), (cx+22, cy-radius+10)],
+                     fill="#ffca60", outline="#fff0bd")
+        draw.ellipse((cx-8, cy-radius-25, cx+8, cy-radius-9), fill=WHITE)
     else:
         draw_arabic_text(draw, (cx, cy), "لا يوجد لاعبون", font=_font(22, True), fill=WHITE, anchor="mm")
 
     # Side panel lists every participant, with dead players greyed out.
     panel_x, panel_y, panel_w = 720, 150, 460
-    draw.rounded_rectangle((panel_x, panel_y, panel_x+panel_w, 685), radius=20,
-                           fill="#0b1020", outline=PANEL_EDGE, width=2)
+    draw_glow_panel(
+        image, (panel_x, panel_y, panel_x + panel_w, 685),
+        fill=(11, 16, 34, 245), outline=PANEL_EDGE, radius=22, glow=PURPLE, width=2,
+    )
+    draw = ImageDraw.Draw(image)
     draw_arabic_text(draw, (panel_x+panel_w-24, panel_y+25),
                      f"الأحياء: {len(living)} / {len(all_players)}", font=_font(22, True),
                      fill=GREEN, anchor="ra")
