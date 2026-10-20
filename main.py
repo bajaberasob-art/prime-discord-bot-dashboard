@@ -395,10 +395,11 @@ class EnterpriseBot(commands.Bot):
             await publish_rank_commands(self, guild=self.sync_guild)
             await publish_subscription_commands(self, guild=self.sync_guild)
             # Broad sync is intentionally disabled by default; explicitly upsert
-            # only the two new command groups so unrelated Discord commands stay untouched.
+            # the new game/tournament groups and the standalone visual game command
+            # so unrelated Discord commands stay untouched.
             await publish_command_groups(
                 self,
-                ("game", "tournament"),
+                ("game", "tournament", "musical_chairs"),
                 guild=self.sync_guild,
             )
 

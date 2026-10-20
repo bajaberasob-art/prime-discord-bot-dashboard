@@ -105,6 +105,19 @@ class CommandRegistrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot.http.global_upserts, [])
         self.assertEqual(bot.tree.fetch_guilds, [guild])
 
+    async def test_standalone_visual_game_command_is_upserted_without_broad_sync(self):
+        musical_chairs = payload("musical_chairs", "ابدأ الكراسي الموسيقية")
+        bot = self.make_bot({"musical_chairs": musical_chairs}, [])
+
+        self.assertTrue(await publish_command_groups(bot, ("musical_chairs",)))
+
+        self.assertEqual(
+            [item[1]["name"] for item in bot.http.global_upserts],
+            ["musical_chairs"],
+        )
+        self.assertEqual(bot.http.guild_upserts, [])
+        self.assertEqual(bot.tree.fetch_count, 1)
+
     async def test_missing_local_group_fails_safely_without_upserting(self):
         bot = self.make_bot({}, [])
 
