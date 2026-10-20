@@ -19,6 +19,8 @@ from prime_games.engine import (
     list_active_sessions,
 )
 from prime_games.registry import registry
+from prime_games.classic_renderer import render_classic_game
+from game_engine import image_to_file
 from cogs.card_generator import generate_xo_game_card
 
 logger = logging.getLogger("PrimeGamesCog")
@@ -256,9 +258,19 @@ async def _game_presentation(
     reward: int = 0,
     reward_capped: bool = False,
 ) -> tuple[discord.Embed, discord.File | None]:
-    """Render the XO card when possible; keep every other game lightweight."""
-    if session.get("game_key") != "xo":
-        return _game_embed(session, reward=reward, reward_capped=reward_capped), None
+    """Render every legacy game as a premium Pillow card."""
+    try:
+        image = await render_classic_game(session, interaction.guild)
+        embed = _game_embed(session, reward=reward, reward_capped=reward_capped)
+        embed.set_image(url="attachment://prime-classic-game.png")
+        return embed, image_to_file(image, "prime-classic-game.png")
+    except Exception:
+        logger.exception(
+            "Could not render %s card for session %s; using embed fallback",
+            session.get("game_key"), session.get("id")
+        )
+        if session.get("game_key") != "xo":
+            return _game_embed(session, reward=reward, reward_capped=reward_capped), None
 
     guild = interaction.guild
     players = list(session.get("players") or [])

@@ -278,6 +278,26 @@ class PrimeGamesEngineTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(image.size, (960, 560))
             image.verify()
 
+    async def test_infinite_xo_removes_oldest_piece_after_third_piece(self):
+        session = await create_session(
+            guild_id=706, channel_id=306, game_key="xo", players=[71, 72]
+        )
+        await attach_message(session["id"], 8861)
+        for player_id, square in [
+            (71, 0), (72, 3), (71, 1), (72, 4), (71, 2), (72, 5),
+        ]:
+            result = await apply_action(session["id"], player_id, {"index": square})
+            self.assertTrue(result["ok"])
+        # X's fourth placement removes its oldest mark from cell 0.
+        result = await apply_action(session["id"], 71, {"index": 6})
+        self.assertTrue(result["ok"])
+        state = result["session"]["state"]
+        self.assertIsNone(state["board"][0])
+        self.assertEqual(state["board"][6], "X")
+        self.assertEqual(state["pieces"]["X"], [1, 2, 6])
+        self.assertLessEqual(len(state["pieces"]["X"]), 3)
+        self.assertLessEqual(len(state["pieces"]["O"]), 3)
+
     async def test_game_reward_respects_existing_wallet_daily_budget(self):
         async with database.connect() as db:
             await db.executemany(

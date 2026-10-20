@@ -85,8 +85,23 @@ def _reduce_xo_action(
         raise ValueError("not_a_player")
 
     mark = "X" if actor_id == players[0] else "O"
+    # Infinite Neon XO: retain only each player's three newest pieces.
+    pieces = {
+        "X": list(state.get("pieces", {}).get("X", [])),
+        "O": list(state.get("pieces", {}).get("O", [])),
+    }
+    # Migrate active games created before the rolling-piece rules existed.
+    if not state.get("pieces"):
+        for cell_index, cell_mark in enumerate(board):
+            if cell_mark in pieces:
+                pieces[cell_mark].append(cell_index)
+        pieces = {key: value[-3:] for key, value in pieces.items()}
+    if len(pieces[mark]) >= 3:
+        oldest = pieces[mark].pop(0)
+        board[oldest] = None
     board[index] = mark
-    next_state = {**state, "board": board}
+    pieces[mark].append(index)
+    next_state = {**state, "board": board, "pieces": pieces}
     winning_lines = (
         (0, 1, 2), (3, 4, 5), (6, 7, 8),
         (0, 3, 6), (1, 4, 7), (2, 5, 8),
@@ -94,8 +109,7 @@ def _reduce_xo_action(
     )
     if any(all(board[cell] == mark for cell in line) for line in winning_lines):
         return GameTransition(next_state, None, winner_id=actor_id)
-    if all(cell is not None for cell in board):
-        return GameTransition(next_state, None, is_draw=True)
+    # The board is rolling, so a full-board draw is impossible by design.
     next_player = players[1] if actor_id == players[0] else players[0]
     return GameTransition(next_state, next_player)
 

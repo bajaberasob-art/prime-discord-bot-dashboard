@@ -39,6 +39,30 @@ class VisualGameEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(avatar.getpixel((0, 0))[3], 0)
         self.assertEqual(avatar.getpixel((32, 32))[3], 255)
 
+
+    async def test_classic_game_renderer_produces_valid_png_for_legacy_games(self):
+        from prime_games.classic_renderer import render_classic_game
+        from PIL import Image
+        import io
+
+        session = {
+            "id": 77, "game_key": "memory", "players": [10, 11],
+            "status": "active", "current_player_id": 10,
+            "state": {
+                "cards": ["A", "A", "B", "B"] * 4,
+                "matched": [0, 1], "revealed": [2], "scores": {"10": 1, "11": 0},
+            },
+        }
+        image = await render_classic_game(session, None)
+        self.assertEqual(image.size, (1200, 760))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        buffer.seek(0)
+        with Image.open(buffer) as decoded:
+            self.assertEqual(decoded.format, "PNG")
+            self.assertEqual(decoded.size, (1200, 760))
+            decoded.verify()
+
     async def test_lobby_validates_player_limits_and_starts_with_host(self):
         async def start_callback(interaction, players):
             return None
