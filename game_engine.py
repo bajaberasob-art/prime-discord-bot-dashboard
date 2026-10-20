@@ -14,7 +14,7 @@ from typing import Awaitable, Callable, Sequence
 
 import aiohttp
 import discord
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps, features
 
 try:
     import arabic_reshaper
@@ -95,23 +95,41 @@ def draw_arabic_text(
     stroke_width: int = 0,
     stroke_fill: str | tuple[int, int, int] | None = None,
 ) -> None:
-    """Draw Arabic/Latin mixed text with RTL shaping when the optional packages exist."""
-    shaped = _shape_arabic(text)
+    """Draw Arabic and mixed-direction text using Pillow's shaping engine when available.
+
+    Prefer libraqm's native shaping/bidi support because applying the legacy
+    reshape+reorder path to mixed Arabic, Latin, numbers and emoji can scramble
+    their visual order. Keep the legacy path as a compatibility fallback.
+    """
+    raw_text = _safe_text(text)
+    text_font = font or _font(22)
+    options = {
+        "font": text_font,
+        "fill": fill,
+        "stroke_width": max(0, int(stroke_width)),
+    }
+    if anchor:
+        options["anchor"] = anchor
+    if stroke_fill is not None:
+        options["stroke_fill"] = stroke_fill
+
+    has_arabic = any("\u0600" <= char <= "\u06ff" or "\ufb50" <= char <= "\ufdff"
+                     or "\ufe70" <= char <= "\ufeff" for char in raw_text)
+    if has_arabic:
+        try:
+            if features.check("raqm"):
+                # Let libraqm handle shaping and bidi exactly once. Do not pre-reorder.
+                draw.text(xy, raw_text, direction="rtl", language="ar", **options)
+                return
+        except (AttributeError, TypeError, ValueError, OSError):
+            logger.debug("Native Arabic rendering unavailable; trying compatibility path", exc_info=True)
+
+    shaped = _shape_arabic(raw_text)
     try:
-        options = {
-            "font": font or _font(22),
-            "fill": fill,
-            "stroke_width": max(0, int(stroke_width)),
-        }
-        if anchor:
-            options["anchor"] = anchor
-        if stroke_fill is not None:
-            options["stroke_fill"] = stroke_fill
-        # Do not pass direction="rtl": reshaped text has already been reordered.
         draw.text(xy, shaped, **options)
     except (TypeError, ValueError, OSError):
         logger.debug("Pillow rejected styled text options; using basic text", exc_info=True)
-        draw.text(xy, shaped, font=font or _font(22), fill=fill)
+        draw.text(xy, shaped, font=text_font, fill=fill)
 
 
 def _placeholder_avatar(size: int, label: str = "?") -> Image.Image:
