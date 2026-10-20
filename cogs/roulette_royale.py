@@ -501,12 +501,16 @@ class RouletteRoyaleGame:
                 self.avatars[result[0]] = result[1]
 
     def _render(self, target_id: int | None = None, angle: float = 0, obscure: bool = False) -> discord.File:
-        image = render_roulette_board(
-            self.players, alive_ids=self.alive_ids, round_number=max(1, self.round_number),
-            target_id=target_id, spin_angle=angle, event_text=self.event_text,
-            avatars=self.avatars, obscure_wheel=obscure,
-            winner_id=self.alive_ids[0] if self.finished and len(self.alive_ids) == 1 else None,
-        )
+        if self.finished and len(self.alive_ids) == 1:
+            image = render_royale_victory(
+                self.players, self.alive_ids[0], max(1, self.round_number), self.avatars
+            )
+        else:
+            image = render_roulette_board(
+                self.players, alive_ids=self.alive_ids, round_number=max(1, self.round_number),
+                target_id=target_id, spin_angle=angle, event_text=self.event_text,
+                avatars=self.avatars, obscure_wheel=obscure,
+            )
         return image_to_file(image, "prime-roulette-royale.png")
 
     def _embed(self, text: str) -> discord.Embed:
