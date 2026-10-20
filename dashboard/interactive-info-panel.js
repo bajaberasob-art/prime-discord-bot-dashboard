@@ -59,7 +59,7 @@
         h("div", { class: "iip-two-col" }, input("لون الإيمبد", "color", config.color, { type: "color" }), input("رابط صورة البانر", "banner_url", config.banner_url, { placeholder: "https://..." })),
         select("مدة الرد الخاص قبل الحذف", "auto_delete_seconds", config.auto_delete_seconds, [
           { value: 300, label: "5 دقائق" }, { value: 600, label: "10 دقائق" },
-          { value: 900, label: "15 دقيقة (غير مسموح)" }, { value: 840, label: "14 دقيقة (الحد الأعلى)" },
+          { value: 840, label: "14 دقيقة (الحد الأعلى)" },
           { value: 60, label: "دقيقة واحدة للاختبار" },
         ]),
         h("p", { class: "iip-help", text: "مدة Discord محدودة بنافذة صلاحية التفاعل؛ نقيّدها من 5 ثوانٍ إلى 14 دقيقة في الخادم." }));
