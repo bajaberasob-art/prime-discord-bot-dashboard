@@ -67,5 +67,5 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         version = match.group(1)
-        self.assertEqual(version, "bot-guild-discovery-1")
+        self.assertEqual(version, "level-card-preview-tools-1")
         self.assertIn(f'"./static/app.js?v={version}"', worker)
