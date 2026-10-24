@@ -885,7 +885,7 @@ def register_leveling_routes(
                     break
                 total += len(chunk)
                 if total > max_input:
-                    limit = "20 ميغابايت للفيديو" if video_mime else "6 ميغابايت للصورة أو GIF"
+                    limit = "20 ميغابايت للفيديو" if video_mime else "15 ميغابايت للصورة أو GIF"
                     raise ValueError(f"حجم الملف يتجاوز الحد المسموح ({limit}).")
                 chunks.append(chunk)
             if not total:
@@ -918,7 +918,7 @@ def register_leveling_routes(
                         "الملف غير صالح. استخدم PNG أو JPG أو WEBP أو GIF أو فيديو MP4/WEBM."
                     ) from error
             if not normalized or len(normalized) > card_images.MAX_BYTES:
-                raise ValueError("الخلفية بعد المعالجة تتجاوز 6 ميغابايت.")
+                raise ValueError("الخلفية بعد المعالجة تتجاوز 15 ميغابايت.")
 
             animated = normalized.startswith((b"GIF87a", b"GIF89a"))
             extension = "gif" if animated else "png"
