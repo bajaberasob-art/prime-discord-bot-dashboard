@@ -36,7 +36,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         asset = f"./static/visual-refresh.css?v={match.group(1)}"
         self.assertIn(f'"{asset}"', worker)
         self.assertEqual(match.group(1), "mobile-hardening-1")
-        self.assertIn('const CACHE = "prime-dashboard-shell-v47";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v48";', worker)
 
     def test_level_card_preview_tools_and_cache_version_are_wired(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
@@ -44,7 +44,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         app = (ROOT / "dashboard/app.js").read_text("utf-8")
         styles = (ROOT / "dashboard/visual-refresh.css").read_text("utf-8")
         match = re.search(
-            r'<script src="static/app\\.js\\?v=([^"]+)"',
+            r'<script src="static/app\.js\?v=([^"]+)"',
             html,
         )
         self.assertIsNotNone(match)
