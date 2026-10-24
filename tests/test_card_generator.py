@@ -73,7 +73,7 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
                     f"upload:{guild_id + 1}:{asset_id}.png", guild_id,
                 ))
                 decoded = await card_images.fetch_image(token)
-                self.assertTrue(decoded and decoded.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+                self.assertTrue(decoded and decoded.startswith(b"\x89PNG\r\n\x1a\n"))
         finally:
             if previous_root is None:
                 os.environ.pop("PRIME_LEVEL_CARD_UPLOAD_DIR", None)
@@ -93,6 +93,19 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         }
         with patch("cogs.card_generator.fetch_image", new=AsyncMock(return_value=None)):
             self.assertFalse(await cards.should_use_animated_card(settings))
+
+    async def test_uploaded_video_conversion_returns_a_valid_animated_gif(self):
+        from leveling_api import _video_to_card_gif
+
+        def fake_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(animated_gif_bytes())
+            return SimpleNamespace(returncode=0)
+
+        with patch("leveling_api.subprocess.run", side_effect=fake_ffmpeg):
+            output = await asyncio.to_thread(_video_to_card_gif, b"bounded test input")
+        with Image.open(io.BytesIO(output)) as image:
+            self.assertEqual(image.format, "GIF")
+            self.assertEqual(image.n_frames, 3)
 
     async def test_all_eight_layouts_are_distinct_valid_pngs(self):
         results = []
