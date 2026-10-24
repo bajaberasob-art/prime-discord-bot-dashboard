@@ -39,7 +39,7 @@ CARD_DESIGN_DEFAULTS = {
     "glowStrength": 54, "particleDensity": 46, "particleColor": "accent",
     "barStyle": "gradient", "frame": "auto", "bgOverlay": 28, "bgBlur": 4,
     "animationEnabled": True, "animationStyle": "beam", "animationIntensity": 62,
-    "outputFormat": "png",
+    "outputFormat": "auto",
     "visualStyle": "cyberpunk",
     "evolutionEnabled": True,
     "backgroundAsset": "",
@@ -153,7 +153,7 @@ def _clean_card_design(card):
         "evolutionEnabled": _bool(card.get("evolutionEnabled", True), "evolutionEnabled"),
         "animationStyle": card.get("animationStyle", "beam"),
         "animationIntensity": _integer(card.get("animationIntensity", 62), "animationIntensity", 0, 100),
-        "outputFormat": card.get("outputFormat", "png"),
+        "outputFormat": card.get("outputFormat", "auto"),
         "visualStyle": card.get("visualStyle", "cyberpunk"),
     }
     if design["particleColor"] != "accent" and (
@@ -167,7 +167,7 @@ def _clean_card_design(card):
         raise ValueError("invalid rank frame")
     if design["animationStyle"] not in CARD_ANIMATION_STYLES:
         raise ValueError("invalid level-up animation style")
-    if design["outputFormat"] not in {"png", "gif"}:
+    if design["outputFormat"] not in {"png", "gif", "auto"}:
         raise ValueError("invalid card output format")
     if not isinstance(design["visualStyle"], str) or design["visualStyle"] not in CARD_VISUAL_STYLES:
         raise ValueError("invalid card visual style")
@@ -1111,7 +1111,7 @@ def register_leveling_routes(
             design["evolutionEnabled"] = query_bool("evolutionEnabled", True)
             design["outputFormat"] = (
                 requested_format.lower() if requested_format is not None
-                else req.query.get("outputFormat", "png").lower()
+                else req.query.get("outputFormat", "auto").lower()
             )
             if design["outputFormat"] not in {"png", "gif", "auto"}:
                 raise ValueError("unsupported card output format")
