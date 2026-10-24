@@ -3,11 +3,14 @@ import asyncio
 import io
 import ipaddress
 import logging
+import os
+import re
 import socket
 import threading
 import time
 import warnings
 from collections import OrderedDict
+from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 import aiohttp
@@ -21,9 +24,54 @@ MAX_ANIMATED_PIXELS = 24_000_000
 CACHE_BYTES = 24 * 1024 * 1024
 CACHE_ITEMS = 64
 CACHE_TTL = 3600
+# Upload references are opaque, guild-scoped identifiers, never filesystem paths.
+# Files live under PRIME_LEVEL_CARD_UPLOAD_DIR (or data/level_card_uploads).
+_UPLOAD_TOKEN_RE = re.compile(
+    r"^upload:(\\d{15,22}):([a-f0-9]{32}\\.(?:png|gif))$"
+)
 _cache = OrderedDict()
 _cache_lock = threading.Lock()
 _pending = {}
+
+
+def upload_root():
+    """Resolve the private directory used for dashboard-uploaded card backgrounds."""
+    return Path(
+        os.environ.get("PRIME_LEVEL_CARD_UPLOAD_DIR") or "data/level_card_uploads"
+    ).resolve()
+
+
+def uploaded_background_path(reference, guild_id=None):
+    """Resolve a validated upload token to a file owned by exactly one guild."""
+    match = _UPLOAD_TOKEN_RE.fullmatch(str(reference or ""))
+    if not match:
+        raise ValueError("invalid uploaded card background reference")
+    owner_id = int(match.group(1))
+    if guild_id is not None and owner_id != int(guild_id):
+        raise ValueError("uploaded card background belongs to another guild")
+    root = upload_root()
+    path = (root / f"{owner_id}-{match.group(2)}").resolve()
+    if path.parent != root or not path.is_file():
+        raise ValueError("uploaded card background is missing")
+    if path.stat().st_size > MAX_BYTES:
+        raise ValueError("uploaded card background exceeds the byte limit")
+    return path
+
+
+def is_uploaded_background(reference, guild_id=None, require_exists=True):
+    """Check token shape and, optionally, that its guild-scoped file still exists."""
+    match = _UPLOAD_TOKEN_RE.fullmatch(str(reference or ""))
+    if not match:
+        return False
+    if guild_id is not None and int(match.group(1)) != int(guild_id):
+        return False
+    if not require_exists:
+        return True
+    try:
+        uploaded_background_path(reference, guild_id)
+    except (OSError, TypeError, ValueError, OverflowError):
+        return False
+    return True
 
 
 def validate_url(url):
@@ -118,8 +166,15 @@ async def _download(url):
 
 async def _load(url):
     try:
-        validate_url(url)
-        data = await _download(url)
+        if _UPLOAD_TOKEN_RE.fullmatch(str(url or "")):
+            path = uploaded_background_path(url)
+            raw = await asyncio.to_thread(path.read_bytes)
+            # Validate the stored bytes just as rigorously as remote assets; this
+            # work happens once per cache miss, not for every rendered card.
+            data = await asyncio.to_thread(normalize_image, raw)
+        else:
+            validate_url(url)
+            data = await _download(url)
         ttl = CACHE_TTL
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError,
             Image.DecompressionBombError, Image.DecompressionBombWarning):
