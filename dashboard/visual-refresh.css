@@ -685,6 +685,7 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
 .lv-theme-swatch-inferno { --theme-a: #fb7185; --theme-b: #fb923c; }
 .lv-theme-swatch-mythic { --theme-a: #c084fc; --theme-b: #701a75; }
 .lv-theme-swatch-minimal { --theme-a: #f8fafc; --theme-b: #64748b; }
+.lv-theme-swatch-showcase { --theme-a: #38bdf8; --theme-b: #4338ca; border: 1px solid #7dd3fc; box-shadow: 0 0 12px #38bdf855; }
 
 .lv-theme-swatch::after {
   content: "";
