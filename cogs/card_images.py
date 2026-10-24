@@ -17,7 +17,7 @@ import aiohttp
 from PIL import Image, ImageOps
 
 logger = logging.getLogger("RankCard")
-MAX_BYTES = 6 * 1024 * 1024
+MAX_BYTES = 15 * 1024 * 1024
 MAX_PIXELS = 16_000_000
 MAX_ANIMATED_FRAMES = 30
 MAX_ANIMATED_PIXELS = 24_000_000
