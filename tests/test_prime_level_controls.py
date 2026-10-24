@@ -18,6 +18,7 @@ class PrimeLevelControlTests(unittest.TestCase):
             },
         )
         self.assertTrue(controls["rank"]["imageOnly"])
+        self.assertEqual(controls["rank"]["cardFormat"], "png")
         self.assertEqual(controls["rank"]["channels"], ["123", "456"])
         self.assertEqual(controls["levelup"]["embedTitle"], "Legacy title")
         self.assertFalse(controls["periodic"]["daily"]["enabled"])
@@ -113,8 +114,20 @@ class PrimeLevelControlTests(unittest.TestCase):
             validate_assignable_role=lambda raw: int(raw),
         )
         self.assertEqual(checked["rank"]["channels"], ["123"])
+        self.assertEqual(checked["rank"]["cardFormat"], "png")
         self.assertEqual(checked["levelup"]["mentionRole"], "45")
         self.assertEqual(checked["periodic"]["daily"]["channel"], "678")
+
+        controls["rank"]["cardFormat"] = "webp"
+        with self.assertRaisesRegex(ValueError, "cardFormat"):
+            validate_controls(
+                controls,
+                {},
+                validate_channel=lambda raw, messageable=False: int(raw),
+                validate_role=lambda raw: int(raw),
+                validate_assignable_role=lambda raw: int(raw),
+            )
+        controls["rank"]["cardFormat"] = "png"
 
         controls["periodic"]["daily"]["channel"] = ""
         with self.assertRaisesRegex(ValueError, "requires a channel"):
