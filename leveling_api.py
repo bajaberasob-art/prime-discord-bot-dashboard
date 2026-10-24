@@ -869,10 +869,12 @@ def register_leveling_routes(
             if field is None or field.name != "file":
                 raise ValueError("اختر ملف صورة أو GIF أو فيديو أولاً.")
             mime = (field.headers.get("Content-Type") or "").lower()
+            video_suffix = Path(
+                str(getattr(field, "filename", "") or "")
+            ).suffix.lower()
             video_mime = (
                 mime in {"video/mp4", "video/webm", "video/quicktime"}
-                or Path(str(getattr(field, "filename", "") or "")).suffix.lower()
-                in {".mp4", ".webm", ".mov"}
+                or video_suffix in {".mp4", ".webm", ".mov"}
             )
             max_input = MAX_CARD_VIDEO_BYTES if video_mime else card_images.MAX_BYTES
             chunks = []
@@ -896,14 +898,19 @@ def register_leveling_routes(
             # controlled by the client and is not sufficient validation.
             is_mp4 = len(raw) >= 12 and raw[4:8] == b"ftyp"
             is_webm = raw.startswith(b"\x1a\x45\xdf\xa3")
-            video_input = is_mp4 or is_webm
+            # Some QuickTime MOV files don't use an MP4-style ftyp atom.
+            # Extension/MIME only enables a bounded FFmpeg probe; FFmpeg still
+            # has to decode the actual file successfully before we accept it.
+            video_input = is_mp4 or is_webm or (
+                video_mime and video_suffix in {".mp4", ".webm", ".mov"}
+            )
             if video_input:
                 if len(raw) > MAX_CARD_VIDEO_BYTES:
                     raise ValueError("حجم الفيديو يجب ألا يتجاوز 20 ميغابايت.")
                 normalized = await asyncio.to_thread(_video_to_card_gif, raw)
             else:
                 if video_mime:
-                    raise ValueError("صيغة الفيديو غير معروفة. استخدم MP4 أو WEBM.")
+                    raise ValueError("صيغة الفيديو غير معروفة. استخدم MP4 أو WEBM أو MOV.")
                 try:
                     normalized = await asyncio.to_thread(card_images.normalize_image, raw)
                 except Exception as error:
