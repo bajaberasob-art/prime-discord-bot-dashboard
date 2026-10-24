@@ -299,6 +299,22 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(guild.fetched_user_id, 42)
 
 
+    def test_bot_identity_match_detects_mismatched_client_id(self):
+        with patch.object(dashboard, "C_ID", "777"):
+            self.assertTrue(
+                dashboard.bot_identity_matches_client(
+                    SimpleNamespace(user=SimpleNamespace(id=777))
+                )
+            )
+            self.assertFalse(
+                dashboard.bot_identity_matches_client(
+                    SimpleNamespace(user=SimpleNamespace(id=111))
+                )
+            )
+            self.assertIsNone(
+                dashboard.bot_identity_matches_client(SimpleNamespace(user=None))
+            )
+
     async def test_api_me_discovers_rest_guilds_when_gateway_cache_is_empty(self):
         guild = SimpleNamespace(
             id=777,
