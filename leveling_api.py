@@ -197,11 +197,19 @@ def _clean_card_design(card):
             if not bg.startswith("https://"):
                 raise ValueError("card preset background must use HTTPS")
             validate_url(bg)
+        background_asset = preset.get("backgroundAsset", "")
+        if not isinstance(background_asset, str) or len(background_asset) > 100:
+            raise ValueError("invalid uploaded background in card preset")
+        background_asset = background_asset.strip()
+        if background_asset:
+            # The uploaded local asset takes precedence over a legacy HTTPS URL.
+            bg = ""
         preset_design = _clean_card_design({**preset, "presets": []})
         preset_design.pop("presets", None)
         clean_presets.append({
             "id": preset_id, "name": name.strip(), "layout": layout,
             "particles": particles, "color": color.lower(), "bg": bg,
+            "backgroundAsset": background_asset,
             "animated": _bool(preset.get("animated", True), "preset.animated"),
             "showStats": _bool(preset.get("showStats", True), "preset.showStats"),
             **preset_design,
@@ -629,6 +637,14 @@ def _validate_draft(guild, draft, current_settings):
         bg = ""
     card_design = _clean_card_design(card)
     card_design["backgroundAsset"] = background_asset
+    for preset in card_design["presets"]:
+        preset_asset = preset.get("backgroundAsset", "")
+        if preset_asset and not is_uploaded_background(
+            preset_asset, guild.id, require_exists=True,
+        ):
+            raise ValueError("خلفية أحد إعدادات البطاقة غير صالحة أو لا تخص هذا السيرفر.")
+        if preset_asset:
+            preset["bg"] = ""
     settings.update({
         "card_layout": card["layout"],
         "card_particles": card["particles"],
