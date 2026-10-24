@@ -9079,7 +9079,79 @@
   const lvBgOk = (v) => { if (!v) return true; try { const u = new URL(v); return u.protocol === "https:" && v.length <= 400; } catch (_) { return false; } };
   function lvTabCard() {
     lvCardHistoryEnsure();
-    const cv = el("img", { class: "leveling-canvas", role: "img", alt: "معاينة بطاقة المستوى الحقيقية" });
+    const cv = el("img", {
+      class: "leveling-canvas", role: "img", alt: "معاينة بطاقة المستوى الحقيقية",
+      tabindex: "0", title: "اضغط على البطاقة لعرضها بالحجم الكبير",
+    });
+    const openCardZoom = () => {
+      if (cv.dataset.ready !== "true" || !cv.src) return;
+      const overlay = el("div", {
+        class: "lv-card-zoom", role: "dialog", "aria-modal": "true",
+        "aria-label": "معاينة بطاقة المستوى بالحجم الكبير",
+      });
+      const panel = el("section", { class: "lv-card-zoom-panel" });
+      const viewport = el("div", {
+        class: "lv-card-zoom-viewport",
+        "aria-label": "يمكن تمرير البطاقة المكبرة أفقياً ورأسياً",
+      });
+      const full = el("img", {
+        class: "lv-card-zoom-image", src: cv.src,
+        alt: "بطاقة المستوى كاملة الدقة",
+      });
+      let zoom = 1;
+      const scaleLabel = el("span", { class: "lv-card-zoom-scale", text: "100%" });
+      const setZoom = (value) => {
+        zoom = Math.max(1, Math.min(2.5, Math.round(value * 100) / 100));
+        full.style.width = `${zoom * 100}%`;
+        scaleLabel.textContent = `${Math.round(zoom * 100)}%`;
+      };
+      let closeZoom = () => {};
+      const closeButton = el("button", {
+        type: "button", class: "lv-card-zoom-close", text: "إغلاق",
+        "aria-label": "إغلاق معاينة البطاقة المكبرة",
+        onClick: () => closeZoom(),
+      });
+      const controls = el("div", { class: "lv-card-zoom-controls", "aria-label": "تحكم في حجم البطاقة" },
+        el("button", {
+          type: "button", text: "−", "aria-label": "تصغير البطاقة",
+          onClick: () => setZoom(zoom - 0.25),
+        }),
+        scaleLabel,
+        el("button", {
+          type: "button", text: "+", "aria-label": "تكبير البطاقة",
+          onClick: () => setZoom(zoom + 0.25),
+        }),
+        closeButton,
+      );
+      const keyHandler = (event) => {
+        if (event.key === "Escape") closeZoom();
+      };
+      closeZoom = () => {
+        overlay.remove();
+        document.removeEventListener("keydown", keyHandler);
+        cv.focus({ preventScroll: true });
+      };
+      viewport.append(full);
+      panel.append(
+        controls,
+        viewport,
+        el("p", { class: "lv-card-zoom-hint", text: "كبّر البطاقة لقراءة التفاصيل، واسحب للتمرير عند الحاجة." }),
+      );
+      overlay.append(panel);
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) closeZoom();
+      });
+      document.addEventListener("keydown", keyHandler);
+      document.body.append(overlay);
+      closeButton.focus({ preventScroll: true });
+    };
+    cv.addEventListener("click", openCardZoom);
+    cv.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openCardZoom();
+      }
+    });
     const color = el("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(lvGet(["card", "color"])) ? lvGet(["card", "color"]) : "#38bdf8" });
     color.addEventListener("input", () => lvSet(["card", "color"], color.value));
     const particleColor = el("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(lvGet(["card", "particleColor"])) ? lvGet(["card", "particleColor"]) : (lvGet(["card", "color"]) || "#38bdf8") });

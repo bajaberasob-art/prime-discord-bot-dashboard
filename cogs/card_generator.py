@@ -15,7 +15,7 @@ from pathlib import Path
 import arabic_reshaper
 import discord
 from bidi.algorithm import get_display
-from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 from cogs.card_images import MAX_ANIMATED_FRAMES, fetch_image
 from level_progression import total_xp_for_level, xp_required
@@ -122,9 +122,42 @@ class Card:
         self.image = Image.blend(self.image, glow, 0.18 * strength / 100)
         self.draw = ImageDraw.Draw(self.image)
         self.fonts = {}
+        self._draw_ambient_lighting()
         self.panel((12, 12, self.w - 12, self.h - 12), radius=28, fill=None)
         self.particles(mode)
         self._draw_visual_motif()
+
+    def _draw_ambient_lighting(self):
+        """Give every template a layered backdrop without hiding profile photos."""
+        width, height = self.image.size
+        accent = ImageColor.getrgb(self.accent)[:3]
+
+        # Build soft light at low resolution and upscale it; this keeps the new finish cheap.
+        bloom_size = (max(1, width // 5), max(1, height // 5))
+        bw, bh = bloom_size
+        bloom = Image.new("RGBA", bloom_size, (0, 0, 0, 0))
+        glow = ImageDraw.Draw(bloom)
+        glow.ellipse(
+            (-int(bw * .28), -int(bh * .62), int(bw * .52), int(bh * .72)),
+            fill=(*accent, 42),
+        )
+        glow.ellipse(
+            (int(bw * .54), int(bh * .36), int(bw * 1.28), int(bh * 1.35)),
+            fill=(87, 103, 246, 34),
+        )
+        bloom = bloom.filter(ImageFilter.GaussianBlur(max(5, SCALE * 8)))
+        bloom = bloom.resize((width, height), Image.Resampling.BILINEAR)
+        self.image = Image.alpha_composite(self.image.convert("RGBA"), bloom).convert("RGB")
+
+        # Near-invisible texture avoids flat, muddy black areas on OLED screens.
+        texture = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        td = ImageDraw.Draw(texture)
+        for x in range(32 * SCALE, width, 64 * SCALE):
+            td.line((x, 0, x, height), fill=(230, 240, 255, 4), width=SCALE)
+        for y in range(32 * SCALE, height, 64 * SCALE):
+            td.line((0, y, width, y), fill=(230, 240, 255, 4), width=SCALE)
+        self.image = Image.alpha_composite(self.image.convert("RGBA"), texture).convert("RGB")
+        self.draw = ImageDraw.Draw(self.image)
 
     def _draw_visual_motif(self):
         """Theme-level card art: circuit traces, orbits, frames and bevels."""
@@ -237,6 +270,12 @@ class Card:
         return [(part, self.font(size, bold, emoji)) for emoji, part in runs]
 
     def text(self, xy, value, size=18, color=WHITE, bold=False, width=None, center=False):
+        # Microtype was nearly unreadable after wide cards were scaled down on phones.
+        # Boost labels while preserving the geometry and headline sizes of every layout.
+        if size <= 14:
+            size = max(size, int(round(size * 1.24)))
+        elif size <= 18:
+            size = int(round(size * 1.12))
         text = display_text(value)
         def measure(content):
             return sum(self.draw.textlength(part, font=font)
@@ -248,6 +287,8 @@ class Card:
         if center:
             x -= measure(text) / (2 * SCALE)
         for part, font in self.text_runs(text, size, bold):
+            # A tiny dark offset keeps labels crisp over gradients and uploaded photos.
+            self.draw.text((x * SCALE, y * SCALE + SCALE), part, font=font, fill="#050711", stroke_width=0)
             self.draw.text((x * SCALE, y * SCALE), part, font=font, fill=color, stroke_width=0)
             x += self.draw.textlength(part, font=font) / SCALE
 
@@ -321,6 +362,10 @@ class Card:
         if data:
             with Image.open(io.BytesIO(data)) as source:
                 avatar = ImageOps.fit(source.convert("RGB"), size, method=Image.Resampling.LANCZOS)
+            # Discord avatars can arrive compressed; restore local contrast and detail after cropping.
+            avatar = ImageEnhance.Color(avatar).enhance(1.12)
+            avatar = ImageEnhance.Contrast(avatar).enhance(1.08)
+            avatar = avatar.filter(ImageFilter.UnsharpMask(radius=1.5 * SCALE, percent=145, threshold=3))
         else:
             avatar = Image.new("RGB", size, "#292137")
             ad = ImageDraw.Draw(avatar)
@@ -330,6 +375,13 @@ class Card:
         mask = Image.new("L", size)
         ImageDraw.Draw(mask).ellipse((0, 0, size[0]-1, size[1]-1), fill=255)
         self.image.paste(avatar, (x*SCALE, y*SCALE), mask)
+        self.draw = ImageDraw.Draw(self.image)
+        # A crisp inner rim separates the portrait from dark or photo-based backgrounds.
+        self.draw.ellipse(
+            (x*SCALE + SCALE, y*SCALE + SCALE,
+             (x + diameter)*SCALE - SCALE, (y + diameter)*SCALE - SCALE),
+            outline="#d8e5f8", width=max(1, SCALE),
+        )
 
     def bar(self, box, progress, animated=False, style="gradient", direction="ltr"):
         x, y, w, h = box
@@ -443,9 +495,9 @@ def _render(
         if show_stat("serverRank"):
             card.panel((424, 27, 524, 69), radius=15)
             card.text((474, 35), rank_text, 20, bold=True, center=True, width=85)
-        card.avatar((164, 110), 232, avatar, progress)
-        card.text((280, 372), name, 30, bold=True, width=475, center=True)
-        card.text((280, 417), handle, 15, MUTED, width=465, center=True)
+        card.avatar((158, 104), 244, avatar, progress)
+        card.text((280, 382), name, 30, bold=True, width=475, center=True)
+        card.text((280, 422), handle, 15, MUTED, width=465, center=True)
         card.panel((32, 467, 528, 635), radius=24)
         card.text((56, 488), "LEVEL", 12, MUTED)
         card.text((55, 510), compact(level), 48, bold=True)
@@ -458,8 +510,9 @@ def _render(
         if show_stat("serverRank"): card.stat((290, 765, 528, 855), "Server rank", f"{rank_text} / {compact(total)}")
         card.text((280, 873), "GROW AT YOUR OWN PACE", 9, MUTED, center=True)
     elif layout == "stats":
+        card.panel((26, 54, 254, 286), radius=28, fill="#101827", outline="#3b4d68")
         card.text((34, 30), "PRIME / MEMBER STATISTICS", 12, color, True)
-        card.avatar((45, 85), 190, avatar, progress)
+        card.avatar((38, 78), 206, avatar, progress)
         card.text((276, 75), name, 32, bold=True, width=470)
         card.text((278, 122), handle, 15, MUTED, width=430)
         if show_stat("serverRank"):
@@ -474,20 +527,22 @@ def _render(
                 if show_stat(("messages", "voice", "streak")[index]):
                     card.stat((x, 304, x+298, 394), *pair)
     elif layout == "minimal":
-        card.avatar((28, 45), 100, avatar, progress)
-        card.text((150, 25), name, 23, bold=True, width=690)
-        card.text((150, 57), handle, 12, MUTED, width=500)
+        card.panel((14, 18, 886, 145), radius=23, fill="#0d1625", outline="#2d4057")
+        card.panel((18, 35, 154, 140), radius=21, fill="#111d2b", outline="#344b62")
+        card.avatar((28, 32), 108, avatar, progress)
+        card.text((166, 23), name, 25, bold=True, width=680)
+        card.text((166, 56), handle, 14, MUTED, width=500)
         rank_label = f"  ·  RANK {rank_text} OF {compact(total)}" if show_stat("serverRank") else ""
-        card.text((150, 80), f"LEVEL {compact(level)}{rank_label}", 12, color, width=650)
-        card.text((150, 105), xp_text, 13, MUTED, width=550)
-        card.text((846, 105), f"{progress:.0%}", 13, color, True, center=True, width=70)
-        card.bar((150, 130, 675, 9), progress, animated, bar_style)
+        card.text((166, 80), f"LEVEL {compact(level)}{rank_label}", 14, color, True, width=650)
+        card.text((166, 105), xp_text, 15, MUTED, width=550)
+        card.text((846, 105), f"{progress:.0%}", 15, color, True, center=True, width=70)
+        card.bar((166, 130, 650, 9), progress, animated, bar_style)
         if show_stat("messages"): card.compact_stat((24, 157, 294, 218), *stats[0])
         if show_stat("voice"): card.compact_stat((315, 157, 585, 218), *stats[1])
         if show_stat("streak"): card.compact_stat((606, 157, 876, 218), *stats[2])
     elif layout == "ring":
         card.text((310, 31), "PRIME / PROGRESSION", 12, color, True, center=True)
-        card.avatar((190, 65), 240, avatar, progress)
+        card.avatar((180, 55), 260, avatar, progress)
         card.panel((246, 290, 374, 339), radius=20, outline=color)
         card.text((310, 300), f"LVL {compact(level)}", 22, bold=True, center=True, width=115)
         card.text((310, 369), name, 28, bold=True, width=530, center=True)
@@ -501,7 +556,9 @@ def _render(
         if show_stat("voice"): card.compact_stat((216, 576, 403, 656), *stats[1])
         if show_stat("streak"): card.compact_stat((414, 576, 601, 656), *stats[2])
     elif layout == "banner":
-        card.avatar((35, 70), 156, avatar, progress)
+        card.panel((20, 26, 768, 268), radius=27, fill="#0d1625", outline="#2f425b")
+        card.panel((775, 29, 978, 265), radius=22, fill="#0e1829", outline="#2c4058")
+        card.avatar((25, 58), 180, avatar, progress)
         card.text((232, 51), name, 30, bold=True, width=520)
         card.text((234, 94), handle, 14, MUTED, width=480)
         rank_label = f"  ·  RANK {rank_text}" if show_stat("serverRank") else ""
@@ -512,20 +569,22 @@ def _render(
         if show_stat("voice"): card.compact_stat((790, 117, 966, 177), *stats[1])
         if show_stat("streak"): card.compact_stat((790, 191, 966, 251), *stats[2])
     elif layout == "square":
-        card.text((320, 34), "PRIME / LEVEL", 12, color, True, center=True)
-        card.avatar((220, 67), 200, avatar, progress)
-        card.text((320, 278), name, 27, bold=True, width=530, center=True)
-        card.text((320, 316), handle, 14, MUTED, width=500, center=True)
+        card.panel((26, 25, 614, 455), radius=30, fill="#0d1422", outline="#303f56")
+        card.panel((200, 49, 440, 280), radius=120, fill="#121d2d", outline="#3c516b")
+        card.text((320, 31), "PRIME / LEVEL", 12, color, True, center=True)
+        card.avatar((211, 58), 218, avatar, progress)
+        card.text((320, 292), name, 29, bold=True, width=530, center=True)
+        card.text((320, 330), handle, 15, MUTED, width=500, center=True)
         rank_label = f"  ·  RANK {rank_text}" if show_stat("serverRank") else ""
-        card.text((320, 359), f"LEVEL {compact(level)}{rank_label}", 16, color, True, center=True)
-        card.text((320, 392), xp_text, 14, MUTED, center=True, width=500)
-        card.bar((82, 428, 476, 13), progress, animated, bar_style)
+        card.text((320, 365), f"LEVEL {compact(level)}{rank_label}", 17, color, True, center=True)
+        card.text((320, 399), xp_text, 15, MUTED, center=True, width=500)
+        card.bar((82, 435, 476, 13), progress, animated, bar_style)
         if show_stat("messages"): card.compact_stat((32, 480, 216, 570), *stats[0])
         if show_stat("voice"): card.compact_stat((228, 480, 412, 570), *stats[1])
         if show_stat("streak"): card.compact_stat((424, 480, 608, 570), *stats[2])
     elif layout == "spotlight":
         card.panel((26, 26, 974, 474), radius=32, fill="#101019")
-        card.avatar((72, 101), 238, avatar, progress)
+        card.avatar((62, 89), 260, avatar, progress)
         card.text((374, 67), "LEVEL UP YOUR GAME", 12, color, True)
         card.text((374, 107), name, 34, bold=True, width=510)
         card.text((376, 157), handle, 16, MUTED, width=450)
@@ -543,18 +602,18 @@ def _render(
         card.text((52, 39), "PRIME / MEMBER SHOWCASE", 11, color, True)
         card.text((1040, 39), "LEVEL PROFILE", 9, MUTED, True, width=180, center=True)
         card.line((52, 70, 1048, 70), "#303348")
-        card.avatar((55, 100), 192, avatar, progress)
-        card.text((151, 309), "PRIME MEMBER", 9, color, True, center=True, width=180)
-        card.text((292, 96), name, 31, bold=True, width=465)
-        card.text((294, 139), handle, 14, MUTED, width=460)
-        card.panel((292, 175, 514, 252), radius=17, fill="#151827", outline="#2d3349")
-        card.text((310, 188), "LEVEL", 9, MUTED, True)
-        card.text((310, 207), compact(level), 28, color, True, width=92)
-        card.text((476, 197), f"{progress:.0%}", 17, color, True, center=True, width=62)
-        card.text((476, 224), "COMPLETE", 8, MUTED, center=True, width=80)
-        card.text((292, 271), xp_text, 13, MUTED, width=450)
-        card.bar((292, 302, 454, 14), progress, animated, bar_style)
-        card.text((292, 326), "PROGRESS TO NEXT LEVEL", 9, MUTED, True, width=270)
+        card.avatar((52, 92), 218, avatar, progress)
+        card.text((161, 326), "PRIME MEMBER", 11, color, True, center=True, width=190)
+        card.text((306, 94), name, 37, bold=True, width=460)
+        card.text((308, 141), handle, 16, MUTED, width=455)
+        card.panel((306, 175, 548, 255), radius=18, fill="#151827", outline="#38415d")
+        card.text((325, 187), "LEVEL", 11, MUTED, True)
+        card.text((325, 207), compact(level), 30, color, True, width=100)
+        card.text((508, 195), f"{progress:.0%}", 19, color, True, center=True, width=68)
+        card.text((508, 224), "COMPLETE", 10, MUTED, True, center=True, width=82)
+        card.text((306, 273), xp_text, 15, MUTED, width=455)
+        card.bar((306, 303, 450, 15), progress, animated, bar_style)
+        card.text((306, 329), "PROGRESS TO NEXT LEVEL", 11, MUTED, True, width=300)
         if show_stat("serverRank"):
             card.panel((795, 83, 1048, 174), radius=18, fill="#151827", outline="#30364c")
             card.text((921, 94), "SERVER RANK", 9, MUTED, True, center=True, width=190)
@@ -567,7 +626,7 @@ def _render(
     else:
         card.panel((30, 30, 970, 260), radius=25, fill="#101019")
         card.text((260, 53), "PRIME / RANK CARD", 11, color, True)
-        card.avatar((58, 85), 165, avatar, progress)
+        card.avatar((48, 76), 185, avatar, progress)
         card.text((260, 89), name, 31, bold=True, width=490)
         card.text((261, 135), handle, 15, MUTED, width=455)
         if show_stat("serverRank"):
