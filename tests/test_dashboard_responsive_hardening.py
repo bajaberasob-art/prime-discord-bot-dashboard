@@ -58,6 +58,16 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         self.assertIn(".lv-preview-actions", styles)
         self.assertIn("@media (max-width: 480px)", styles)
 
+    def test_level_card_presets_support_safe_portable_json(self):
+        app = (ROOT / "dashboard/app.js").read_text("utf-8")
+        self.assertIn('schema: "prime-level-card-presets", version: 1', app)
+        self.assertIn('parsed.schema !== "prime-level-card-presets"', app)
+        self.assertIn('file.size > 128 * 1024', app)
+        self.assertIn('merged.length >= 8', app)
+        self.assertIn('text: "تصدير الإعدادات"', app)
+        self.assertIn('text: "استيراد إعدادات"', app)
+        self.assertIn("lvSet([\\"card\\", \\"presets\\"], merged)", app)
+
     def test_guild_recovery_script_is_cache_busted_in_html_and_worker(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
         worker = web_server.service_worker_source()
