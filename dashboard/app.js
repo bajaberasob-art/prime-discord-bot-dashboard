@@ -8485,7 +8485,7 @@
     milestone: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank", "threshold"]),
     reminder: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank"]),
   };
-  const LV_CARD_STYLE_KEYS = ["layout", "particles", "color", "bg", "animated", "showStats", "glowStrength", "particleDensity", "particleColor", "barStyle", "frame", "bgOverlay", "bgBlur", "animationEnabled", "animationStyle", "animationIntensity", "stats"];
+  const LV_CARD_STYLE_KEYS = ["layout", "particles", "color", "bg", "backgroundAsset", "animated", "showStats", "glowStrength", "particleDensity", "particleColor", "barStyle", "frame", "bgOverlay", "bgBlur", "animationEnabled", "animationStyle", "animationIntensity", "stats"];
   const lvCardStyleSnapshot = (card) => Object.fromEntries(LV_CARD_STYLE_KEYS.map((key) => [key, clone(card[key])]));
   const lvDefaults = () => ({
     public: { enabled: false, slug: "" },
