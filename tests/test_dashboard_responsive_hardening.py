@@ -67,6 +67,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         self.assertIn('const LV_CARD_PRESET_FORMAT = "prime-level-card-presets";', app)
         self.assertIn("LV_CARD_PRESET_VERSION = 1", app)
         self.assertIn('text: "تصدير الإعداد الحالي"', app)
+        self.assertIn('text: "تصدير جميع الإعدادات"', app)
         self.assertIn('text: "استيراد إعداد JSON"', app)
         self.assertIn("file.size > 64 * 1024", app)
         self.assertIn("existing.length + parsed.presets.length > 8", app)
