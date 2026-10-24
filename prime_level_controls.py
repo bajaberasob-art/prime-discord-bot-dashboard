@@ -61,6 +61,7 @@ DEFAULT_CONTROLS = {
         "showCustomMessage": False,
         "customMessage": "",
         "showCard": True,
+        "cardFormat": "png",
         "channels": [],
     },
     "levelup": {
@@ -460,6 +461,9 @@ def validate_controls(
     rank = result["rank"]
     for key in ("enabled", "imageOnly", "sendEmbed", "showCustomMessage", "showCard"):
         rank[key] = _bool(rank.get(key), f"rank.{key}")
+    if rank.get("cardFormat", "png") not in {"png", "gif"}:
+        raise ValueError("rank.cardFormat must be png or gif")
+    rank["cardFormat"] = rank.get("cardFormat", "png")
     rank["customMessage"] = _text(rank.get("customMessage"), "rank.customMessage", 500)
     if not isinstance(rank.get("channels"), list) or len(rank["channels"]) > 200:
         raise ValueError("rank.channels must be an array with at most 200 entries")
