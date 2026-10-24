@@ -265,6 +265,12 @@ class Card:
         return [(part, self.font(size, bold, emoji)) for emoji, part in runs]
 
     def text(self, xy, value, size=18, color=WHITE, bold=False, width=None, center=False):
+        # Microtype was nearly unreadable after wide cards were scaled down on phones.
+        # Boost labels while preserving the geometry and headline sizes of every layout.
+        if size <= 14:
+            size = max(size, int(round(size * 1.24)))
+        elif size <= 18:
+            size = int(round(size * 1.12))
         text = display_text(value)
         def measure(content):
             return sum(self.draw.textlength(part, font=font)
@@ -276,6 +282,8 @@ class Card:
         if center:
             x -= measure(text) / (2 * SCALE)
         for part, font in self.text_runs(text, size, bold):
+            # A tiny dark offset keeps labels crisp over gradients and uploaded photos.
+            self.draw.text((x * SCALE, y * SCALE + SCALE), part, font=font, fill="#050711", stroke_width=0)
             self.draw.text((x * SCALE, y * SCALE), part, font=font, fill=color, stroke_width=0)
             x += self.draw.textlength(part, font=font) / SCALE
 
@@ -349,6 +357,10 @@ class Card:
         if data:
             with Image.open(io.BytesIO(data)) as source:
                 avatar = ImageOps.fit(source.convert("RGB"), size, method=Image.Resampling.LANCZOS)
+            # Discord avatars can arrive compressed; restore local contrast and detail after cropping.
+            avatar = ImageEnhance.Color(avatar).enhance(1.12)
+            avatar = ImageEnhance.Contrast(avatar).enhance(1.08)
+            avatar = avatar.filter(ImageFilter.UnsharpMask(radius=1.5 * SCALE, percent=145, threshold=3))
         else:
             avatar = Image.new("RGB", size, "#292137")
             ad = ImageDraw.Draw(avatar)
@@ -358,6 +370,13 @@ class Card:
         mask = Image.new("L", size)
         ImageDraw.Draw(mask).ellipse((0, 0, size[0]-1, size[1]-1), fill=255)
         self.image.paste(avatar, (x*SCALE, y*SCALE), mask)
+        self.draw = ImageDraw.Draw(self.image)
+        # A crisp inner rim separates the portrait from dark or photo-based backgrounds.
+        self.draw.ellipse(
+            (x*SCALE + SCALE, y*SCALE + SCALE,
+             (x + diameter)*SCALE - SCALE, (y + diameter)*SCALE - SCALE),
+            outline="#d8e5f8", width=max(1, SCALE),
+        )
 
     def bar(self, box, progress, animated=False, style="gradient", direction="ltr"):
         x, y, w, h = box
@@ -571,18 +590,18 @@ def _render(
         card.text((52, 39), "PRIME / MEMBER SHOWCASE", 11, color, True)
         card.text((1040, 39), "LEVEL PROFILE", 9, MUTED, True, width=180, center=True)
         card.line((52, 70, 1048, 70), "#303348")
-        card.avatar((55, 100), 192, avatar, progress)
-        card.text((151, 309), "PRIME MEMBER", 9, color, True, center=True, width=180)
-        card.text((292, 96), name, 31, bold=True, width=465)
-        card.text((294, 139), handle, 14, MUTED, width=460)
-        card.panel((292, 175, 514, 252), radius=17, fill="#151827", outline="#2d3349")
-        card.text((310, 188), "LEVEL", 9, MUTED, True)
-        card.text((310, 207), compact(level), 28, color, True, width=92)
-        card.text((476, 197), f"{progress:.0%}", 17, color, True, center=True, width=62)
-        card.text((476, 224), "COMPLETE", 8, MUTED, center=True, width=80)
-        card.text((292, 271), xp_text, 13, MUTED, width=450)
-        card.bar((292, 302, 454, 14), progress, animated, bar_style)
-        card.text((292, 326), "PROGRESS TO NEXT LEVEL", 9, MUTED, True, width=270)
+        card.avatar((52, 92), 218, avatar, progress)
+        card.text((161, 326), "PRIME MEMBER", 11, color, True, center=True, width=190)
+        card.text((306, 94), name, 37, bold=True, width=460)
+        card.text((308, 141), handle, 16, MUTED, width=455)
+        card.panel((306, 175, 548, 255), radius=18, fill="#151827", outline="#38415d")
+        card.text((325, 187), "LEVEL", 11, MUTED, True)
+        card.text((325, 207), compact(level), 30, color, True, width=100)
+        card.text((508, 195), f"{progress:.0%}", 19, color, True, center=True, width=68)
+        card.text((508, 224), "COMPLETE", 10, MUTED, True, center=True, width=82)
+        card.text((306, 273), xp_text, 15, MUTED, width=455)
+        card.bar((306, 303, 450, 15), progress, animated, bar_style)
+        card.text((306, 329), "PROGRESS TO NEXT LEVEL", 11, MUTED, True, width=300)
         if show_stat("serverRank"):
             card.panel((795, 83, 1048, 174), radius=18, fill="#151827", outline="#30364c")
             card.text((921, 94), "SERVER RANK", 9, MUTED, True, center=True, width=190)
