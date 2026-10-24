@@ -12,6 +12,7 @@ class CardArtworkLibraryTests(unittest.TestCase):
             {"vertical", "stats", "minimal", "ring", "classic", "banner",
              "square", "spotlight", "showcase"},
         )
+        self.assertEqual(len(set(_LAYOUT_ART.values())), 9)
         for filename in set(_LAYOUT_ART.values()):
             self.assertTrue((_ART / filename).is_file(), filename)
 
