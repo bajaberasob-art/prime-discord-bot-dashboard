@@ -222,6 +222,8 @@ def local_development_session() -> dict:
         "csrf": "local-development-csrf",
         "_local_dev": True,
         "bot_ready": bot_is_connected(bot_ref),
+        "bot_guilds_checked": bot_is_connected(bot_ref),
+        "bot_identity_matches_client": bot_identity_matches_client(bot_ref),
         "connected_guilds_count": len(getattr(bot_ref, "guilds", ()) or ()),
     }
 
@@ -273,6 +275,19 @@ def bot_is_connected(bot) -> bool:
     return bool(getattr(bot, "guilds", ()))
 
 
+def bot_identity_matches_client(bot) -> bool | None:
+    """Return whether CLIENT_ID matches the live bot user ID, when known."""
+    if not C_ID:
+        return None
+    bot_user_id = getattr(getattr(bot, "user", None), "id", None)
+    if bot_user_id is None:
+        return None
+    try:
+        return int(bot_user_id) == int(C_ID)
+    except (TypeError, ValueError):
+        return False
+
+
 def configured_admin_role_ids() -> set[int]:
     """Read optional dashboard role IDs without exposing them to the browser."""
     raw = (os.getenv("ADMIN_ROLE_IDS") or "").strip()
@@ -281,6 +296,54 @@ def configured_admin_role_ids() -> set[int]:
         if value.isdigit():
             role_ids.add(int(value))
     return role_ids
+
+
+async def bot_guild_snapshot(bot) -> tuple[list, bool]:
+    """Discover the bot's guilds even before the Discord gateway cache is ready.
+
+    The boolean distinguishes a confirmed empty guild list from an unavailable
+    bot/API. Without it, the dashboard can incorrectly tell users to invite an
+    already-installed bot when the local gateway cache is temporarily empty.
+    """
+    if bot is None:
+        return [], False
+
+    cached_guilds = list(getattr(bot, "guilds", ()) or ())
+    if cached_guilds:
+        return cached_guilds, True
+
+    ready = getattr(bot, "is_ready", None)
+    if callable(ready):
+        try:
+            if ready():
+                # A ready gateway with an empty guild cache is an authoritative
+                # empty list; don't turn this into an invite when the bot is
+                # actually available but has no installed guilds.
+                return [], True
+        except Exception:
+            logger.debug("Could not read Discord gateway readiness.", exc_info=True)
+
+    fetch_guilds = getattr(bot, "fetch_guilds", None)
+    if not callable(fetch_guilds):
+        return [], False
+
+    async def collect_guilds() -> list:
+        result = fetch_guilds(limit=None)
+        if hasattr(result, "__aiter__"):
+            return [guild async for guild in result]
+        result = await _await_if_needed(result)
+        return list(result or ())
+
+    try:
+        # Do not let a stale Discord HTTP request hang dashboard startup.
+        guilds = await asyncio.wait_for(collect_guilds(), timeout=8.0)
+        return guilds, True
+    except Exception as error:
+        logger.warning(
+            "Dashboard could not verify bot guilds via Discord REST (%s).",
+            type(error).__name__,
+        )
+        return [], False
 
 
 def oauth_guild_allows_dashboard(guild_data: dict) -> bool:
@@ -368,6 +431,8 @@ async def verified_dashboard_guilds(
     bot,
     user_id: int,
     oauth_guilds: list[dict] | None = None,
+    *,
+    guild_snapshot: tuple[list, bool] | None = None,
 ) -> list[dict]:
     """Return mutual guilds authorized by live Discord membership data."""
     oauth_by_id: dict[str, dict] = {}
@@ -377,7 +442,10 @@ async def verified_dashboard_guilds(
         except (KeyError, TypeError, ValueError):
             continue
 
-    bot_guilds = list(getattr(bot, "guilds", ()) or ()) if bot else []
+    if guild_snapshot is None:
+        bot_guilds, snapshot_checked = await bot_guild_snapshot(bot)
+    else:
+        bot_guilds, snapshot_checked = guild_snapshot
     if bot_guilds:
         verified = []
         get_guild = getattr(bot, "get_guild", None)
@@ -391,9 +459,9 @@ async def verified_dashboard_guilds(
             # no cached OAuth list, live bot membership remains authoritative.
             if oauth_by_id and oauth_data is None:
                 continue
-            bot_guild = get_guild(guild_id) if callable(get_guild) else guild
-            if bot_guild is None:
-                continue
+            # A REST-discovered guild may not yet exist in the gateway cache.
+            # Keep the verified REST object as a fallback instead of dropping it.
+            bot_guild = (get_guild(guild_id) if callable(get_guild) else None) or guild
             member = await resolve_dashboard_member(bot_guild, user_id)
             direct_access = bool(
                 member and member_allows_dashboard(member, bot_guild)
@@ -406,7 +474,13 @@ async def verified_dashboard_guilds(
             )
         return verified
 
-    # Compatibility fallback for startup/test doubles without a guild cache.
+    # If Discord REST or a ready gateway confirmed an empty list, do not fall
+    # back to OAuth guilds: that would expose guilds the bot may not belong to.
+    if snapshot_checked:
+        return []
+
+    # Compatibility fallback for older sessions/startup adapters without a
+    # discoverable bot guild snapshot.
     verified = []
     get_guild = getattr(bot, "get_guild", None) if bot else None
     for oauth_data in oauth_guilds or ():
@@ -426,18 +500,22 @@ async def sync_session_guilds(request, session: dict) -> list[dict]:
     """Refresh a session from the shared bot without blocking on READY."""
     bot = request_bot(request)
     if bot is None:
+        session["bot_ready"] = False
+        session["bot_guilds_checked"] = False
+        session["bot_identity_matches_client"] = None
         return session.get("guilds", [])
     if session.get("_local_dev"):
+        bot_guilds, snapshot_checked = await bot_guild_snapshot(bot)
         session["guilds"] = [
             dashboard_guild_payload(guild)
-            for guild in (getattr(bot, "guilds", ()) or ())
+            for guild in bot_guilds
         ]
         session["bot_ready"] = bot_is_connected(bot)
-        session["connected_guilds_count"] = len(getattr(bot, "guilds", ()) or ())
+        session["bot_guilds_checked"] = snapshot_checked
+        session["bot_identity_matches_client"] = bot_identity_matches_client(bot)
+        session["connected_guilds_count"] = len(bot_guilds)
         return session["guilds"]
-    bot_guilds = list(getattr(bot, "guilds", ()) or ())
-    if not bot_is_connected(bot) and not bot_guilds:
-        return session.get("guilds", [])
+    bot_guilds, snapshot_checked = await bot_guild_snapshot(bot)
     try:
         user_id = int(session["id"])
     except (KeyError, TypeError, ValueError):
@@ -448,9 +526,12 @@ async def sync_session_guilds(request, session: dict) -> list[dict]:
         bot,
         user_id,
         session.get("_oauth_guilds", []),
+        guild_snapshot=(bot_guilds, snapshot_checked),
     )
     session["guilds"] = verified
     session["bot_ready"] = bot_is_connected(bot)
+    session["bot_guilds_checked"] = snapshot_checked
+    session["bot_identity_matches_client"] = bot_identity_matches_client(bot)
     session["connected_guilds_count"] = len(bot_guilds)
     return verified
 
@@ -669,10 +750,12 @@ async def callback(request):
             if next_after == after:
                 raise ValueError("Invalid pagination")
             after = next_after
+        bot_guilds, bot_guilds_checked = await bot_guild_snapshot(bot)
         guilds = await verified_dashboard_guilds(
             bot,
             int(user_data["id"]),
             guild_data,
+            guild_snapshot=(bot_guilds, bot_guilds_checked),
         )
         user_session = {
             "id": user_data["id"], "username": user_data["username"],
@@ -684,7 +767,9 @@ async def callback(request):
             "guilds": guilds, "expires_at": time.time() + SESSION_TTL,
             "csrf": secrets.token_urlsafe(32),
             "bot_ready": bot_is_connected(bot),
-            "connected_guilds_count": len(getattr(bot, "guilds", ())) if bot else 0,
+            "bot_guilds_checked": bot_guilds_checked,
+            "bot_identity_matches_client": bot_identity_matches_client(bot),
+            "connected_guilds_count": len(bot_guilds),
             # Keep the provider's mutual-guild view private so later dashboard
             # requests can re-check live bot membership and role access.
             "_oauth_guilds": [
@@ -915,7 +1000,7 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v46";
+    return """const CACHE = "prime-dashboard-shell-v47";
 const STATIC = [
   "./",
   "./static/app.css?v=level-card-media-upload-1",
@@ -931,7 +1016,7 @@ const STATIC = [
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
-  "./static/app.js?v=level-card-media-upload-1",
+  "./static/app.js?v=bot-guild-discovery-1",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",

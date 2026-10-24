@@ -36,4 +36,16 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         asset = f"./static/visual-refresh.css?v={match.group(1)}"
         self.assertIn(f'"{asset}"', worker)
         self.assertEqual(match.group(1), "mobile-hardening-1")
-        self.assertIn('const CACHE = "prime-dashboard-shell-v46";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v47";', worker)
+
+    def test_guild_recovery_script_is_cache_busted_in_html_and_worker(self):
+        html = (ROOT / "dashboard/index.html").read_text("utf-8")
+        worker = web_server.service_worker_source()
+        match = re.search(
+            r'<script src="static/app\.js\?v=([^"]+)"',
+            html,
+        )
+        self.assertIsNotNone(match)
+        version = match.group(1)
+        self.assertEqual(version, "bot-guild-discovery-1")
+        self.assertIn(f'"./static/app.js?v={version}"', worker)
