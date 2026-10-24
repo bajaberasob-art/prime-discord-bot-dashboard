@@ -681,7 +681,26 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
 .lv-theme-swatch-cosmic { --theme-a: #a78bfa; --theme-b: #38bdf8; }
 .lv-theme-swatch-frost { --theme-a: #e0f2fe; --theme-b: #0284c7; }
 .lv-theme-swatch-emerald { --theme-a: #34d399; --theme-b: #065f46; }
+.lv-theme-swatch-obsidian { --theme-a: #cbd5e1; --theme-b: #334155; }
+.lv-theme-swatch-inferno { --theme-a: #fb7185; --theme-b: #fb923c; }
+.lv-theme-swatch-mythic { --theme-a: #c084fc; --theme-b: #701a75; }
 .lv-theme-swatch-minimal { --theme-a: #f8fafc; --theme-b: #64748b; }
+
+.lv-theme-swatch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 38%, #ffffff20 40%, transparent 43%);
+  opacity: .9;
+  pointer-events: none;
+}
+.lv-theme-option { min-height: 4.6rem; }
+.lv-theme-swatch { position: relative; overflow: hidden; }
+.lv-theme-swatch-cyberpunk { border-radius: .55rem; clip-path: polygon(0 0, 86% 0, 100% 20%, 100% 100%, 14% 100%, 0 80%); }
+.lv-theme-swatch-cosmic { border-radius: 50%; }
+.lv-theme-swatch-luxury { border: 2px double var(--theme-a); }
+.lv-theme-swatch-obsidian { border: 1px solid #64748b; box-shadow: inset 0 0 0 3px #020617; }
+.lv-theme-swatch-mythic { border: 2px solid #d8b4fe; box-shadow: 0 0 12px #a855f7aa; }
 .lv-theme-copy { display: grid; gap: .2rem; min-width: 0; }
 .lv-theme-copy b { overflow-wrap: anywhere; font-size: .9rem; }
 .lv-theme-copy small { color: var(--muted); font-size: .75rem; }
