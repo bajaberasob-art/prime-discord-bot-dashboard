@@ -1145,19 +1145,46 @@ def _animate_png(png_bytes, design):
     return _animate_png_frames([png_bytes], design)
 
 
+MAX_LEVEL_CARD_RENDER_FRAMES = 18
+
+
+def _sample_background_frames(frame_count, durations, max_frames=MAX_LEVEL_CARD_RENDER_FRAMES):
+    """Sample long backgrounds evenly while preserving total playback duration."""
+    count = max(1, int(frame_count))
+    timings = list(durations or [85] * count)
+    if len(timings) < count:
+        timings.extend([85] * (count - len(timings)))
+    timings = timings[:count]
+    if count <= max(1, int(max_frames)):
+        return list(range(count)), timings
+    target_count = max(2, int(max_frames))
+    indices = [
+        round(index * (count - 1) / (target_count - 1))
+        for index in range(target_count)
+    ]
+    sampled_durations = []
+    for index, start in enumerate(indices):
+        stop = indices[index + 1] if index + 1 < len(indices) else count
+        sampled_durations.append(max(10, sum(timings[start:stop])))
+    return indices, sampled_durations
+
+
 def _render_animated_card(
     name, handle, level, xp, required, rank, total, settings, avatar, background,
     design,
 ):
     frame_count, durations, loop = _animated_background_info(background)
+    frame_indices, frame_durations = _sample_background_frames(frame_count, durations)
+    # Rendering each Pillow frame is the expensive part. Keep output motion smooth
+    # while avoiding 24-30 full card renders for long GIF/video backgrounds.
     png_frames = [
         _render(
             name, handle, level, xp, required, rank, total, settings, avatar,
             background, frame_index,
         ).getvalue()
-        for frame_index in range(frame_count)
+        for frame_index in frame_indices
     ]
-    return _animate_png_frames(png_frames, design, durations, loop)
+    return _animate_png_frames(png_frames, design, frame_durations, loop)
 
 
 async def generate_level_up_gif(
