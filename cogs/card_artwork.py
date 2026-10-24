@@ -3,6 +3,7 @@
 Artwork is local and deterministic: rendering does not make network requests.
 Add an SVG under assets/card_artwork and map one or more layouts below.
 """
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
@@ -24,15 +25,32 @@ _LAYOUT_ART = {
 }
 
 
+@lru_cache(maxsize=24)
+def _rasterize_artwork(filename, width, height, modified_ns):
+    """Cache immutable PNG bytes, not mutable PIL images, for safe reuse."""
+    del modified_ns  # Included in the cache key to invalidate changed SVG assets.
+    path = _ART / filename
+    return cairosvg.svg2png(
+        url=str(path),
+        output_width=width,
+        output_height=height,
+    )
+
+
 def render_card_artwork(layout, size):
     """Return a rasterized local artwork image, or None for an unknown/missing asset."""
     filename = _LAYOUT_ART.get(str(layout))
     if not filename:
         return None
     path = _ART / filename
-    if not path.is_file():
+    try:
+        modified_ns = path.stat().st_mtime_ns
+    except OSError:
         return None
     width, height = (max(1, int(size[0])), max(1, int(size[1])))
-    png = cairosvg.svg2png(url=str(path), output_width=width, output_height=height)
-    with Image.open(BytesIO(png)) as rendered:
-        return rendered.convert("RGB").copy()
+    try:
+        png = _rasterize_artwork(filename, width, height, modified_ns)
+        with Image.open(BytesIO(png)) as rendered:
+            return rendered.convert("RGB").copy()
+    except (OSError, ValueError, cairosvg.CairoSVGError):
+        return None
