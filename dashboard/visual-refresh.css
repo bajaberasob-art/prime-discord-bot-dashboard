@@ -755,3 +755,131 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
   .lv-evolution-stage i { width: .9rem; height: .9rem; }
 }
 @media (prefers-reduced-motion: reduce) { .lv-evolution-stage i { box-shadow: none; } }
+
+
+/* PRIME rank-card visual refresh: full-width previews, compact framing, and a zoomable mobile viewer. */
+.leveling-canvas-wrap {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(6px, 1.8vw, 12px);
+  align-items: start;
+  align-content: start;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 18% 0%, #245a7260, transparent 54%),
+    radial-gradient(ellipse at 100% 100%, #4a348250, transparent 56%),
+    #030914;
+}
+.leveling-canvas {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+  cursor: zoom-in;
+  border-radius: 12px;
+  outline-offset: 4px;
+  box-shadow: 0 14px 36px #0009, 0 0 0 1px #8bdcf22b;
+}
+.lv-preview-column .leveling-canvas-wrap {
+  min-height: 0;
+  width: 100%;
+}
+.lv-preview-column .leveling-canvas {
+  width: 100%;
+  max-height: none;
+}
+.lv-card-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  padding: max(10px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  color: #f4f8ff;
+  background: #020611f5;
+  backdrop-filter: blur(22px);
+}
+.lv-card-zoom-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: .65rem;
+  width: min(100%, 1440px);
+  max-height: 100%;
+  min-height: 0;
+  padding: .75rem;
+  border: 1px solid #4d7893;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #0d1b2b, #060a15 75%);
+  box-shadow: 0 24px 80px #000b, inset 0 1px #ffffff10;
+}
+.lv-card-zoom-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+.lv-card-zoom-controls button {
+  min-width: 2.75rem;
+  min-height: 2.6rem;
+  border: 1px solid #3b657b;
+  border-radius: 10px;
+  color: #e5faff;
+  background: #102637;
+  font-weight: 750;
+}
+.lv-card-zoom-controls .lv-card-zoom-close {
+  margin-inline-start: auto;
+  padding-inline: 1rem;
+  border-color: #895d70;
+  background: #321b2a;
+}
+.lv-card-zoom-scale {
+  min-width: 4.5rem;
+  color: #b6d7e9;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.lv-card-zoom-viewport {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #223d52;
+  border-radius: 12px;
+  background:
+    radial-gradient(ellipse at top, #172b3e, transparent 75%),
+    #02050c;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+.lv-card-zoom-image {
+  display: block;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  height: auto;
+  margin: 0 auto;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 14px 48px #000a;
+}
+.lv-card-zoom-hint {
+  margin: 0;
+  color: #9eb5c8;
+  font-size: .8rem;
+  line-height: 1.5;
+  text-align: center;
+}
+@media (max-width: 480px) {
+  .leveling-canvas-wrap { padding: 6px; border-radius: 14px; }
+  .leveling-canvas { border-radius: 9px; }
+  .lv-card-zoom-panel { padding: .45rem; gap: .45rem; border-radius: 12px; }
+  .lv-card-zoom-controls button { min-height: 2.4rem; }
+  .lv-card-zoom-controls .lv-card-zoom-close { margin-inline-start: 0; }
+}
