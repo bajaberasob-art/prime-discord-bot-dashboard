@@ -566,3 +566,33 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Level-card preview actions: wrap cleanly on phones and keep download state clear. */
+.lv-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .625rem;
+  align-items: center;
+  margin-block: .5rem .875rem;
+}
+.lv-preview-actions > button {
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+.lv-preview-actions > button:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+.leveling-render-status {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .lv-preview-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lv-preview-actions > button {
+    width: 100%;
+  }
+}
