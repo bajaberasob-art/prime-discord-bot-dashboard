@@ -1188,7 +1188,7 @@ def _animate_png_frames(png_frames, design, durations=None, loop=0):
         frames[0].save(
             output, format="GIF", save_all=len(frames) > 1,
             append_images=frames[1:], duration=duration_arg,
-            loop=loop, disposal=2, optimize=True,
+            loop=loop, disposal=1, optimize=True,
         )
         output.seek(0)
         return output
@@ -1271,7 +1271,7 @@ def _animate_png_frames(png_frames, design, durations=None, loop=0):
     duration_arg = frame_durations if len(frames) > 1 else frame_durations[0]
     frames[0].save(
         output, format="GIF", save_all=True, append_images=frames[1:],
-        duration=duration_arg, loop=loop, disposal=2, optimize=True,
+        duration=duration_arg, loop=loop, disposal=1, optimize=True,
     )
     output.seek(0)
     return output
