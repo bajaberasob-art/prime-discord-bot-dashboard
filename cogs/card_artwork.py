@@ -13,14 +13,14 @@ _ROOT = Path(__file__).resolve().parents[1]
 _ART = _ROOT / "assets" / "card_artwork"
 _LAYOUT_ART = {
     "showcase": "showcase-celestial.svg",
-    "vertical": "showcase-celestial.svg",
+    "vertical": "vertical-aurora-tower.svg",
     "spotlight": "spotlight-astral.svg",
-    "ring": "spotlight-astral.svg",
-    "square": "spotlight-astral.svg",
+    "ring": "ring-eclipse.svg",
+    "square": "square-prism-city.svg",
     "banner": "banner-neon-ridge.svg",
-    "classic": "banner-neon-ridge.svg",
-    "minimal": "banner-neon-ridge.svg",
-    "stats": "banner-neon-ridge.svg",
+    "classic": "classic-gold-horizon.svg",
+    "minimal": "minimal-ice-line.svg",
+    "stats": "stats-golden-nebula.svg",
 }
 
 
