@@ -3,10 +3,34 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
+
+import regex as unicode_regex
 from typing import Any
 
 import aiosqlite
+
+_CUSTOM_EMOJI_MENTION = re.compile(r"<a?:[A-Za-z0-9_]{2,32}:(\d{15,22})>")
+_UNICODE_EMOJI_ALLOWED = unicode_regex.compile(
+    r"[\p{Emoji}\p{Emoji_Component}\u200d\U000E0020-\U000E007F]+"
+)
+_UNICODE_EMOJI_REQUIRED = unicode_regex.compile(
+    r"\p{Extended_Pictographic}|\p{Emoji_Presentation}|"
+    r"\p{Regional_Indicator}{2}|[#*0-9]\ufe0f?\u20e3"
+)
+
+
+def is_valid_unicode_button_emoji(value: Any) -> bool:
+    """Return true only for a Unicode emoji sequence, not arbitrary button text."""
+    raw = str(value or "").strip()
+    if not raw or any(character.isspace() or character.isalpha() for character in raw):
+        return False
+    return bool(
+        _UNICODE_EMOJI_ALLOWED.fullmatch(raw)
+        and _UNICODE_EMOJI_REQUIRED.search(raw)
+    )
+
 
 DB_PATH = (os.environ.get("DB_PATH") or "").strip() or "data/bot.db"
 DB_NAME = (
@@ -129,11 +153,21 @@ def validate_config(guild_id: int, body: dict[str, Any], old: dict[str, Any] | N
             button_id = __import__("uuid").uuid4().hex[:12]
         used.add(button_id)
         emoji = str(raw.get("emoji") or "").strip()[:100] or None
-        # Migrate a legacy decorative glyph rejected by Discord as a button emoji.
+        # Migrate legacy values before validation so older saved panels remain publishable.
         if emoji == "✦":
             emoji = "✨"
-        if emoji and emoji.startswith("custom:") and not __import__("re").fullmatch(r"custom:\d{15,22}", emoji):
-            raise ValueError("معرّف الإيموجي المخصص غير صالح؛ اختر إيموجيًا من قائمة السيرفر.")
+        if emoji:
+            custom_mention = _CUSTOM_EMOJI_MENTION.fullmatch(emoji)
+            if custom_mention:
+                # Save the stable ID rather than a display-name-dependent mention.
+                emoji = f"custom:{custom_mention.group(1)}"
+            if emoji.startswith("custom:"):
+                if not re.fullmatch(r"custom:\d{15,22}", emoji):
+                    raise ValueError("معرّف الإيموجي المخصص غير صالح؛ اختر إيموجيًا من قائمة السيرفر.")
+            elif emoji.startswith("<"):
+                raise ValueError(f"صيغة إيموجي الزر «{label}» غير صحيحة. اختر إيموجيًا من قائمة السيرفر.")
+            elif not is_valid_unicode_button_emoji(emoji):
+                raise ValueError(f"قيمة الإيموجي للزر «{label}» غير صالحة. اختر إيموجيًا من السيرفر أو أدخل إيموجيًا Unicode صحيحًا.")
         clean_buttons.append({"id": button_id, "label": label, "emoji": emoji, "style": style, "response": response})
     channel_id = str(body.get("channel_id", old.get("channel_id", "")) or "").strip()
     if channel_id and not channel_id.isdigit():
