@@ -27,7 +27,7 @@ CACHE_TTL = 3600
 # Upload references are opaque, guild-scoped identifiers, never filesystem paths.
 # Files live under PRIME_LEVEL_CARD_UPLOAD_DIR (or data/level_card_uploads).
 _UPLOAD_TOKEN_RE = re.compile(
-    r"^upload:(\\d{15,22}):([a-f0-9]{32}\\.(?:png|gif))$"
+    r"^upload:(\d{15,22}):([a-f0-9]{32}\.(?:png|gif))$"
 )
 _cache = OrderedDict()
 _cache_lock = threading.Lock()
