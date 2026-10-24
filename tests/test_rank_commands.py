@@ -246,6 +246,7 @@ class RankCommandTests(unittest.IsolatedAsyncioTestCase):
     async def test_rank_card_animation_follows_dashboard_setting(self):
         await database.update_level_settings(888, {
             "card_design": {"animationEnabled": True, "animationIntensity": 62},
+            "prime_controls": {"rank": {"cardFormat": "gif"}},
         })
         interaction = self.interaction()
         await self.rank(interaction)
@@ -259,6 +260,7 @@ class RankCommandTests(unittest.IsolatedAsyncioTestCase):
         self.gif_generator.reset_mock()
         await database.update_level_settings(888, {
             "card_design": {"animationEnabled": False, "animationIntensity": 62},
+            "prime_controls": {"rank": {"cardFormat": "png"}},
         })
         interaction = self.interaction()
         await self.rank(interaction)
@@ -286,6 +288,7 @@ class RankCommandTests(unittest.IsolatedAsyncioTestCase):
         await database.update_level_settings(888, {
             "card_bg_url": "https://example.com/animated.gif",
             "card_design": {"animationEnabled": False, "animationIntensity": 0},
+            "prime_controls": {"rank": {"cardFormat": "gif"}},
         })
         interaction = self.interaction()
         with patch(
@@ -313,6 +316,7 @@ class RankCommandTests(unittest.IsolatedAsyncioTestCase):
     async def test_prefix_level_shortcut_uses_fast_static_png_even_when_animation_is_enabled(self):
         await database.update_level_settings(888, {
             "card_design": {"animationEnabled": True, "animationIntensity": 62},
+            "prime_controls": {"rank": {"cardFormat": "png"}},
         })
         rank = self.bot.get_command("rank")
         message = SimpleNamespace(
