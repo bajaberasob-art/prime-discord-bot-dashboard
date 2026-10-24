@@ -14,7 +14,6 @@ import database
 from cogs.card_generator import (
     generate_level_up_gif,
     generate_rank_card,
-    should_use_animated_card,
 )
 from cogs.utilities import ShortcutInteraction
 from interaction_runtime import send_interaction_message
