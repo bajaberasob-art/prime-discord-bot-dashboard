@@ -8505,7 +8505,7 @@
     points: { xpMultiplier: 1, minXp: 15, maxXp: 25, cooldown: 60, roleMult: [], chanMult: [], boosts: [], allowedChannels: [], bl: { channels: [], users: [], roles: [] } },
     voice: { enabled: true, xpPerMin: 20, muteBlock: true, deafBlock: true, minMembers: 2, dimEnabled: false, dimThreshold: 60, dimRate: 50, separate: true },
     rewards: { highestOnly: true, list: [] },
-    card: { layout: "vertical", visualStyle: "cyberpunk", particles: "none", color: "#45DDF5", bg: "", backgroundAsset: "", animated: true, showStats: true, glowStrength: 54, particleDensity: 36, particleColor: "accent", barStyle: "gradient", frame: "auto", bgOverlay: 8, bgBlur: 0, animationEnabled: true, evolutionEnabled: true, animationStyle: "beam", animationIntensity: 62, outputFormat: "png", stats: { messages: true, voice: true, streak: true, serverRank: true }, presets: [] },
+    card: { layout: "vertical", visualStyle: "cyberpunk", particles: "none", color: "#45DDF5", bg: "", backgroundAsset: "", animated: true, showStats: true, glowStrength: 54, particleDensity: 36, particleColor: "accent", barStyle: "gradient", frame: "auto", bgOverlay: 8, bgBlur: 0, animationEnabled: true, evolutionEnabled: true, animationStyle: "beam", animationIntensity: 62, outputFormat: "auto", stats: { messages: true, voice: true, streak: true, serverRank: true }, presets: [] },
     messages: {
       levelup: { on: true, channel: "", tpl: "مبروك {user}! وصلت إلى المستوى {level} في {server}." },
       milestone: { on: true, channel: "", tpl: "{user} حقق إنجازاً جديداً عند المستوى {level}." },
@@ -9375,7 +9375,7 @@
       if (!["gradient", "solid", "segmented", "neon"].includes(style.barStyle)) throw Error("أسلوب شريط التقدم داخل الملف غير صالح.");
       if (!["auto", "none", "bronze", "silver", "gold", "diamond", "mythic"].includes(style.frame)) throw Error("إطار البطاقة داخل الملف غير صالح.");
       if (!["beam", "aurora", "burst"].includes(style.animationStyle)) throw Error("نمط الحركة داخل الملف غير صالح.");
-      if (!["png", "gif", "auto"].includes(style.outputFormat || "png")) throw Error("صيغة إخراج البطاقة داخل الملف غير صالحة.");
+      if (!["png", "gif", "auto"].includes(style.outputFormat || "auto")) throw Error("صيغة إخراج البطاقة داخل الملف غير صالحة.");
       if (!["cyberpunk", "cosmic", "royal", "frost", "emerald", "obsidian", "inferno", "classic"].includes(style.visualStyle)) throw Error("الهوية البصرية داخل الملف غير صالحة.");
       const ranges = [
         ["glowStrength", 0, 100], ["particleDensity", 0, 100],
@@ -9771,7 +9771,7 @@
       particleColor: String(card.particleColor || "accent"), barStyle: String(card.barStyle || "gradient"),
       frame: String(card.frame || "auto"), visualStyle: String(card.visualStyle || "cyberpunk"), bgOverlay: String(card.bgOverlay ?? 28), bgBlur: String(card.bgBlur ?? 4),
       animationEnabled: String(Boolean(card.animationEnabled)), evolutionEnabled: String(card.evolutionEnabled !== false), animationStyle: String(card.animationStyle || "beam"),
-      outputFormat: String(card.outputFormat || "png"),
+      outputFormat: String(card.outputFormat || "auto"),
       animationIntensity: String(card.animationIntensity ?? 62),
       showMessages: String(Boolean(card.stats?.messages)), showVoice: String(Boolean(card.stats?.voice)),
       showStreak: String(Boolean(card.stats?.streak)), showServerRank: String(Boolean(card.stats?.serverRank)),
@@ -9792,7 +9792,7 @@
       if (status) status.textContent = "ينشئ الخادم معاينة بطاقة بحسابك ونقاطك الحقيقية…";
       lvBgStatus();
       try {
-        const params = lvBuildCardPreviewParams(card, card.outputFormat || "png");
+        const params = lvBuildCardPreviewParams(card, card.outputFormat || "auto");
         const response = await api(
           `api/guild/${state.guild.id}/leveling/card-preview?${params.toString()}`,
         );
