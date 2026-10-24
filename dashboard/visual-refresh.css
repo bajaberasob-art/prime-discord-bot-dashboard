@@ -883,3 +883,51 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
   .lv-card-zoom-controls button { min-height: 2.4rem; }
   .lv-card-zoom-controls .lv-card-zoom-close { margin-inline-start: 0; }
 }
+
+
+/* Anime/Cinematic rank-card gallery: each miniature has its own artwork-like composition. */
+.lv-template-art {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background-color: #08101e;
+  background-image:
+    radial-gradient(ellipse at 72% 34%, #b08aff55, transparent 34%),
+    radial-gradient(ellipse at 18% 90%, #45ddf555, transparent 38%),
+    linear-gradient(115deg, #07111f 4%, #172c4a 48%, #09101f 100%);
+}
+.lv-template-art::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -20% 25% -20% 34%;
+  transform: skewX(-19deg);
+  background:
+    radial-gradient(ellipse at 50% 35%, #e9f8ff65, transparent 12%),
+    radial-gradient(ellipse at 50% 45%, #ad8bff88, transparent 29%),
+    linear-gradient(160deg, transparent 18%, #45ddf544 48%, transparent 74%);
+  filter: blur(1px);
+}
+.lv-template-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, #03071120, transparent 38%, #03071125);
+}
+.lv-art-showcase { background-image: radial-gradient(ellipse at 74% 30%, #45ddf588, transparent 36%), linear-gradient(110deg,#07101e,#26345c 58%,#080d1a); }
+.lv-art-showcase::before { inset: -28% 18% -24% 42%; background: radial-gradient(ellipse at 50% 35%,#fff9 0 3%,transparent 5%),radial-gradient(ellipse at 50% 44%,#ad8bffb8,transparent 28%),linear-gradient(150deg,transparent 20%,#45ddf577 50%,transparent 75%); }
+.lv-art-spotlight { background-image: radial-gradient(ellipse at 55% 42%,#ad8bff99,transparent 30%),linear-gradient(125deg,#030711,#132847 52%,#070a18); }
+.lv-art-spotlight::before { inset: -15% 22% -15% 18%; background: radial-gradient(ellipse at 50% 50%,#f4f3ffb0,transparent 8%),radial-gradient(ellipse at 50% 50%,#ad8bff99,transparent 35%),linear-gradient(90deg,transparent,#45ddf555,transparent); }
+.lv-art-ring { background-image: radial-gradient(circle at 50% 48%,transparent 18%,#45ddf599 19%,transparent 23%),radial-gradient(circle at 50% 48%,#ad8bff55,transparent 42%),linear-gradient(145deg,#07101e,#1c2146); }
+.lv-art-minimal { background-image: linear-gradient(120deg,#07101e,#14243a 60%,#080d17); }
+.lv-art-minimal::before { inset: 12% 10%; background: linear-gradient(135deg,transparent 42%,#45ddf544 43% 44%,transparent 45%),radial-gradient(ellipse at 82% 20%,#ad8bff55,transparent 30%); }
+.lv-art-classic { background-image: radial-gradient(ellipse at 72% 30%,#ddbB6944,transparent 32%),linear-gradient(115deg,#0b1020,#25324b 56%,#080d19); }
+.lv-art-banner { background-image: linear-gradient(105deg,#07101e 12%,#17334d 52%,#10102b 100%); }
+.lv-art-banner::before { inset: -20% 8% -20% 45%; transform: skewX(-28deg); background: linear-gradient(90deg,transparent,#45ddf555,#ad8bff66,transparent); }
+.lv-art-vertical { background-image: radial-gradient(ellipse at 50% 32%,#ad8bff66,transparent 32%),linear-gradient(180deg,#111a34,#07101e 78%); }
+.lv-art-square { background-image: radial-gradient(circle at 50% 38%,#45ddf566,transparent 28%),linear-gradient(140deg,#07101e,#1b2144); }
+.lv-art-stats { background-image: radial-gradient(ellipse at 15% 20%,#ddbB6944,transparent 35%),linear-gradient(120deg,#0a1222,#1a2941 56%,#080d19); }
+@media (max-width: 480px) {
+  .lv-template-art { min-height: 3.8rem; }
+}

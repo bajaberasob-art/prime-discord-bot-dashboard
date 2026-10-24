@@ -146,6 +146,27 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(sampled), sum(durations))
         self.assertTrue(all(value >= 10 for value in sampled))
 
+    async def test_bundled_cinematic_artwork_is_rendered_per_layout_without_remote_assets(self):
+        results = {}
+        with patch("cogs.card_generator.fetch_image", new=AsyncMock(return_value=None)):
+            for layout in cards.LAYOUTS:
+                result = await self.render({"card_layout": layout})
+                self.validate(result, layout)
+                results[layout] = result.getvalue()
+        self.assertEqual(len(set(results.values())), len(cards.LAYOUTS))
+        # The fallback artwork has visible color variation rather than a flat black fill.
+        with Image.open(io.BytesIO(results["showcase"])) as image:
+            colors = image.convert("RGB").getcolors(maxcolors=image.width * image.height)
+            self.assertGreater(len(colors or []), 200)
+
+    def test_card_background_defaults_preserve_artwork(self):
+        self.assertEqual(cards.CARD_DESIGN_DEFAULTS["bgOverlay"], 8)
+        self.assertEqual(cards.CARD_DESIGN_DEFAULTS["bgBlur"], 0)
+        card = cards.Card((120, 60), "#45DDF5", None, "none",
+                          {**cards.CARD_DESIGN_DEFAULTS, "layout": "showcase"})
+        self.assertEqual(card.image.size, (120 * cards.SCALE, 60 * cards.SCALE))
+        self.assertGreater(len(set(card.image.getdata())), 100)
+
     async def test_all_nine_layouts_are_distinct_valid_pngs(self):
         results = []
         for layout in cards.LAYOUTS:
@@ -359,14 +380,14 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
             (1000, 300), "#42B9FF", None, "none", {"glowStrength": 0},
         )
         theme = cards._streak_card_theme({"stage_key": "spark"})
+        # Capture the artwork/lighting baseline before drawing; the background is no
+        # longer a flat RGB fill, so asserting a fixed color would be brittle.
+        center_track_pixel = (454 * cards.SCALE, 113 * cards.SCALE)
+        center_track_before = card.image.getpixel(center_track_pixel)
         cards._draw_streak_emblem(card, (908, 226), 34, None, "⚡", theme)
 
         # The emblem belongs in the lower-right panel, not the center track.
-        self.assertEqual(
-            # Ambient card lighting intentionally changes the far-field background color.
-            card.image.getpixel((454 * cards.SCALE, 113 * cards.SCALE)),
-            (10, 16, 24),
-        )
+        self.assertEqual(card.image.getpixel(center_track_pixel), center_track_before)
         self.assertEqual(
             card.image.getpixel((908 * cards.SCALE, 209 * cards.SCALE)),
             (66, 185, 255),
