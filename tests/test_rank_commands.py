@@ -515,7 +515,7 @@ class RankCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("غير جاهزة", itx.followup.send.call_args.args[0])
 
     async def test_database_and_card_errors_are_contained(self):
-        for target in ("database.get_level_settings", "cogs.rank_commands.generate_level_up_gif"):
+        for target in ("database.get_level_settings", "cogs.rank_commands.generate_rank_card"):
             self.clock += 8
             itx = self.interaction()
             with patch(target, new=AsyncMock(side_effect=RuntimeError("test failure"))):
