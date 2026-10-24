@@ -550,6 +550,7 @@ def _render(
     except (ValueError, TypeError):
         color = "#f2aacb"
     mode = settings.get("card_particles", "none")
+    design["layout"] = layout
     card = Card(LAYOUTS[layout], color, background, mode, design, background_frame)
     earned, cost, progress = calculate_progress(level, xp, required)
     rank_text = f"#{compact(rank)}" if rank else "—"
