@@ -158,7 +158,8 @@ class Card:
             for x in range(width):
                 px[x, y] = color
         art = pixels.convert("RGBA")
-        d = ImageDraw.Draw(art)
+        lighting = Image.new("RGBA", art.size, (0, 0, 0, 0))
+        d = ImageDraw.Draw(lighting)
         # A luminous moon/energy source and long atmospheric rays create depth.
         focus_x = int(width * (0.72 if layout in {"showcase", "banner", "spotlight"} else 0.5))
         focus_y = int(height * (0.34 if layout != "vertical" else 0.28))
@@ -176,7 +177,8 @@ class Card:
             x = int(width * (0.10 + i * 0.10))
             rd.polygon([(focus_x, focus_y), (x, height), (x+width*.035, height)],
                        fill=(*accent_rgb, 7 + (i % 3) * 3))
-        art = Image.alpha_composite(art, rays)
+        lighting = Image.alpha_composite(lighting, rays)
+        art = Image.alpha_composite(art, lighting)
         d = ImageDraw.Draw(art)
         # Layered mountain silhouettes / city spires are art, not opaque UI panels.
         silhouette = (4, 8, 20, 188)
