@@ -94,6 +94,14 @@ class LevelingMediaUploadTests(unittest.IsolatedAsyncioTestCase):
             data=form,
         )
 
+    async def test_evolution_setting_defaults_on_and_rejects_non_boolean_values(self):
+        clean = leveling_api._clean_card_design({**leveling_api.CARD_DESIGN_DEFAULTS, "presets": []})
+        self.assertTrue(clean["evolutionEnabled"])
+        disabled = leveling_api._clean_card_design({**leveling_api.CARD_DESIGN_DEFAULTS, "evolutionEnabled": False, "presets": []})
+        self.assertFalse(disabled["evolutionEnabled"])
+        with self.assertRaises(ValueError):
+            leveling_api._clean_card_design({**leveling_api.CARD_DESIGN_DEFAULTS, "evolutionEnabled": "false", "presets": []})
+
     async def test_png_upload_is_guild_scoped_and_survives_cold_cache_reload(self):
         response = await self.upload(png_bytes(), "level-background.png", "image/png")
         self.assertEqual(response.status, 200)
