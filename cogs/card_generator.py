@@ -22,7 +22,7 @@ from level_progression import total_xp_for_level, xp_required
 
 LAYOUTS = {"vertical": (560, 900), "stats": (1000, 420), "minimal": (900, 230),
            "ring": (620, 680), "classic": (1000, 340), "banner": (1000, 300),
-           "square": (640, 640), "spotlight": (1000, 500)}
+           "square": (640, 640), "spotlight": (1000, 500), "showcase": (1100, 460)}
 PARTICLES = {"none", "sparks", "shine", "embers", "snow", "petals", "neon"}
 CARD_VISUAL_STYLES = {"cyberpunk", "cosmic", "royal", "frost", "emerald", "obsidian", "inferno", "classic"}
 CARD_DESIGN_DEFAULTS = {
@@ -459,7 +459,7 @@ def _render(
         card.text((280, 873), "GROW AT YOUR OWN PACE", 9, MUTED, center=True)
     elif layout == "stats":
         card.text((34, 30), "PRIME / MEMBER STATISTICS", 12, color, True)
-        card.avatar((45, 85), 190, avatar)
+        card.avatar((45, 85), 190, avatar, progress)
         card.text((276, 75), name, 32, bold=True, width=470)
         card.text((278, 122), handle, 15, MUTED, width=430)
         if show_stat("serverRank"):
@@ -474,7 +474,7 @@ def _render(
                 if show_stat(("messages", "voice", "streak")[index]):
                     card.stat((x, 304, x+298, 394), *pair)
     elif layout == "minimal":
-        card.avatar((28, 45), 100, avatar)
+        card.avatar((28, 45), 100, avatar, progress)
         card.text((150, 25), name, 23, bold=True, width=690)
         card.text((150, 57), handle, 12, MUTED, width=500)
         rank_label = f"  ·  RANK {rank_text} OF {compact(total)}" if show_stat("serverRank") else ""
@@ -538,10 +538,36 @@ def _render(
         if show_stat("messages"): card.compact_stat((58, 384, 330, 452), *stats[0])
         if show_stat("voice"): card.compact_stat((354, 384, 626, 452), *stats[1])
         if show_stat("streak"): card.compact_stat((650, 384, 922, 452), *stats[2])
+    elif layout == "showcase":
+        card.panel((24, 24, 1076, 436), radius=30, fill="#10131f", outline="#303246")
+        card.text((52, 39), "PRIME / MEMBER SHOWCASE", 11, color, True)
+        card.text((1040, 39), "LEVEL PROFILE", 9, MUTED, True, width=180, center=True)
+        card.line((52, 70, 1048, 70), "#303348")
+        card.avatar((55, 100), 192, avatar, progress)
+        card.text((151, 309), "PRIME MEMBER", 9, color, True, center=True, width=180)
+        card.text((292, 96), name, 31, bold=True, width=465)
+        card.text((294, 139), handle, 14, MUTED, width=460)
+        card.panel((292, 175, 514, 252), radius=17, fill="#151827", outline="#2d3349")
+        card.text((310, 188), "LEVEL", 9, MUTED, True)
+        card.text((310, 207), compact(level), 28, color, True, width=92)
+        card.text((476, 197), f"{progress:.0%}", 17, color, True, center=True, width=62)
+        card.text((476, 224), "COMPLETE", 8, MUTED, center=True, width=80)
+        card.text((292, 271), xp_text, 13, MUTED, width=450)
+        card.bar((292, 302, 454, 14), progress, animated, bar_style)
+        card.text((292, 326), "PROGRESS TO NEXT LEVEL", 9, MUTED, True, width=270)
+        if show_stat("serverRank"):
+            card.panel((795, 83, 1048, 174), radius=18, fill="#151827", outline="#30364c")
+            card.text((921, 94), "SERVER RANK", 9, MUTED, True, center=True, width=190)
+            card.text((921, 114), rank_text, 29, color, True, center=True, width=205)
+            card.text((921, 150), f"OF {compact(total)} MEMBERS", 9, MUTED, center=True, width=200)
+        if show_stat("messages"): card.compact_stat((795, 190, 1048, 244), *stats[0])
+        if show_stat("voice"): card.compact_stat((795, 256, 1048, 310), *stats[1])
+        if show_stat("streak"): card.compact_stat((795, 322, 1048, 376), *stats[2])
+        card.text((1040, 404), "BUILT TO PROGRESS", 8, MUTED, True, center=True, width=190)
     else:
         card.panel((30, 30, 970, 260), radius=25, fill="#101019")
         card.text((260, 53), "PRIME / RANK CARD", 11, color, True)
-        card.avatar((58, 85), 165, avatar)
+        card.avatar((58, 85), 165, avatar, progress)
         card.text((260, 89), name, 31, bold=True, width=490)
         card.text((261, 135), handle, 15, MUTED, width=455)
         if show_stat("serverRank"):
