@@ -612,7 +612,7 @@ class RankCommandTests(unittest.IsolatedAsyncioTestCase):
         Image.new("RGB", (8, 8)).save(result, "GIF")
         result.seek(0)
         with (
-            patch("cogs.levels.has_animated_background", new=AsyncMock(return_value=True)),
+            patch("cogs.levels.should_use_animated_card", new=AsyncMock(return_value=True)),
             patch(
                 "cogs.levels.generate_level_up_gif",
                 new=AsyncMock(return_value=result),
