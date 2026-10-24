@@ -447,9 +447,16 @@ def _avatar_url(user):
 
 
 async def _card_assets(user, settings):
+    design = settings.get("card_design")
+    design = design if isinstance(design, dict) else {}
+    # A guild-scoped upload token avoids an external round trip for media
+    # uploaded through the dashboard. Legacy HTTPS backgrounds remain supported.
+    background_reference = (
+        design.get("backgroundAsset") or settings.get("card_bg_url")
+    )
     avatar, background = await asyncio.gather(
         fetch_image(_avatar_url(user)),
-        fetch_image(settings.get("card_bg_url")),
+        fetch_image(background_reference),
     )
     return avatar, background
 
@@ -481,7 +488,12 @@ def _animated_background_info(background):
 async def has_animated_background(settings):
     """Return whether the configured background resolves to a bounded animated GIF."""
     settings = settings if isinstance(settings, dict) else {}
-    background = await fetch_image(settings.get("card_bg_url"))
+    design = settings.get("card_design")
+    design = design if isinstance(design, dict) else {}
+    background_reference = (
+        design.get("backgroundAsset") or settings.get("card_bg_url")
+    )
+    background = await fetch_image(background_reference)
     try:
         return _animated_background_info(background)[0] > 1
     except (OSError, ValueError, Image.DecompressionBombError):
