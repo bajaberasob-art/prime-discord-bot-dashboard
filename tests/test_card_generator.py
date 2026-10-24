@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import aiohttp
 from aiohttp import web
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from cogs import card_generator as cards
 from cogs import card_images
@@ -158,6 +158,19 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         with Image.open(io.BytesIO(results["showcase"])) as image:
             colors = image.convert("RGB").getcolors(maxcolors=image.width * image.height)
             self.assertGreater(len(colors or []), 200)
+
+    def test_glass_panels_preserve_background_visibility(self):
+        card = cards.Card((100, 60), "#45DDF5", None, "none",
+                          {**cards.CARD_DESIGN_DEFAULTS, "glowStrength": 0})
+        # Isolate compositing from artwork so the glass translucency is deterministic.
+        card.image = Image.new("RGB", (100 * cards.SCALE, 60 * cards.SCALE), "#bfefff")
+        card.draw = ImageDraw.Draw(card.image)
+        card.glass_panel((10, 10, 90, 50), radius=10, tint="#15243a",
+                         opacity=32, outline="#8bdcf2")
+        red, green, blue = card.image.getpixel((50 * cards.SCALE, 30 * cards.SCALE))
+        self.assertGreater(green, 140)
+        self.assertGreater(blue, 150)
+        self.assertGreater(red, 100)
 
     def test_card_background_defaults_preserve_artwork(self):
         self.assertEqual(cards.CARD_DESIGN_DEFAULTS["bgOverlay"], 8)
