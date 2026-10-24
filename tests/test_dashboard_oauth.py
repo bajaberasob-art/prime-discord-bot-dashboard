@@ -299,5 +299,69 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(guild.fetched_user_id, 42)
 
 
+    async def test_api_me_discovers_rest_guilds_when_gateway_cache_is_empty(self):
+        guild = SimpleNamespace(
+            id=777,
+            name="PRIME TEAM",
+            owner_id=99,
+            member_count=82,
+            icon=None,
+        )
+
+        async def fetch_guilds(limit=None):
+            self.assertIsNone(limit)
+            yield guild
+
+        live_bot = SimpleNamespace(
+            guilds=[],
+            is_ready=lambda: False,
+            fetch_guilds=fetch_guilds,
+            get_guild=lambda guild_id: None,
+        )
+        dashboard.SESSIONS["rest-recovery"] = {
+            "id": "42",
+            "username": "operator",
+            "guilds": [],
+            "expires_at": time.time() + 60,
+            "csrf": "csrf",
+            "_oauth_guilds": [
+                {"id": "777", "permissions": "8", "owner": False},
+            ],
+        }
+
+        response = await dashboard.api_me(
+            request("/api/me", "bot_session=rest-recovery", app={"bot": live_bot}),
+        )
+        payload = json.loads(response.text)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            [item["id"] for item in payload["session"]["guilds"]],
+            ["777"],
+        )
+        self.assertFalse(payload["session"]["bot_ready"])
+        self.assertTrue(payload["session"]["bot_guilds_checked"])
+        self.assertEqual(payload["session"]["connected_guilds_count"], 1)
+
+    async def test_confirmed_empty_bot_snapshot_does_not_trust_oauth_alone(self):
+        guild = SimpleNamespace(id=777, name="not-mutual", owner_id=42, member_count=4)
+        live_bot = SimpleNamespace(
+            guilds=[],
+            is_ready=lambda: True,
+            get_guild=lambda guild_id: guild if guild_id == guild.id else None,
+        )
+        visible = await dashboard.verified_dashboard_guilds(
+            live_bot,
+            42,
+            [{"id": "777", "permissions": "8", "owner": False}],
+        )
+        self.assertEqual(visible, [])
+
+    async def test_unknown_bot_snapshot_is_not_treated_as_confirmed_empty(self):
+        live_bot = SimpleNamespace(guilds=[], is_ready=lambda: False)
+        guilds, checked = await dashboard.bot_guild_snapshot(live_bot)
+        self.assertEqual(guilds, [])
+        self.assertFalse(checked)
+
+
 if __name__ == "__main__":
     unittest.main()
