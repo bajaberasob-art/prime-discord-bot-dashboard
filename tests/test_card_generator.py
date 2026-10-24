@@ -146,6 +146,27 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(sampled), sum(durations))
         self.assertTrue(all(value >= 10 for value in sampled))
 
+    async def test_bundled_cinematic_artwork_is_rendered_per_layout_without_remote_assets(self):
+        results = {}
+        with patch("cogs.card_generator.fetch_image", new=AsyncMock(return_value=None)):
+            for layout in cards.LAYOUTS:
+                result = await self.render({"card_layout": layout})
+                self.validate(result, layout)
+                results[layout] = result.getvalue()
+        self.assertEqual(len(set(results.values())), len(cards.LAYOUTS))
+        # The fallback artwork has visible color variation rather than a flat black fill.
+        with Image.open(io.BytesIO(results["showcase"])) as image:
+            colors = image.convert("RGB").getcolors(maxcolors=image.width * image.height)
+            self.assertGreater(len(colors or []), 200)
+
+    def test_card_background_defaults_preserve_artwork(self):
+        self.assertEqual(cards.CARD_DESIGN_DEFAULTS["bgOverlay"], 8)
+        self.assertEqual(cards.CARD_DESIGN_DEFAULTS["bgBlur"], 0)
+        card = cards.Card((120, 60), "#45DDF5", None, "none",
+                          {**cards.CARD_DESIGN_DEFAULTS, "layout": "showcase"})
+        self.assertEqual(card.image.size, (120 * cards.SCALE, 60 * cards.SCALE))
+        self.assertGreater(len(set(card.image.getdata())), 100)
+
     async def test_all_nine_layouts_are_distinct_valid_pngs(self):
         results = []
         for layout in cards.LAYOUTS:
