@@ -327,13 +327,16 @@ async def bot_guild_snapshot(bot) -> tuple[list, bool]:
     if not callable(fetch_guilds):
         return [], False
 
-    try:
+    async def collect_guilds() -> list:
         result = fetch_guilds(limit=None)
         if hasattr(result, "__aiter__"):
-            guilds = [guild async for guild in result]
-        else:
-            result = await _await_if_needed(result)
-            guilds = list(result or ())
+            return [guild async for guild in result]
+        result = await _await_if_needed(result)
+        return list(result or ())
+
+    try:
+        # Do not let a stale Discord HTTP request hang dashboard startup.
+        guilds = await asyncio.wait_for(collect_guilds(), timeout=8.0)
         return guilds, True
     except Exception as error:
         logger.warning(
