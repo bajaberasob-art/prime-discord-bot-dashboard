@@ -27,7 +27,7 @@ PARTICLES = {"none", "sparks", "shine", "embers", "snow", "petals", "neon"}
 CARD_VISUAL_STYLES = {"cyberpunk", "cosmic", "royal", "frost", "emerald", "obsidian", "inferno", "classic"}
 CARD_DESIGN_DEFAULTS = {
     "glowStrength": 54, "particleDensity": 46, "particleColor": "accent",
-    "barStyle": "gradient", "frame": "auto", "bgOverlay": 28, "bgBlur": 4,
+    "barStyle": "gradient", "frame": "auto", "bgOverlay": 8, "bgBlur": 0,
     "animationEnabled": True, "animationStyle": "beam", "animationIntensity": 62,
     "visualStyle": "cyberpunk",
     "evolutionEnabled": True,
@@ -105,12 +105,13 @@ class Card:
                 blur = number(self.design.get("bgBlur"), 4)
                 if blur:
                     fitted = fitted.filter(ImageFilter.GaussianBlur(blur * SCALE))
-                self.image = Image.blend(self.image, fitted, 0.54)
-                overlay = number(self.design.get("bgOverlay"), 28)
+                # Keep artwork as the dominant layer; blur and darken only when explicitly configured.
+                self.image = Image.blend(self.image, fitted, 0.90)
+                overlay = number(self.design.get("bgOverlay"), 8)
                 if overlay:
                     self.image = Image.blend(
-                        self.image, Image.new("RGB", self.image.size, "#000000"),
-                        min(0.85, overlay / 100),
+                        self.image, Image.new("RGB", self.image.size, "#030611"),
+                        min(0.38, overlay / 100),
                     )
         glow = Image.new("RGB", (self.w // 4, self.h // 4), "#000000")
         gd = ImageDraw.Draw(glow)
@@ -296,6 +297,21 @@ class Card:
         self.draw.rounded_rectangle(tuple(int(v * SCALE) for v in box), radius=radius * SCALE,
                                     fill=fill, outline=outline, width=SCALE)
 
+    def glass_panel(self, box, radius=18, tint="#15243a", opacity=76, outline="#8bdcf2"):
+        """Draw a low-opacity glass panel that preserves the artwork underneath."""
+        overlay = Image.new("RGBA", self.image.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        rgb = ImageColor.getrgb(tint)[:3]
+        bounds = tuple(int(v * SCALE) for v in box)
+        draw.rounded_rectangle(
+            bounds, radius=radius * SCALE, fill=(*rgb, max(0, min(255, int(opacity)))),
+            outline=(*ImageColor.getrgb(outline)[:3], 110), width=max(1, SCALE),
+        )
+        self.image = Image.alpha_composite(self.image.convert("RGBA"), overlay).convert("RGB")
+        self.draw = ImageDraw.Draw(self.image)
+        x1, y1, x2, y2 = box
+        self.line((x1 + radius, y1 + 1, x2 - radius, y1 + 1), "#dffaff", 1)
+
     def line(self, box, color="#302d3c", width=1):
         self.draw.line(tuple(v * SCALE for v in box), fill=color, width=width * SCALE)
 
@@ -435,13 +451,13 @@ class Card:
                 self.draw = ImageDraw.Draw(self.image)
 
     def stat(self, box, label, value):
-        self.panel(box)
+        self.glass_panel(box, radius=16, tint="#17243b", opacity=72, outline=self.accent)
         x, y, right, _ = box
         self.text((x+18, y+13), label.upper(), 11, MUTED, width=right-x-30)
         self.text((x+18, y+35), value, 22, bold=True, width=right-x-30)
 
     def compact_stat(self, box, label, value):
-        self.panel(box, radius=12, fill="#111522", outline="#273044")
+        self.glass_panel(box, radius=12, tint="#142035", opacity=66, outline=self.accent)
         x, y, right, _ = box
         width = right - x - 18
         self.text((x+9, y+7), label.upper(), 8, MUTED, width=width)
@@ -583,7 +599,8 @@ def _render(
         if show_stat("voice"): card.compact_stat((228, 480, 412, 570), *stats[1])
         if show_stat("streak"): card.compact_stat((424, 480, 608, 570), *stats[2])
     elif layout == "spotlight":
-        card.panel((26, 26, 974, 474), radius=32, fill="#101019")
+        # Spotlight is artwork-first: no opaque inner slab over the cinematic background.
+        card.glass_panel((26, 26, 974, 474), radius=32, tint="#11182b", opacity=24, outline=color)
         card.avatar((62, 89), 260, avatar, progress)
         card.text((374, 67), "LEVEL UP YOUR GAME", 12, color, True)
         card.text((374, 107), name, 34, bold=True, width=510)
@@ -598,7 +615,8 @@ def _render(
         if show_stat("voice"): card.compact_stat((354, 384, 626, 452), *stats[1])
         if show_stat("streak"): card.compact_stat((650, 384, 922, 452), *stats[2])
     elif layout == "showcase":
-        card.panel((24, 24, 1076, 436), radius=30, fill="#10131f", outline="#303246")
+        # Showcase uses a very light glass frame; artwork remains visible across the full canvas.
+        card.glass_panel((24, 24, 1076, 436), radius=30, tint="#101b30", opacity=22, outline=color)
         card.text((52, 39), "PRIME / MEMBER SHOWCASE", 11, color, True)
         card.text((1040, 39), "LEVEL PROFILE", 9, MUTED, True, width=180, center=True)
         card.line((52, 70, 1048, 70), "#303348")
@@ -606,7 +624,7 @@ def _render(
         card.text((161, 326), "PRIME MEMBER", 11, color, True, center=True, width=190)
         card.text((306, 94), name, 37, bold=True, width=460)
         card.text((308, 141), handle, 16, MUTED, width=455)
-        card.panel((306, 175, 548, 255), radius=18, fill="#151827", outline="#38415d")
+        card.glass_panel((306, 175, 548, 255), radius=18, tint="#14253c", opacity=72, outline=color)
         card.text((325, 187), "LEVEL", 11, MUTED, True)
         card.text((325, 207), compact(level), 30, color, True, width=100)
         card.text((508, 195), f"{progress:.0%}", 19, color, True, center=True, width=68)
@@ -615,7 +633,7 @@ def _render(
         card.bar((306, 303, 450, 15), progress, animated, bar_style)
         card.text((306, 329), "PROGRESS TO NEXT LEVEL", 11, MUTED, True, width=300)
         if show_stat("serverRank"):
-            card.panel((795, 83, 1048, 174), radius=18, fill="#151827", outline="#30364c")
+            card.glass_panel((795, 83, 1048, 174), radius=18, tint="#14253c", opacity=72, outline=color)
             card.text((921, 94), "SERVER RANK", 9, MUTED, True, center=True, width=190)
             card.text((921, 114), rank_text, 29, color, True, center=True, width=205)
             card.text((921, 150), f"OF {compact(total)} MEMBERS", 9, MUTED, center=True, width=200)
