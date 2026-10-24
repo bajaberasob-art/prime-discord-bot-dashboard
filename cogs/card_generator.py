@@ -524,7 +524,7 @@ def _render(
     elif layout == "minimal":
         card.panel((14, 18, 886, 145), radius=23, fill="#0d1625", outline="#2d4057")
         card.panel((18, 35, 154, 140), radius=21, fill="#111d2b", outline="#344b62")
-        card.avatar((28, 45), 116, avatar, progress)
+        card.avatar((28, 32), 108, avatar, progress)
         card.text((166, 23), name, 25, bold=True, width=680)
         card.text((166, 56), handle, 14, MUTED, width=500)
         rank_label = f"  ·  RANK {rank_text} OF {compact(total)}" if show_stat("serverRank") else ""
