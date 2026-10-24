@@ -1,11 +1,15 @@
 """Authenticated dashboard API for the existing PRIME leveling system."""
 import asyncio
+import contextlib
 import math
 import os
 import re
 import secrets
 import sqlite3
 import string
+import subprocess
+import tempfile
+import threading
 import uuid
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -51,6 +55,55 @@ BOOL_FIELDS = {
     "voiceEnabled", "muteBlock", "deafBlock", "dimEnabled", "separate",
     "highestOnly", "animated", "showStats",
 }
+
+
+_VIDEO_TRANSCODE_GATE = threading.BoundedSemaphore(1)
+MAX_CARD_VIDEO_BYTES = 20 * 1024 * 1024
+
+
+def _video_to_card_gif(raw: bytes) -> bytes:
+    """Convert a short video to a bounded looping GIF for the existing card renderer."""
+    if not _VIDEO_TRANSCODE_GATE.acquire(timeout=1):
+        raise ValueError("هناك عملية فيديو أخرى قيد المعالجة؛ انتظر قليلًا ثم أعد المحاولة.")
+    try:
+        import imageio_ffmpeg
+
+        with tempfile.TemporaryDirectory(prefix="prime-level-card-") as directory:
+            source = Path(directory) / "source-video"
+            target = Path(directory) / "card-background.gif"
+            source.write_bytes(raw)
+            command = [
+                imageio_ffmpeg.get_ffmpeg_exe(),
+                "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                "-i", str(source), "-t", "2.4", "-an", "-sn", "-dn",
+                "-filter_complex",
+                "fps=10,scale=640:360:force_original_aspect_ratio=decrease:"
+                "force_divisible_by=2,split[s0][s1];"
+                "[s0]palettegen=max_colors=96:stats_mode=diff[p];"
+                "[s1][p]paletteuse=dither=bayer:bayer_scale=3[out]",
+                "-map", "[out]", "-loop", "0", "-threads", "1",
+                "-fs", str(5 * 1024 * 1024), str(target),
+            ]
+            try:
+                result = subprocess.run(
+                    command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                    timeout=12, check=False,
+                )
+            except subprocess.TimeoutExpired as error:
+                raise ValueError("انتهت مهلة معالجة الفيديو؛ جرّب مقطعًا أقصر.") from error
+            if result.returncode != 0 or not target.is_file():
+                raise ValueError("تعذر قراءة الفيديو. جرّب MP4 أو WEBM صالحًا.")
+            if target.stat().st_size > card_images.MAX_BYTES:
+                raise ValueError("الفيديو الناتج كبير جدًا؛ جرّب مقطعًا أقصر أو بدقة أقل.")
+            try:
+                normalized = card_images.normalize_image(target.read_bytes())
+            except Exception as error:
+                raise ValueError("تعذر تحويل الفيديو إلى خلفية متحركة صالحة.") from error
+            if not normalized.startswith((b"GIF87a", b"GIF89a")):
+                raise ValueError("لم ينتج الفيديو حركة صالحة؛ جرّب مقطعًا أقصر.")
+            return normalized
+    finally:
+        _VIDEO_TRANSCODE_GATE.release()
 
 
 def _snowflake(value):
@@ -792,13 +845,16 @@ def register_leveling_routes(
 
     @routes.post("/api/guild/{guild_id}/leveling/card-background")
     async def api_leveling_card_background_upload(req):
-        """Upload and normalize a guild-owned PNG/JPG/WEBP/GIF card background."""
+        """Upload a guild-scoped image/GIF or transcode a short video background."""
         _, guild = await authorize(req, write=True)
         try:
             reader = await req.multipart()
             field = await reader.next()
             if field is None or field.name != "file":
-                raise ValueError("اختر ملف صورة أو GIF أولاً.")
+                raise ValueError("اختر ملف صورة أو GIF أو فيديو أولاً.")
+            mime = (field.headers.get("Content-Type") or "").lower()
+            video_mime = mime in {"video/mp4", "video/webm", "video/quicktime"}
+            max_input = MAX_CARD_VIDEO_BYTES if video_mime else card_images.MAX_BYTES
             chunks = []
             total = 0
             while True:
@@ -806,22 +862,36 @@ def register_leveling_routes(
                 if not chunk:
                     break
                 total += len(chunk)
-                if total > card_images.MAX_BYTES:
-                    raise ValueError("حجم الخلفية يجب ألا يتجاوز 6 ميغابايت.")
+                if total > max_input:
+                    limit = "20 ميغابايت للفيديو" if video_mime else "6 ميغابايت للصورة أو GIF"
+                    raise ValueError(f"حجم الملف يتجاوز الحد المسموح ({limit}).")
                 chunks.append(chunk)
             if not total:
                 raise ValueError("الملف المحدد فارغ.")
             if await reader.next() is not None:
                 raise ValueError("ارفع ملف خلفية واحدًا في كل مرة.")
             raw = b"".join(chunks)
-            try:
-                normalized = await asyncio.to_thread(card_images.normalize_image, raw)
-            except Exception as error:
-                raise ValueError(
-                    "الملف غير صالح أو صيغته غير مدعومة. استخدم PNG أو JPG أو WEBP أو GIF."
-                ) from error
+
+            # Detect the actual container by signature; MIME type alone is
+            # controlled by the client and is not sufficient validation.
+            is_mp4 = len(raw) >= 12 and raw[4:8] == b"ftyp"
+            is_webm = raw.startswith(b"\\x1a\\x45\\xdf\\xa3")
+            video_input = is_mp4 or is_webm
+            if video_input:
+                if len(raw) > MAX_CARD_VIDEO_BYTES:
+                    raise ValueError("حجم الفيديو يجب ألا يتجاوز 20 ميغابايت.")
+                normalized = await asyncio.to_thread(_video_to_card_gif, raw)
+            else:
+                if video_mime:
+                    raise ValueError("صيغة الفيديو غير معروفة. استخدم MP4 أو WEBM.")
+                try:
+                    normalized = await asyncio.to_thread(card_images.normalize_image, raw)
+                except Exception as error:
+                    raise ValueError(
+                        "الملف غير صالح. استخدم PNG أو JPG أو WEBP أو GIF أو فيديو MP4/WEBM."
+                    ) from error
             if not normalized or len(normalized) > card_images.MAX_BYTES:
-                raise ValueError("حجم الخلفية بعد المعالجة يتجاوز 6 ميغابايت.")
+                raise ValueError("الخلفية بعد المعالجة تتجاوز 6 ميغابايت.")
 
             animated = normalized.startswith((b"GIF87a", b"GIF89a"))
             extension = "gif" if animated else "png"
@@ -846,6 +916,7 @@ def register_leveling_routes(
                 "backgroundAsset": token,
                 "format": extension,
                 "animated": animated,
+                "transcodedVideo": video_input,
                 "bytes": len(normalized),
             })
         except ValueError as error:
