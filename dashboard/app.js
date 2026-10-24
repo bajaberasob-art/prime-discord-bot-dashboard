@@ -9032,7 +9032,7 @@
     });
     const bgUploadStatus = el("p", {
       class: "lv-gif-status", role: "status", "aria-live": "polite",
-      text: "ارفع صورة أو GIF حتى 6 ميغابايت، أو فيديو MP4/WEBM حتى 20 ميغابايت؛ الفيديو يتحول إلى GIF قصير.",
+      text: "ارفع صورة أو GIF حتى 6 ميغابايت، أو فيديو MP4/WEBM/MOV حتى 20 ميغابايت؛ الفيديو يتحول إلى GIF قصير.",
     });
     const bgUploadButton = el("button", {
       type: "button", class: "leveling-btn",
@@ -9111,7 +9111,7 @@
     });
     const bgUploadControls = el("div", { class: "lv-bg-upload-controls" },
       lvField("رفع خلفية من جهازك", bgFile,
-        "PNG / JPG / WEBP / GIF حتى 6MB، أو MP4 / WEBM حتى 20MB."),
+        "PNG / JPG / WEBP / GIF حتى 6MB، أو MP4 / WEBM / MOV حتى 20MB."),
       el("div", { class: "lv-actions-row" }, bgUploadButton, bgClearButton),
       bgUploadStatus,
     );
