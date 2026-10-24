@@ -596,3 +596,47 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
     width: 100%;
   }
 }
+
+
+/* Portable PRIME card presets: compact actions that remain usable on touch screens. */
+.lv-preset-portability {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .625rem;
+  align-items: stretch;
+  margin-block: .75rem;
+}
+.lv-preset-portability > button {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+.lv-preset-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-width: 0;
+}
+.lv-preset-row > .lv-preset-apply {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lv-preset-row > .lv-preset-export,
+.lv-preset-row > .lv-preset-delete {
+  flex: 0 0 auto;
+}
+@media (max-width: 480px) {
+  .lv-preset-portability {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lv-preset-portability > button {
+    width: 100%;
+  }
+  .lv-preset-row {
+    flex-wrap: wrap;
+  }
+  .lv-preset-row > .lv-preset-apply {
+    flex-basis: 100%;
+  }
+}

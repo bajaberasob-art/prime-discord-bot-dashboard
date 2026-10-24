@@ -9129,19 +9129,202 @@
       }, el("span", { class: `lv-template-art lv-art-${key}`, "aria-hidden": "true" }, el("i"), el("b", { text: index < 4 ? "PR" : "P" }), el("em"), el("small", { text: "LEVEL 28" })),
       el("span", { class: "lv-template-copy" }, el("b", { text: value[2] }), el("small", { text: `${value[0]} × ${value[1]}` })))));
     const presetName = el("input", { type: "text", maxlength: 40, placeholder: "اسم الإعداد المحفوظ", "aria-label": "اسم الإعداد المحفوظ" });
+    const LV_CARD_PRESET_FORMAT = "prime-level-card-presets";
+    const LV_CARD_PRESET_VERSION = 1;
+    const lvPortableCardStyle = (source) => {
+      const style = lvCardStyleSnapshot(lvMerge(lvDefaults().card, source || {}));
+      // Uploaded backgrounds are guild-scoped references, not portable file data.
+      style.backgroundAsset = "";
+      const stats = style.stats && typeof style.stats === "object" && !Array.isArray(style.stats)
+        ? style.stats : {};
+      style.stats = {
+        messages: stats.messages === true,
+        voice: stats.voice === true,
+        streak: stats.streak === true,
+        serverRank: stats.serverRank === true,
+      };
+      return style;
+    };
+    const lvPresetFilename = (name) => {
+      const slug = String(name || "preset").normalize("NFKD")
+        .replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+      return "prime-card-" + (slug || "preset") + ".json";
+    };
+    const lvDownloadPresetPackage = (name, items) => {
+      const payload = {
+        format: LV_CARD_PRESET_FORMAT,
+        version: LV_CARD_PRESET_VERSION,
+        exportedAt: new Date().toISOString(),
+        presets: items.map((item) => ({
+          name: String(item.name || "").trim(),
+          style: lvPortableCardStyle(item.style || item),
+        })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = lvPresetFilename(name);
+      link.rel = "noopener";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("تم تجهيز ملف إعدادات البطاقات للتنزيل.", "success");
+    };
+    const lvDownloadJson = (name, style) => lvDownloadPresetPackage(name, [{ name: name, style: style }]);
+    const lvImportedPresetStyle = (rawStyle) => {
+      if (!rawStyle || typeof rawStyle !== "object" || Array.isArray(rawStyle)) {
+        throw Error("بيانات تصميم البطاقة داخل الملف غير صالحة.");
+      }
+      const stringKeys = ["layout", "particles", "color", "bg", "particleColor", "barStyle", "frame", "animationStyle"];
+      for (const key of stringKeys) {
+        if (key in rawStyle && typeof rawStyle[key] !== "string") {
+          throw Error("قيمة " + key + " يجب أن تكون نصاً.");
+        }
+      }
+      for (const key of ["animated", "showStats", "animationEnabled"]) {
+        if (key in rawStyle && typeof rawStyle[key] !== "boolean") {
+          throw Error("إعداد " + key + " يجب أن يكون true أو false.");
+        }
+      }
+      for (const key of ["glowStrength", "particleDensity", "bgOverlay", "bgBlur", "animationIntensity"]) {
+        if (key in rawStyle && (typeof rawStyle[key] !== "number" || !Number.isFinite(rawStyle[key]))) {
+          throw Error("قيمة " + key + " يجب أن تكون رقماً.");
+        }
+      }
+      if ("stats" in rawStyle && (!rawStyle.stats || typeof rawStyle.stats !== "object" || Array.isArray(rawStyle.stats))) {
+        throw Error("خيارات الإحصاءات داخل الملف غير صالحة.");
+      }
+      if (rawStyle.stats && typeof rawStyle.stats === "object" && !Array.isArray(rawStyle.stats)) {
+        for (const key of ["messages", "voice", "streak", "serverRank"]) {
+          if (key in rawStyle.stats && typeof rawStyle.stats[key] !== "boolean") {
+            throw Error("خيار إحصاءات " + key + " يجب أن يكون true أو false.");
+          }
+        }
+      }
+      const defaults = lvDefaults().card;
+      const merged = lvMerge(defaults, rawStyle);
+      const style = lvPortableCardStyle(merged);
+      if (!LV_LAYOUTS[style.layout]) throw Error("القالب داخل الملف غير معروف.");
+      if (!Object.prototype.hasOwnProperty.call(LV_PARTS, style.particles)) throw Error("تأثير الجزيئات داخل الملف غير صالح.");
+      if (!/^#[0-9a-f]{6}$/i.test(String(style.color || ""))) throw Error("لون البطاقة داخل الملف غير صالح.");
+      if (style.particleColor !== "accent" && !/^#[0-9a-f]{6}$/i.test(String(style.particleColor || ""))) {
+        throw Error("لون الجزيئات داخل الملف غير صالح.");
+      }
+      if (typeof style.bg !== "string" || style.bg.length > 400 || !lvBgOk(style.bg.trim())) {
+        throw Error("رابط الخلفية يجب أن يكون HTTPS صالحاً وألا يتجاوز 400 حرف.");
+      }
+      if (!["gradient", "solid", "segmented", "neon"].includes(style.barStyle)) throw Error("أسلوب شريط التقدم داخل الملف غير صالح.");
+      if (!["auto", "none", "bronze", "silver", "gold", "diamond"].includes(style.frame)) throw Error("إطار البطاقة داخل الملف غير صالح.");
+      if (!["beam", "aurora", "burst"].includes(style.animationStyle)) throw Error("نمط الحركة داخل الملف غير صالح.");
+      const ranges = [
+        ["glowStrength", 0, 100], ["particleDensity", 0, 100],
+        ["bgOverlay", 0, 85], ["bgBlur", 0, 18], ["animationIntensity", 0, 100],
+      ];
+      for (const [key, min, max] of ranges) {
+        if (!Number.isInteger(style[key]) || style[key] < min || style[key] > max) {
+          throw Error("القيمة " + key + " خارج النطاق المسموح.");
+        }
+      }
+      for (const key of ["animated", "showStats", "animationEnabled"]) {
+        if (typeof style[key] !== "boolean") throw Error("إعداد " + key + " يجب أن يكون true أو false.");
+      }
+      if (!style.stats || typeof style.stats !== "object" || Array.isArray(style.stats)) {
+        throw Error("خيارات الإحصاءات داخل الملف غير صالحة.");
+      }
+      for (const key of ["messages", "voice", "streak", "serverRank"]) {
+        if (typeof style.stats[key] !== "boolean") throw Error("خيار إحصاءات " + key + " غير صالح.");
+      }
+      style.bg = style.bg.trim();
+      style.backgroundAsset = "";
+      return style;
+    };
+    const lvPresetImportFile = el("input", {
+      type: "file", accept: ".json,application/json", hidden: true,
+      "aria-label": "استيراد ملف إعدادات بطاقات PRIME",
+    });
+    const lvPresetExportCurrent = el("button", {
+      type: "button", class: "leveling-btn",
+      text: "تصدير الإعداد الحالي",
+      onClick: () => lvDownloadJson("current-style", lvState().draft.card),
+    });
+    const lvPresetExportAll = el("button", {
+      type: "button", class: "leveling-btn",
+      text: "تصدير جميع الإعدادات",
+      onClick: () => {
+        const items = Array.isArray(lvState().draft.card.presets) ? lvState().draft.card.presets : [];
+        if (!items.length) {
+          toast("لا توجد إعدادات محفوظة للتصدير؛ يمكنك تصدير الإعداد الحالي.", "warn");
+          return;
+        }
+        lvDownloadPresetPackage("saved-presets", items);
+      },
+    });
+    const lvPresetImportButton = el("button", {
+      type: "button", class: "leveling-btn",
+      text: "استيراد إعداد JSON",
+      onClick: () => lvPresetImportFile.click(),
+    });
+    lvPresetImportFile.addEventListener("change", async () => {
+      const file = lvPresetImportFile.files && lvPresetImportFile.files[0];
+      if (!file) return;
+      try {
+        if (file.size > 64 * 1024) throw Error("حجم ملف الإعدادات يتجاوز 64 كيلوبايت.");
+        const parsed = JSON.parse(await file.text());
+        if (!parsed || parsed.format !== LV_CARD_PRESET_FORMAT || parsed.version !== LV_CARD_PRESET_VERSION) {
+          throw Error("صيغة الملف غير مدعومة. استخدم ملف PRIME لتصدير إعدادات البطاقات.");
+        }
+        if (!Array.isArray(parsed.presets) || !parsed.presets.length || parsed.presets.length > 8) {
+          throw Error("يجب أن يحتوي الملف على إعداد واحد إلى 8 إعدادات.");
+        }
+        const existing = Array.isArray(lvState().draft.card.presets) ? lvState().draft.card.presets : [];
+        if (existing.length + parsed.presets.length > 8) {
+          throw Error("المجموع يتجاوز 8 إعدادات. احذف إعداداً محفوظاً أولاً.");
+        }
+        const seen = new Set(existing.map((item) => String(item.name || "").trim().toLocaleLowerCase()));
+        const imported = parsed.presets.map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) throw Error("أحد الإعدادات داخل الملف غير صالح.");
+          if (typeof item.name !== "string" || item.name.trim().length < 1 || item.name.trim().length > 40 || /[\\u0000-\\u001f\\u007f]/.test(item.name)) {
+            throw Error("اسم كل إعداد يجب أن يكون من حرف واحد إلى 40 حرفاً.");
+          }
+          const name = item.name.trim();
+          const key = name.toLocaleLowerCase();
+          if (seen.has(key)) throw Error("يوجد إعداد بالاسم نفسه: " + name + ". غيّر الاسم أو احذف النسخة الموجودة.");
+          seen.add(key);
+          const style = lvImportedPresetStyle(item.style);
+          return {
+            id: "card-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8),
+            name: name,
+            ...style,
+          };
+        });
+        lvSet(["card", "presets"], existing.concat(imported));
+        lvTouch();
+        lvRender();
+        toast("تم استيراد " + imported.length + " إعداد. راجعها ثم احفظ تغييرات المستوى لتطبيقها.", "success");
+      } catch (error) {
+        toast(error.message || "تعذر استيراد ملف الإعدادات.", "warn");
+      } finally {
+        lvPresetImportFile.value = "";
+      }
+    });
     const presets = Array.isArray(lvGet(["card", "presets"])) ? lvGet(["card", "presets"]) : [];
     const presetList = presets.length ? el("div", { class: "lv-preset-list" }, ...presets.map((preset) => el("div", { class: "lv-preset-row" },
       el("button", { type: "button", class: "lv-preset-apply", text: preset.name, title: "تطبيق الإعداد", onClick: () => {
         Object.assign(lvState().draft.card, lvCardStyleSnapshot(lvMerge(lvDefaults().card, preset))); lvRender();
       } }),
-      el("button", { type: "button", class: "lv-preset-delete", text: "حذف", "aria-label": `حذف الإعداد ${preset.name}`, onClick: () => {
+      el("button", { type: "button", class: "lv-preset-export", text: "تصدير", title: "تنزيل هذا الإعداد كملف JSON", "aria-label": "تصدير الإعداد " + preset.name, onClick: () => {
+        lvDownloadJson(preset.name, preset);
+      } }),
+      el("button", { type: "button", class: "lv-preset-delete", text: "حذف", "aria-label": "حذف الإعداد " + preset.name, onClick: () => {
         lvSet(["card", "presets"], lvState().draft.card.presets.filter((item) => item.id !== preset.id)); lvRender();
       } })))) : el("p", { class: "leveling-empty", text: "لا توجد إعدادات محفوظة بعد. احفظ توليفة مناسبة لتطبيقها لاحقاً." });
     const savePreset = el("button", { type: "button", class: "leveling-btn", text: "حفظ كإعداد", onClick: () => {
       const name = presetName.value.trim();
       if (!name) { presetName.focus(); toast("اكتب اسماً للإعداد المحفوظ", "warn"); return; }
       if (lvState().draft.card.presets.length >= 8) { toast("يمكن حفظ 8 إعدادات كحد أقصى. احذف إعداداً قبل إضافة آخر.", "warn"); return; }
-      lvState().draft.card.presets.push({ id: `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, name, ...lvCardStyleSnapshot(lvState().draft.card) });
+      lvState().draft.card.presets.push({ id: "card-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7), name, ...lvCardStyleSnapshot(lvState().draft.card) });
       lvTouch(); lvRender();
     } });
     const gif = el("img", { class: "lv-gif-image", alt: "اختبار متحرك لانتقال المستوى", hidden: true });
@@ -9203,7 +9386,7 @@
           lvCard("الإحصاءات المعروضة", "تحكم مستقل بكل معلومة تظهر على البطاقة.", lvSwitch(["card", "stats", "messages"], "الرسائل"), lvSwitch(["card", "stats", "voice"], "الوقت الصوتي"), lvSwitch(["card", "stats", "streak"], "سلسلة النشاط"), lvSwitch(["card", "stats", "serverRank"], "ترتيب السيرفر")),
           lvCard("حركة الترقية", "تأثيرات المستوى على البطاقة، لا عمليات Discord.", lvSwitch(["card", "animationEnabled"], "تفعيل حركة الترقية"),
             lvGrid(lvSelect(["card", "animationStyle"], "نمط الحركة", [["beam", "شعاع"], ["aurora", "شفق"], ["burst", "اندفاع"]]), lvNum(["card", "animationIntensity"], "شدّة الحركة", 0, 100, "", true))),
-          lvCard("إعدادات قابلة لإعادة الاستخدام", "تُحفظ ضمن المسودة وتُرسل مع الحفظ المعتاد.", el("div", { class: "lv-preset-create" }, presetName, savePreset), presetList)),
+          lvCard("إعدادات قابلة لإعادة الاستخدام", "احفظ حتى 8 توليفات، وانقلها بين السيرفرات بملف JSON. الخلفيات المرفوعة محلية للسيرفر ولا تنتقل مع الملف.", el("div", { class: "lv-preset-create" }, presetName, savePreset), el("div", { class: "lv-preset-portability" }, lvPresetExportCurrent, lvPresetExportAll, lvPresetImportButton), lvPresetImportFile, presetList)),
         el("div", { class: "leveling-stack lv-preview-column" },
            lvCard("معاينة بطاقة الرتبة", "معاينة من مولّد PRIME الفعلي. حدّثها يدوياً أو نزّل الناتج الحالي كصورة أو GIF.", el("div", { class: "lv-preview-actions" }, previewRefresh, previewDownload), el("div", { class: "leveling-canvas-wrap" }, cv), el("p", { class: "leveling-render-status", role: "status", "aria-live": "polite", text: "جارٍ تحميل بطاقة PRIME…" })),
           lvCard("اختبار حركة المستوى", "معاينة GIF مستقلة تعرض تأثير الإضاءة المتحرك على بطاقة المستوى؛ لا تحفظ الإعداد.", gifButton, el("div", { class: "lv-gif-wrap" }, gif), gifStatus))));

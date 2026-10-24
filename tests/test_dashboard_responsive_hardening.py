@@ -36,7 +36,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         asset = f"./static/visual-refresh.css?v={match.group(1)}"
         self.assertIn(f'"{asset}"', worker)
         self.assertEqual(match.group(1), "mobile-hardening-1")
-        self.assertIn('const CACHE = "prime-dashboard-shell-v48";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v49";', worker)
 
     def test_level_card_preview_tools_and_cache_version_are_wired(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
@@ -49,13 +49,33 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         version = match.group(1)
-        self.assertEqual(version, "level-card-preview-tools-1")
+        self.assertEqual(version, "level-card-preset-portability-1")
         self.assertIn(f'"./static/app.js?v={version}"', worker)
-        self.assertIn('const CACHE = "prime-dashboard-shell-v48";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v49";', worker)
         self.assertIn('text: "تحديث المعاينة"', app)
         self.assertIn('text: "تنزيل البطاقة"', app)
         self.assertIn("previewBlob.type", app)
         self.assertIn(".lv-preview-actions", styles)
+        self.assertIn("@media (max-width: 480px)", styles)
+
+    def test_portable_card_presets_are_validated_and_cache_busted(self):
+        html = (ROOT / "dashboard/index.html").read_text("utf-8")
+        worker = web_server.service_worker_source()
+        app = (ROOT / "dashboard/app.js").read_text("utf-8")
+        styles = (ROOT / "dashboard/visual-refresh.css").read_text("utf-8")
+        self.assertIn('const CACHE = "prime-dashboard-shell-v49";', worker)
+        self.assertIn('const LV_CARD_PRESET_FORMAT = "prime-level-card-presets";', app)
+        self.assertIn("LV_CARD_PRESET_VERSION = 1", app)
+        self.assertIn('text: "تصدير الإعداد الحالي"', app)
+        self.assertIn('text: "تصدير جميع الإعدادات"', app)
+        self.assertIn('text: "استيراد إعداد JSON"', app)
+        self.assertIn("file.size > 64 * 1024", app)
+        self.assertIn("existing.length + parsed.presets.length > 8", app)
+        self.assertIn("lvImportedPresetStyle(item.style)", app)
+        self.assertIn('style.backgroundAsset = "";', app)
+        self.assertIn("./static/app.js?v=level-card-preset-portability-1", worker)
+        self.assertIn('src="static/app.js?v=level-card-preset-portability-1"', html)
+        self.assertIn(".lv-preset-portability", styles)
         self.assertIn("@media (max-width: 480px)", styles)
 
     def test_guild_recovery_script_is_cache_busted_in_html_and_worker(self):
@@ -67,5 +87,5 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         version = match.group(1)
-        self.assertEqual(version, "level-card-preview-tools-1")
+        self.assertEqual(version, "level-card-preset-portability-1")
         self.assertIn(f'"./static/app.js?v={version}"', worker)
