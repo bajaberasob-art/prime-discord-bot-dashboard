@@ -182,6 +182,9 @@
         config.banner_file = data.banner_file;
         config.banner_url = data.banner_url;
         dirty = true;
+        // Render with controls enabled; a render while busy=true leaves the
+        // new controls disabled because the finally block does not render again.
+        busy = false;
         ctx.toast("تم رفع الصورة؛ احفظ وانشر اللوحة لتظهر في Discord", "success");
         render();
       } catch (error) {
@@ -197,8 +200,21 @@
       try {
         const response = await ctx.writeApi("api/guild/" + encodeURIComponent(ctx.guildId) + "/interactive-info-panel", { ...config, buttons, publish });
         const data = await ctx.readJson(response, {});
-        if (!response.ok) return ctx.toast(data.message || "تعذر حفظ اللوحة", "warn");
+        if (!response.ok) {
+          // The server deliberately saves a valid draft before attempting to
+          // publish it. Reflect that saved state rather than telling the user
+          // that all saving failed when only Discord publishing failed.
+          if (data.saved === true && data.config && typeof data.config === "object") {
+            config = { ...config, ...data.config };
+            dirty = false;
+            busy = false;
+            render();
+            return ctx.toast(data.message || "تم حفظ الإعدادات، لكن تعذر النشر", "warn");
+          }
+          return ctx.toast(data.message || "تعذر حفظ اللوحة", "warn");
+        }
         config = { ...config, ...(data.config || {}) }; dirty = false;
+        busy = false;
         ctx.toast(publish ? "تم نشر/تحديث اللوحة في Discord" : "تم حفظ مسودة اللوحة", "success");
         render();
       } catch (error) {

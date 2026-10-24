@@ -79,6 +79,31 @@ class InteractiveInfoPanelValidationTests(unittest.TestCase):
             finally:
                 os.environ.pop("PRIME_PANEL_UPLOAD_DIR", None)
 
+    def test_store_normalizes_custom_emoji_mentions_to_stable_ids(self):
+        body = self.valid_body()
+        body["buttons"][0]["emoji"] = "<:prime_rules:123456789012345678>"
+        config = validate_config(42, body)
+        self.assertEqual(config["buttons"][0]["emoji"], "custom:123456789012345678")
+
+        body["buttons"][0]["emoji"] = "<a:prime_wave:123456789012345679>"
+        config = validate_config(42, body)
+        self.assertEqual(config["buttons"][0]["emoji"], "custom:123456789012345679")
+
+    def test_store_accepts_unicode_emoji_sequences_but_rejects_text(self):
+        for emoji in ("✨", "👍🏽", "👨‍👩‍👧‍👦", "🇾🇪", "1️⃣", "❤️"):
+            with self.subTest(emoji=emoji):
+                body = self.valid_body()
+                body["buttons"][0]["emoji"] = emoji
+                config = validate_config(42, body)
+                self.assertEqual(config["buttons"][0]["emoji"], emoji)
+
+        for invalid in ("hello", "رمز", "hello✨", "<:broken:abc>"):
+            with self.subTest(invalid=invalid):
+                body = self.valid_body()
+                body["buttons"][0]["emoji"] = invalid
+                with self.assertRaisesRegex(ValueError, "إيموجي|الإيموجي|صيغة"):
+                    validate_config(42, body)
+
     def test_store_accepts_custom_emoji_marker_and_migrates_legacy_glyph(self):
         body = self.valid_body()
         body["buttons"][0]["emoji"] = "custom:123456789012345678"
@@ -94,6 +119,14 @@ class InteractiveInfoPanelValidationTests(unittest.TestCase):
         guild = type("Guild", (), {"emojis": [selected]})()
         resolved = _resolve_button_emoji(None, 42, "custom:123456789012345678", guild=guild, strict=True)
         self.assertIs(resolved, selected)
+
+    def test_invalid_unicode_button_value_is_not_sent_to_discord(self):
+        self.assertIsNone(_resolve_button_emoji(None, 42, "not an emoji"))
+        with self.assertRaisesRegex(ValueError, "الإيموجي"):
+            _resolve_button_emoji(None, 42, "not an emoji", strict=True)
+
+    def test_legacy_unsupported_glyph_is_migrated_at_runtime(self):
+        self.assertEqual(_resolve_button_emoji(None, 42, "✦"), "✨")
 
     def test_missing_custom_emoji_has_clear_validation_error(self):
         guild = type("Guild", (), {"emojis": []})()

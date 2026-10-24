@@ -74,22 +74,44 @@ async def api_save(req):
         if body.get("publish"):
             cog = ws.bot_ref.get_cog("InteractiveInfoPanel") if ws.bot_ref else None
             if cog is None:
-                return web.json_response({"error": "bot_unavailable", "message": "وحدة البوت غير جاهزة؛ تم حفظ الإعدادات دون نشر."}, status=503)
+                return web.json_response({
+                    "error": "bot_unavailable",
+                    "message": "تم حفظ الإعدادات، لكن وحدة البوت غير جاهزة للنشر. حاول النشر بعد اتصال البوت.",
+                    "saved": True,
+                    "config": config,
+                }, status=503)
             try:
                 config = await cog.publish(guild, config)
             except ValueError as error:
-                return web.json_response({"error": "publish_failed", "message": str(error), "config": config}, status=400)
+                return web.json_response({
+                    "error": "publish_failed",
+                    "message": f"تم حفظ الإعدادات، لكن تعذر النشر: {error}",
+                    "saved": True,
+                    "config": config,
+                }, status=400)
             except discord.HTTPException as error:
                 log.exception("Discord rejected interactive panel guild=%s code=%s", guild.id, getattr(error, "code", None))
                 if getattr(error, "code", None) == 50035:
                     return web.json_response({
                         "error": "invalid_component",
-                        "message": "رفض Discord أحد مكونات الرسالة (غالبًا إيموجي غير صالح). اختر إيموجيًا من قائمة إيموجيات السيرفر أو استخدم إيموجيًا Unicode صحيحًا ثم أعد النشر.",
+                        "message": "تم حفظ الإعدادات، لكن Discord رفض أحد مكونات الرسالة. اختر إيموجيًا متاحًا من قائمة السيرفر أو أدخل إيموجيًا Unicode صحيحًا ثم أعد النشر.",
+                        "saved": True,
+                        "config": config,
                     }, status=400)
-                return web.json_response({"error": "publish_failed", "message": "تعذر النشر عبر Discord. تحقق من صلاحيات البوت والقناة ثم حاول مجددًا."}, status=502)
+                return web.json_response({
+                    "error": "publish_failed",
+                    "message": "تم حفظ الإعدادات، لكن تعذر نشر الرسالة عبر Discord. تحقق من صلاحيات البوت والقناة ثم أعد المحاولة.",
+                    "saved": True,
+                    "config": config,
+                }, status=502)
             except Exception:
                 log.exception("Could not publish interactive panel guild=%s", guild.id)
-                return web.json_response({"error": "publish_failed", "message": "تعذر نشر الرسالة. تحقق من صلاحيات البوت والقناة."}, status=502)
+                return web.json_response({
+                    "error": "publish_failed",
+                    "message": "تم حفظ الإعدادات، لكن حدث خطأ أثناء النشر. راجع سجل البوت ثم أعد المحاولة.",
+                    "saved": True,
+                    "config": config,
+                }, status=502)
         return web.json_response({"ok": True, "config": config})
     except ValueError as error:
         return web.json_response({"error": "invalid_settings", "message": str(error)}, status=400)
