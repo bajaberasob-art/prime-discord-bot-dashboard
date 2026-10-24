@@ -533,13 +533,13 @@ class Card:
                 self.draw = ImageDraw.Draw(self.image)
 
     def stat(self, box, label, value):
-        self.glass_panel(box, radius=16, tint="#17243b", opacity=72, outline=self.accent)
+        self.glass_panel(box, radius=16, tint="#17243b", opacity=36, outline=self.accent)
         x, y, right, _ = box
         self.text((x+18, y+13), label.upper(), 11, MUTED, width=right-x-30)
         self.text((x+18, y+35), value, 22, bold=True, width=right-x-30)
 
     def compact_stat(self, box, label, value):
-        self.glass_panel(box, radius=12, tint="#142035", opacity=66, outline=self.accent)
+        self.glass_panel(box, radius=12, tint="#142035", opacity=34, outline=self.accent)
         x, y, right, _ = box
         width = right - x - 18
         self.text((x+9, y+7), label.upper(), 8, MUTED, width=width)
@@ -592,12 +592,12 @@ def _render(
     if layout == "vertical":
         card.text((36, 33), "PRIME / LEVELS", 13, color, True)
         if show_stat("serverRank"):
-            card.panel((424, 27, 524, 69), radius=15)
+            card.glass_panel((424, 27, 524, 69), radius=15, tint="#17243b", opacity=38, outline=color)
             card.text((474, 35), rank_text, 20, bold=True, center=True, width=85)
         card.avatar((158, 104), 244, avatar, progress)
         card.text((280, 382), name, 30, bold=True, width=475, center=True)
         card.text((280, 422), handle, 15, MUTED, width=465, center=True)
-        card.panel((32, 467, 528, 635), radius=24)
+        card.glass_panel((32, 467, 528, 635), radius=24, tint="#101827", opacity=32, outline="#3b4d68")
         card.text((56, 488), "LEVEL", 12, MUTED)
         card.text((55, 510), compact(level), 48, bold=True)
         card.text((468, 531), f"{progress:.0%}", 22, color, True, center=True)
@@ -609,7 +609,7 @@ def _render(
         if show_stat("serverRank"): card.stat((290, 765, 528, 855), "Server rank", f"{rank_text} / {compact(total)}")
         card.text((280, 873), "GROW AT YOUR OWN PACE", 9, MUTED, center=True)
     elif layout == "stats":
-        card.panel((26, 54, 254, 286), radius=28, fill="#101827", outline="#3b4d68")
+        card.glass_panel((26, 54, 254, 286), radius=28, tint="#101827", opacity=34, outline="#3b4d68")
         card.text((34, 30), "PRIME / MEMBER STATISTICS", 12, color, True)
         card.avatar((38, 78), 206, avatar, progress)
         card.text((276, 75), name, 32, bold=True, width=470)
@@ -626,8 +626,8 @@ def _render(
                 if show_stat(("messages", "voice", "streak")[index]):
                     card.stat((x, 304, x+298, 394), *pair)
     elif layout == "minimal":
-        card.panel((14, 18, 886, 145), radius=23, fill="#0d1625", outline="#2d4057")
-        card.panel((18, 35, 154, 140), radius=21, fill="#111d2b", outline="#344b62")
+        card.glass_panel((14, 18, 886, 145), radius=23, tint="#0d1625", opacity=30, outline="#2d4057")
+        card.glass_panel((18, 35, 154, 140), radius=21, tint="#111d2b", opacity=38, outline="#344b62")
         card.avatar((28, 32), 108, avatar, progress)
         card.text((166, 23), name, 25, bold=True, width=680)
         card.text((166, 56), handle, 14, MUTED, width=500)
@@ -642,7 +642,7 @@ def _render(
     elif layout == "ring":
         card.text((310, 31), "PRIME / PROGRESSION", 12, color, True, center=True)
         card.avatar((180, 55), 260, avatar, progress)
-        card.panel((246, 290, 374, 339), radius=20, outline=color)
+        card.glass_panel((246, 290, 374, 339), radius=20, tint="#17243b", opacity=36, outline=color)
         card.text((310, 300), f"LVL {compact(level)}", 22, bold=True, center=True, width=115)
         card.text((310, 369), name, 28, bold=True, width=530, center=True)
         card.text((310, 408), handle, 14, MUTED, center=True, width=530)
@@ -655,8 +655,8 @@ def _render(
         if show_stat("voice"): card.compact_stat((216, 576, 403, 656), *stats[1])
         if show_stat("streak"): card.compact_stat((414, 576, 601, 656), *stats[2])
     elif layout == "banner":
-        card.panel((20, 26, 768, 268), radius=27, fill="#0d1625", outline="#2f425b")
-        card.panel((775, 29, 978, 265), radius=22, fill="#0e1829", outline="#2c4058")
+        card.glass_panel((20, 26, 768, 268), radius=27, tint="#0d1625", opacity=32, outline="#2f425b")
+        card.glass_panel((775, 29, 978, 265), radius=22, tint="#0e1829", opacity=34, outline="#2c4058")
         card.avatar((25, 58), 180, avatar, progress)
         card.text((232, 51), name, 30, bold=True, width=520)
         card.text((234, 94), handle, 14, MUTED, width=480)
@@ -668,8 +668,8 @@ def _render(
         if show_stat("voice"): card.compact_stat((790, 117, 966, 177), *stats[1])
         if show_stat("streak"): card.compact_stat((790, 191, 966, 251), *stats[2])
     elif layout == "square":
-        card.panel((26, 25, 614, 455), radius=30, fill="#0d1422", outline="#303f56")
-        card.panel((200, 49, 440, 280), radius=120, fill="#121d2d", outline="#3c516b")
+        card.glass_panel((26, 25, 614, 455), radius=30, tint="#0d1422", opacity=32, outline="#303f56")
+        card.glass_panel((200, 49, 440, 280), radius=120, tint="#121d2d", opacity=42, outline="#3c516b")
         card.text((320, 31), "PRIME / LEVEL", 12, color, True, center=True)
         card.avatar((211, 58), 218, avatar, progress)
         card.text((320, 292), name, 29, bold=True, width=530, center=True)
@@ -707,7 +707,7 @@ def _render(
         card.text((161, 326), "PRIME MEMBER", 11, color, True, center=True, width=190)
         card.text((306, 94), name, 37, bold=True, width=460)
         card.text((308, 141), handle, 16, MUTED, width=455)
-        card.glass_panel((306, 175, 548, 255), radius=18, tint="#14253c", opacity=72, outline=color)
+        card.glass_panel((306, 175, 548, 255), radius=18, tint="#14253c", opacity=40, outline=color)
         card.text((325, 187), "LEVEL", 11, MUTED, True)
         card.text((325, 207), compact(level), 30, color, True, width=100)
         card.text((508, 195), f"{progress:.0%}", 19, color, True, center=True, width=68)
@@ -716,7 +716,7 @@ def _render(
         card.bar((306, 303, 450, 15), progress, animated, bar_style)
         card.text((306, 329), "PROGRESS TO NEXT LEVEL", 11, MUTED, True, width=300)
         if show_stat("serverRank"):
-            card.glass_panel((795, 83, 1048, 174), radius=18, tint="#14253c", opacity=72, outline=color)
+            card.glass_panel((795, 83, 1048, 174), radius=18, tint="#14253c", opacity=40, outline=color)
             card.text((921, 94), "SERVER RANK", 9, MUTED, True, center=True, width=190)
             card.text((921, 114), rank_text, 29, color, True, center=True, width=205)
             card.text((921, 150), f"OF {compact(total)} MEMBERS", 9, MUTED, center=True, width=200)
@@ -725,7 +725,7 @@ def _render(
         if show_stat("streak"): card.compact_stat((795, 322, 1048, 376), *stats[2])
         card.text((1040, 404), "BUILT TO PROGRESS", 8, MUTED, True, center=True, width=190)
     else:
-        card.panel((30, 30, 970, 260), radius=25, fill="#101019")
+        card.glass_panel((30, 30, 970, 260), radius=25, tint="#101019", opacity=32, outline="#34394d")
         card.text((260, 53), "PRIME / RANK CARD", 11, color, True)
         card.avatar((48, 76), 185, avatar, progress)
         card.text((260, 89), name, 31, bold=True, width=490)
