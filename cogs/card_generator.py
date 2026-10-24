@@ -447,9 +447,16 @@ def _avatar_url(user):
 
 
 async def _card_assets(user, settings):
+    design = settings.get("card_design")
+    design = design if isinstance(design, dict) else {}
+    # A guild-scoped upload token avoids an external round trip for media
+    # uploaded through the dashboard. Legacy HTTPS backgrounds remain supported.
+    background_reference = (
+        design.get("backgroundAsset") or settings.get("card_bg_url")
+    )
     avatar, background = await asyncio.gather(
         fetch_image(_avatar_url(user)),
-        fetch_image(settings.get("card_bg_url")),
+        fetch_image(background_reference),
     )
     return avatar, background
 
@@ -481,7 +488,12 @@ def _animated_background_info(background):
 async def has_animated_background(settings):
     """Return whether the configured background resolves to a bounded animated GIF."""
     settings = settings if isinstance(settings, dict) else {}
-    background = await fetch_image(settings.get("card_bg_url"))
+    design = settings.get("card_design")
+    design = design if isinstance(design, dict) else {}
+    background_reference = (
+        design.get("backgroundAsset") or settings.get("card_bg_url")
+    )
+    background = await fetch_image(background_reference)
     try:
         return _animated_background_info(background)[0] > 1
     except (OSError, ValueError, Image.DecompressionBombError):
@@ -1133,19 +1145,46 @@ def _animate_png(png_bytes, design):
     return _animate_png_frames([png_bytes], design)
 
 
+MAX_LEVEL_CARD_RENDER_FRAMES = 18
+
+
+def _sample_background_frames(frame_count, durations, max_frames=MAX_LEVEL_CARD_RENDER_FRAMES):
+    """Sample long backgrounds evenly while preserving total playback duration."""
+    count = max(1, int(frame_count))
+    timings = list(durations or [85] * count)
+    if len(timings) < count:
+        timings.extend([85] * (count - len(timings)))
+    timings = timings[:count]
+    if count <= max(1, int(max_frames)):
+        return list(range(count)), timings
+    target_count = max(2, int(max_frames))
+    indices = [
+        round(index * (count - 1) / (target_count - 1))
+        for index in range(target_count)
+    ]
+    sampled_durations = []
+    for index, start in enumerate(indices):
+        stop = indices[index + 1] if index + 1 < len(indices) else count
+        sampled_durations.append(max(10, sum(timings[start:stop])))
+    return indices, sampled_durations
+
+
 def _render_animated_card(
     name, handle, level, xp, required, rank, total, settings, avatar, background,
     design,
 ):
     frame_count, durations, loop = _animated_background_info(background)
+    frame_indices, frame_durations = _sample_background_frames(frame_count, durations)
+    # Rendering each Pillow frame is the expensive part. Keep output motion smooth
+    # while avoiding 24-30 full card renders for long GIF/video backgrounds.
     png_frames = [
         _render(
             name, handle, level, xp, required, rank, total, settings, avatar,
             background, frame_index,
         ).getvalue()
-        for frame_index in range(frame_count)
+        for frame_index in frame_indices
     ]
-    return _animate_png_frames(png_frames, design, durations, loop)
+    return _animate_png_frames(png_frames, design, frame_durations, loop)
 
 
 async def generate_level_up_gif(

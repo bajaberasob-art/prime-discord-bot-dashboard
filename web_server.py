@@ -915,10 +915,10 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v44";
+    return """const CACHE = "prime-dashboard-shell-v45";
 const STATIC = [
   "./",
-  "./static/app.css?v=prime-auto-responder-conflicts-1",
+  "./static/app.css?v=level-card-media-upload-1",
   "./static/ai-control.css?v=prime-ai-usage-1",
   "./static/visual-refresh.css?v=visual-refresh-2",
   "./static/subscriptions.css?v=subs-1",
@@ -931,7 +931,7 @@ const STATIC = [
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
-  "./static/app.js?v=interactive-panel-emojis-3",
+  "./static/app.js?v=level-card-media-upload-1",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",
@@ -6955,7 +6955,7 @@ register_public_leaderboard_routes(
 async def start_web_server(bot):
     global bot_ref
     bot_ref = bot
-    app = web.Application(middlewares=[private_responses], client_max_size=max(MAX_BODY, 9 * 1024 * 1024))
+    app = web.Application(middlewares=[private_responses], client_max_size=max(MAX_BODY, 21 * 1024 * 1024))
     app['bot'] = bot
     app.add_routes(routes)
     # Access logs include callback query strings; do not log authorization codes.

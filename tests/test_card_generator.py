@@ -57,6 +57,95 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(getattr(image, "n_frames", 1), 1)
             image.verify()
 
+    def test_upload_root_tracks_the_configured_database_volume(self):
+        old_upload_root = os.environ.get("PRIME_LEVEL_CARD_UPLOAD_DIR")
+        old_db_path = os.environ.get("DB_PATH")
+        try:
+            os.environ.pop("PRIME_LEVEL_CARD_UPLOAD_DIR", None)
+            with tempfile.TemporaryDirectory() as directory:
+                db_path = Path(directory) / "persistent" / "bot.db"
+                os.environ["DB_PATH"] = str(db_path)
+                expected = (db_path.parent / "level_card_uploads").resolve()
+                self.assertEqual(card_images.upload_root(), expected)
+                override = Path(directory) / "custom-media"
+                os.environ["PRIME_LEVEL_CARD_UPLOAD_DIR"] = str(override)
+                self.assertEqual(card_images.upload_root(), override.resolve())
+        finally:
+            if old_upload_root is None:
+                os.environ.pop("PRIME_LEVEL_CARD_UPLOAD_DIR", None)
+            else:
+                os.environ["PRIME_LEVEL_CARD_UPLOAD_DIR"] = old_upload_root
+            if old_db_path is None:
+                os.environ.pop("DB_PATH", None)
+            else:
+                os.environ["DB_PATH"] = old_db_path
+
+    async def test_uploaded_background_tokens_are_guild_scoped_and_cached(self):
+        guild_id = 1516185800146944000
+        asset_id = "a" * 32
+        token = f"upload:{guild_id}:{asset_id}.png"
+        previous_root = os.environ.get("PRIME_LEVEL_CARD_UPLOAD_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                os.environ["PRIME_LEVEL_CARD_UPLOAD_DIR"] = directory
+                path = Path(directory) / f"{guild_id}-{asset_id}.png"
+                path.write_bytes(image_bytes())
+                self.assertTrue(card_images.is_uploaded_background(token, guild_id))
+                self.assertFalse(card_images.is_uploaded_background(token, guild_id + 1))
+                self.assertFalse(card_images.is_uploaded_background(
+                    f"upload:{guild_id + 1}:{asset_id}.png", guild_id,
+                ))
+                decoded = await card_images.fetch_image(token)
+                self.assertTrue(decoded and decoded.startswith(b"\x89PNG\r\n\x1a\n"))
+                # A cold-cache reload must still work from the persisted file,
+                # which models a process restart rather than relying on RAM cache.
+                with card_images._cache_lock:
+                    card_images._cache.clear()
+                after_restart = await card_images.fetch_image(token)
+                self.assertTrue(after_restart and after_restart.startswith(b"\x89PNG\r\n\x1a\n"))
+        finally:
+            if previous_root is None:
+                os.environ.pop("PRIME_LEVEL_CARD_UPLOAD_DIR", None)
+            else:
+                os.environ["PRIME_LEVEL_CARD_UPLOAD_DIR"] = previous_root
+            with card_images._cache_lock:
+                card_images._cache.clear()
+
+    async def test_zero_animation_intensity_uses_static_rank_card_when_background_is_static(self):
+        settings = {
+            "card_bg_url": "",
+            "card_design": {
+                **cards.CARD_DESIGN_DEFAULTS,
+                "animationEnabled": True,
+                "animationIntensity": 0,
+            },
+        }
+        with patch("cogs.card_generator.fetch_image", new=AsyncMock(return_value=None)):
+            self.assertFalse(await cards.should_use_animated_card(settings))
+
+    async def test_uploaded_video_conversion_returns_a_valid_animated_gif(self):
+        from leveling_api import _video_to_card_gif
+
+        def fake_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(animated_gif_bytes())
+            return SimpleNamespace(returncode=0)
+
+        with patch("leveling_api.subprocess.run", side_effect=fake_ffmpeg):
+            output = await asyncio.to_thread(_video_to_card_gif, b"bounded test input")
+        with Image.open(io.BytesIO(output)) as image:
+            self.assertEqual(image.format, "GIF")
+            self.assertEqual(image.n_frames, 3)
+
+    def test_long_animated_backgrounds_are_sampled_to_eighteen_frames_without_speedup(self):
+        durations = [100 + (index % 3) * 10 for index in range(30)]
+        indices, sampled = cards._sample_background_frames(30, durations)
+        self.assertEqual(len(indices), 18)
+        self.assertEqual(len(sampled), 18)
+        self.assertEqual(indices[0], 0)
+        self.assertEqual(indices[-1], 29)
+        self.assertEqual(sum(sampled), sum(durations))
+        self.assertTrue(all(value >= 10 for value in sampled))
+
     async def test_all_eight_layouts_are_distinct_valid_pngs(self):
         results = []
         for layout in cards.LAYOUTS:

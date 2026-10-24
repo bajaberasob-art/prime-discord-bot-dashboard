@@ -1,5 +1,7 @@
 .git
 .cache
+data/level_card_uploads
+level_card_uploads
 .pythonlibs
 .upm
 node_modules
