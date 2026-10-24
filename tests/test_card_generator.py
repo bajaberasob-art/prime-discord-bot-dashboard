@@ -168,6 +168,26 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         self.validate(designed)
         self.assertNotEqual(plain.getvalue(), designed.getvalue())
 
+    def test_level_evolution_stage_boundaries_are_stable(self):
+        cases = {
+            0: "bronze", 9: "bronze", 10: "silver", 24: "silver",
+            25: "gold", 49: "gold", 50: "diamond", 99: "diamond",
+            100: "mythic", 1000: "mythic",
+        }
+        for level, expected in cases.items():
+            with self.subTest(level=level):
+                self.assertEqual(cards.level_evolution_stage(level)["key"], expected)
+
+    async def test_evolution_changes_earned_visuals_but_can_be_disabled(self):
+        low = await self.render({"card_design": {**cards.CARD_DESIGN_DEFAULTS, "evolutionEnabled": True}}, level=0, xp=0, required=xp_required(0))
+        high = await self.render({"card_design": {**cards.CARD_DESIGN_DEFAULTS, "evolutionEnabled": True}}, level=100, xp=total_xp_for_level(100), required=xp_required(100))
+        disabled = await self.render({"card_design": {**cards.CARD_DESIGN_DEFAULTS, "evolutionEnabled": False}}, level=100, xp=total_xp_for_level(100), required=xp_required(100))
+        self.validate(low)
+        self.validate(high)
+        self.validate(disabled)
+        self.assertNotEqual(low.getvalue(), high.getvalue())
+        self.assertNotEqual(high.getvalue(), disabled.getvalue())
+
     async def test_level_up_gif_has_eighteen_moving_frames_and_static_rank_stays_png(self):
         settings = {
             "card_design": {

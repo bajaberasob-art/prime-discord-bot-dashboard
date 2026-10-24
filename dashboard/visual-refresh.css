@@ -707,3 +707,31 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
 @media (prefers-reduced-motion: reduce) {
   .lv-theme-option { transition: none; }
 }
+
+/* PRIME Evolution Engine phase 2: earned progression is visible without changing XP. */
+.lv-evolution-track {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .45rem;
+  margin: .35rem 0 .75rem;
+  padding: .65rem;
+  border: 1px solid var(--line);
+  border-radius: .85rem;
+  background: var(--surface);
+}
+.lv-evolution-stage { display: grid; justify-items: center; gap: .25rem; min-width: 0; text-align: center; }
+.lv-evolution-stage i { width: 1.15rem; height: 1.15rem; border-radius: 50%; border: 2px solid rgb(255 255 255 / .35); box-shadow: 0 0 .85rem color-mix(in srgb, currentColor 25%, transparent); }
+.lv-evolution-stage b { font-size: .72rem; overflow-wrap: anywhere; }
+.lv-evolution-stage small { color: var(--muted); font-size: .65rem; direction: ltr; }
+.lv-evolution-bronze { color: #c88754; }
+.lv-evolution-silver { color: #aeb9c9; }
+.lv-evolution-gold { color: #ffd166; }
+.lv-evolution-diamond { color: #77e4f2; }
+.lv-evolution-mythic { color: #c084fc; }
+@media (max-width: 480px) {
+  .lv-evolution-track { gap: .2rem; padding: .45rem .25rem; }
+  .lv-evolution-stage b { font-size: .62rem; }
+  .lv-evolution-stage small { font-size: .58rem; }
+  .lv-evolution-stage i { width: .9rem; height: .9rem; }
+}
+@media (prefers-reduced-motion: reduce) { .lv-evolution-stage i { box-shadow: none; } }

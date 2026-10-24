@@ -28,6 +28,7 @@ CARD_DESIGN_DEFAULTS = {
     "glowStrength": 54, "particleDensity": 46, "particleColor": "accent",
     "barStyle": "gradient", "frame": "auto", "bgOverlay": 28, "bgBlur": 4,
     "animationEnabled": True, "animationStyle": "beam", "animationIntensity": 62,
+    "evolutionEnabled": True,
     "stats": {"messages": True, "voice": True, "streak": True, "serverRank": True},
 }
 FONT_DIR = Path(__file__).resolve().parents[1] / "assets" / "fonts"
@@ -51,6 +52,26 @@ def calculate_progress(text_level, text_xp, next_level_xp):
     required = number(next_level_xp)
     earned = max(0, number(text_xp) - total_xp_for_level(level))
     return earned, required, min(1.0, max(0.0, earned / required)) if required else 0.0
+
+
+LEVEL_EVOLUTION_STAGES = (
+    {"minimum": 0, "key": "bronze", "name": "Initiate", "color": "#c88754", "rank": 1},
+    {"minimum": 10, "key": "silver", "name": "Veteran", "color": "#d3d9e6", "rank": 2},
+    {"minimum": 25, "key": "gold", "name": "Elite", "color": "#ffd166", "rank": 3},
+    {"minimum": 50, "key": "diamond", "name": "Ascendant", "color": "#77e4f2", "rank": 4},
+    {"minimum": 100, "key": "mythic", "name": "Mythic", "color": "#c084fc", "rank": 5},
+)
+
+
+def level_evolution_stage(level):
+    """Resolve the earned visual evolution tier from the member's actual level."""
+    level = number(level)
+    stage = LEVEL_EVOLUTION_STAGES[0]
+    for candidate in LEVEL_EVOLUTION_STAGES[1:]:
+        if level < candidate["minimum"]:
+            break
+        stage = candidate
+    return dict(stage)
 
 
 def display_text(value):
@@ -191,6 +212,20 @@ class Card:
             self.draw.arc(bounds, -90, -90 + progress * 360, fill=self.accent, width=5*SCALE)
         elif progress is None:
             self.draw.ellipse(bounds, outline=self.accent, width=2*SCALE)
+        evolution = self.design.get("evolution")
+        if isinstance(evolution, dict):
+            evolution_color = evolution.get("color", self.accent)
+            outer = tuple(int(v * SCALE) for v in (x-12, y-12, x+diameter+12, y+diameter+12))
+            self.draw.arc(outer, -88, 268, fill=evolution_color, width=2*SCALE)
+            notch_count = max(1, min(5, number(evolution.get("rank"), 1)))
+            center_x, center_y = (x + diameter / 2) * SCALE, (y + diameter / 2) * SCALE
+            radius = (diameter / 2 + 12) * SCALE
+            for notch in range(notch_count):
+                angle = math.radians(-90 + notch * 360 / notch_count)
+                px = center_x + math.cos(angle) * radius
+                py = center_y + math.sin(angle) * radius
+                self.draw.ellipse((int(px-3*SCALE), int(py-3*SCALE),
+                                   int(px+3*SCALE), int(py+3*SCALE)), fill=evolution_color)
         size = (diameter*SCALE, diameter*SCALE)
         if data:
             with Image.open(io.BytesIO(data)) as source:
@@ -296,6 +331,9 @@ def _render(
     show_stat = lambda key: show_stats and design["stats"].get(key, True) is not False
     bar_style = design.get("barStyle", "gradient")
     frame = design.get("frame", "auto")
+    auto_frame = frame == "auto"
+    evolution = level_evolution_stage(level) if design.get("evolutionEnabled", True) is not False else None
+    design["evolution"] = evolution
     if frame == "auto":
         frame = "bronze" if number(level) < 10 else "silver" if number(level) < 25 else (
             "gold" if number(level) < 50 else "diamond"
@@ -424,8 +462,11 @@ def _render(
         if show_stat("voice"): card.compact_stat((353, 270, 647, 328), *stats[1])
         if show_stat("streak"): card.compact_stat((664, 270, 958, 328), *stats[2])
     if frame in {"bronze", "silver", "gold", "diamond"}:
-        frame_color = {"bronze": "#c88754", "silver": "#d3d9e6",
-                       "gold": "#ffd166", "diamond": "#77e4f2"}[frame]
+        frame_color = (
+            evolution["color"] if auto_frame and evolution
+            else {"bronze": "#c88754", "silver": "#d3d9e6",
+                  "gold": "#ffd166", "diamond": "#77e4f2"}[frame]
+        )
         card.draw.rounded_rectangle(
             (8*SCALE, 8*SCALE, (card.w-8)*SCALE, (card.h-8)*SCALE),
             radius=30*SCALE, outline=frame_color, width=3*SCALE,

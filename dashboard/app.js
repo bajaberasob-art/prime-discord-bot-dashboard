@@ -8493,7 +8493,7 @@
     milestone: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank", "threshold"]),
     reminder: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank"]),
   };
-  const LV_CARD_STYLE_KEYS = ["layout", "particles", "color", "bg", "backgroundAsset", "animated", "showStats", "glowStrength", "particleDensity", "particleColor", "barStyle", "frame", "bgOverlay", "bgBlur", "animationEnabled", "animationStyle", "animationIntensity", "stats"];
+  const LV_CARD_STYLE_KEYS = ["layout", "particles", "color", "bg", "backgroundAsset", "animated", "showStats", "glowStrength", "particleDensity", "particleColor", "barStyle", "frame", "bgOverlay", "bgBlur", "animationEnabled", "evolutionEnabled", "animationStyle", "animationIntensity", "stats"];
   const lvCardStyleSnapshot = (card) => Object.fromEntries(LV_CARD_STYLE_KEYS.map((key) => [key, clone(card[key])]));
   const lvDefaults = () => ({
     public: { enabled: false, slug: "" },
@@ -8501,7 +8501,7 @@
     points: { xpMultiplier: 1, minXp: 15, maxXp: 25, cooldown: 60, roleMult: [], chanMult: [], boosts: [], allowedChannels: [], bl: { channels: [], users: [], roles: [] } },
     voice: { enabled: true, xpPerMin: 20, muteBlock: true, deafBlock: true, minMembers: 2, dimEnabled: false, dimThreshold: 60, dimRate: 50, separate: true },
     rewards: { highestOnly: true, list: [] },
-    card: { layout: "vertical", particles: "none", color: "#38bdf8", bg: "", backgroundAsset: "", animated: true, showStats: true, glowStrength: 54, particleDensity: 46, particleColor: "accent", barStyle: "gradient", frame: "auto", bgOverlay: 28, bgBlur: 4, animationEnabled: true, animationStyle: "beam", animationIntensity: 62, stats: { messages: true, voice: true, streak: true, serverRank: true }, presets: [] },
+    card: { layout: "vertical", particles: "none", color: "#38bdf8", bg: "", backgroundAsset: "", animated: true, showStats: true, glowStrength: 54, particleDensity: 46, particleColor: "accent", barStyle: "gradient", frame: "auto", bgOverlay: 28, bgBlur: 4, animationEnabled: true, evolutionEnabled: true, animationStyle: "beam", animationIntensity: 62, stats: { messages: true, voice: true, streak: true, serverRank: true }, presets: [] },
     messages: {
       levelup: { on: true, channel: "", tpl: "مبروك {user}! وصلت إلى المستوى {level} في {server}." },
       milestone: { on: true, channel: "", tpl: "{user} حقق إنجازاً جديداً عند المستوى {level}." },
@@ -9264,7 +9264,7 @@
           throw Error("قيمة " + key + " يجب أن تكون نصاً.");
         }
       }
-      for (const key of ["animated", "showStats", "animationEnabled"]) {
+      for (const key of ["animated", "showStats", "animationEnabled", "evolutionEnabled"]) {
         if (key in rawStyle && typeof rawStyle[key] !== "boolean") {
           throw Error("إعداد " + key + " يجب أن يكون true أو false.");
         }
@@ -9475,6 +9475,9 @@
             lvGrid(lvSelect(["card", "particles"], "أثر الجزيئات", Object.entries(LV_PARTS)), lvSelect(["card", "barStyle"], "أسلوب شريط التقدم", [["gradient", "متدرّج"], ["solid", "مصمت"], ["segmented", "مقسّم"], ["neon", "مضيء"]])),
             el("div", { class: "lv-color-row" }, lvField("لون التمييز", color), particleColorControl),
             lvSelect(["card", "frame"], "إطار الرتبة والمستوى", [["auto", "تلقائي حسب المستوى"], ["none", "بلا إطار"], ["bronze", "برونزي"], ["silver", "فضي"], ["gold", "ذهبي"], ["diamond", "ماسي"]]),
+            lvSwitch(["card", "evolutionEnabled"], "تطور البطاقة حسب المستوى"),
+            el("div", { class: "lv-evolution-track", role: "img", "aria-label": "مراحل تطور البطاقة: برونزي من المستوى 0، فضي من 10، ذهبي من 25، ماسي من 50، وميثيك من 100" },
+              ...[{ key: "bronze", label: "برونزي", level: "0+", color: "#c88754" }, { key: "silver", label: "فضي", level: "10+", color: "#d3d9e6" }, { key: "gold", label: "ذهبي", level: "25+", color: "#ffd166" }, { key: "diamond", label: "ماسي", level: "50+", color: "#77e4f2" }, { key: "mythic", label: "ميثيك", level: "100+", color: "#c084fc" }].map((stage) => el("div", { class: "lv-evolution-stage lv-evolution-" + stage.key }, el("i", { "aria-hidden": "true", style: "background:" + stage.color }), el("b", { text: stage.label }), el("small", { text: "LV " + stage.level })))), 
             lvSwitch(["card", "showStats"], "عرض الإحصاءات"), lvSwitch(["card", "animated"], "لمعان شريط التقدم"), lvIdentity(), bg,
             el("p", { class: "leveling-bg-status", role: "status", "aria-live": "polite" }),
             bgUploadControls,
@@ -9686,7 +9689,7 @@
       glowStrength: String(card.glowStrength ?? 54), particleDensity: String(card.particleDensity ?? 46),
       particleColor: String(card.particleColor || "accent"), barStyle: String(card.barStyle || "gradient"),
       frame: String(card.frame || "auto"), bgOverlay: String(card.bgOverlay ?? 28), bgBlur: String(card.bgBlur ?? 4),
-      animationEnabled: String(Boolean(card.animationEnabled)), animationStyle: String(card.animationStyle || "beam"),
+      animationEnabled: String(Boolean(card.animationEnabled)), evolutionEnabled: String(card.evolutionEnabled !== false), animationStyle: String(card.animationStyle || "beam"),
       animationIntensity: String(card.animationIntensity ?? 62),
       showMessages: String(Boolean(card.stats?.messages)), showVoice: String(Boolean(card.stats?.voice)),
       showStreak: String(Boolean(card.stats?.streak)), showServerRank: String(Boolean(card.stats?.serverRank)),

@@ -38,6 +38,7 @@ CARD_DESIGN_DEFAULTS = {
     "glowStrength": 54, "particleDensity": 46, "particleColor": "accent",
     "barStyle": "gradient", "frame": "auto", "bgOverlay": 28, "bgBlur": 4,
     "animationEnabled": True, "animationStyle": "beam", "animationIntensity": 62,
+    "evolutionEnabled": True,
     "backgroundAsset": "",
     "stats": {"messages": True, "voice": True, "streak": True, "serverRank": True},
 }
@@ -146,6 +147,7 @@ def _clean_card_design(card):
         "bgOverlay": _integer(card.get("bgOverlay", 28), "bgOverlay", 0, 85),
         "bgBlur": _integer(card.get("bgBlur", 4), "bgBlur", 0, 18),
         "animationEnabled": _bool(card.get("animationEnabled", True), "animationEnabled"),
+        "evolutionEnabled": _bool(card.get("evolutionEnabled", True), "evolutionEnabled"),
         "animationStyle": card.get("animationStyle", "beam"),
         "animationIntensity": _integer(card.get("animationIntensity", 62), "animationIntensity", 0, 100),
     }
@@ -1097,6 +1099,7 @@ def register_leveling_routes(
                 return value == "true"
 
             design["animationEnabled"] = query_bool("animationEnabled", True)
+            design["evolutionEnabled"] = query_bool("evolutionEnabled", True)
             design["stats"] = {
                 "messages": query_bool("showMessages", True),
                 "voice": query_bool("showVoice", True),

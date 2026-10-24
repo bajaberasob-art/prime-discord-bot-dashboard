@@ -35,8 +35,8 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         self.assertIsNotNone(match)
         asset = f"./static/visual-refresh.css?v={match.group(1)}"
         self.assertIn(f'"{asset}"', worker)
-        self.assertEqual(match.group(1), "phase1-card-studio-1")
-        self.assertIn('const CACHE = "prime-dashboard-shell-v50";', worker)
+        self.assertEqual(match.group(1), "phase2-card-evolution-1")
+        self.assertIn('const CACHE = "prime-dashboard-shell-v51";', worker)
 
     def test_level_card_preview_tools_and_cache_version_are_wired(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
@@ -49,9 +49,9 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         version = match.group(1)
-        self.assertEqual(version, "prime-card-studio-phase1-1")
+        self.assertEqual(version, "prime-card-evolution-phase2-1")
         self.assertIn(f'"./static/app.js?v={version}"', worker)
-        self.assertIn('const CACHE = "prime-dashboard-shell-v50";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v51";', worker)
         self.assertIn('text: "تحديث المعاينة"', app)
         self.assertIn('text: "تنزيل البطاقة"', app)
         self.assertIn("previewBlob.type", app)
@@ -63,7 +63,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         worker = web_server.service_worker_source()
         app = (ROOT / "dashboard/app.js").read_text("utf-8")
         styles = (ROOT / "dashboard/visual-refresh.css").read_text("utf-8")
-        self.assertIn('const CACHE = "prime-dashboard-shell-v50";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v51";', worker)
         self.assertIn('const LV_CARD_PRESET_FORMAT = "prime-level-card-presets";', app)
         self.assertIn("LV_CARD_PRESET_VERSION = 1", app)
         self.assertIn('text: "تصدير الإعداد الحالي"', app)
@@ -73,8 +73,8 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         self.assertIn("existing.length + parsed.presets.length > 8", app)
         self.assertIn("lvImportedPresetStyle(item.style)", app)
         self.assertIn('style.backgroundAsset = "";', app)
-        self.assertIn("./static/app.js?v=prime-card-studio-phase1-1", worker)
-        self.assertIn('src="static/app.js?v=prime-card-studio-phase1-1"', html)
+        self.assertIn("./static/app.js?v=prime-card-evolution-phase2-1", worker)
+        self.assertIn('src="static/app.js?v=prime-card-evolution-phase2-1"', html)
         self.assertIn(".lv-preset-portability", styles)
         self.assertIn("@media (max-width: 480px)", styles)
 
@@ -96,6 +96,23 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         self.assertIn("@media (max-width: 380px)", styles)
         self.assertIn("prefers-reduced-motion: reduce", styles)
 
+    def test_level_evolution_setting_is_saved_previewed_and_cache_busted(self):
+        html = (ROOT / "dashboard/index.html").read_text("utf-8")
+        worker = web_server.service_worker_source()
+        app = (ROOT / "dashboard/app.js").read_text("utf-8")
+        styles = (ROOT / "dashboard/visual-refresh.css").read_text("utf-8")
+        self.assertIn('"evolutionEnabled"', app)
+        self.assertIn('lvSwitch(["card", "evolutionEnabled"], "تطور البطاقة حسب المستوى")', app)
+        self.assertIn('evolutionEnabled: String(card.evolutionEnabled !== false)', app)
+        self.assertIn("lv-evolution-track", app)
+        self.assertIn("100+", app)
+        self.assertIn(".lv-evolution-track", styles)
+        self.assertIn("@media (max-width: 480px)", styles)
+        self.assertIn("prime-card-evolution-phase2-1", html)
+        self.assertIn("./static/app.js?v=prime-card-evolution-phase2-1", worker)
+        self.assertIn("./static/visual-refresh.css?v=phase2-card-evolution-1", worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v51";', worker)
+
     def test_guild_recovery_script_is_cache_busted_in_html_and_worker(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
         worker = web_server.service_worker_source()
@@ -105,5 +122,5 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         version = match.group(1)
-        self.assertEqual(version, "prime-card-studio-phase1-1")
+        self.assertEqual(version, "prime-card-evolution-phase2-1")
         self.assertIn(f'"./static/app.js?v={version}"', worker)
