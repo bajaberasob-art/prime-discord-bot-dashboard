@@ -113,8 +113,9 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_card_output_format_defaults_to_png_and_rejects_invalid_values(self):
         from leveling_api import _clean_card_design
-        self.assertEqual(_clean_card_design({})["outputFormat"], "png")
+        self.assertEqual(_clean_card_design({})["outputFormat"], "auto")
         self.assertEqual(_clean_card_design({"outputFormat": "gif"})["outputFormat"], "gif")
+        self.assertEqual(_clean_card_design({"outputFormat": "auto"})["outputFormat"], "auto")
         with self.assertRaises(ValueError):
             _clean_card_design({"outputFormat": "webp"})
 
