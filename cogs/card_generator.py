@@ -15,7 +15,7 @@ from pathlib import Path
 import arabic_reshaper
 import discord
 from bidi.algorithm import get_display
-from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 from cogs.card_images import MAX_ANIMATED_FRAMES, fetch_image
 from level_progression import total_xp_for_level, xp_required
