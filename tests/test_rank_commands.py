@@ -331,6 +331,23 @@ class RankCommandTests(unittest.IsolatedAsyncioTestCase):
             "prime-rank.png",
         )
 
+    async def test_prefix_level_shortcut_respects_selected_gif_format(self):
+        await database.update_level_settings(888, {
+            "card_design": {"animationEnabled": True, "animationIntensity": 62},
+            "prime_controls": {"rank": {"cardFormat": "gif"}},
+        })
+        rank = self.bot.get_command("rank")
+        message = SimpleNamespace(
+            author=self.members[1], guild=self.guild, channel=self.channel, _state=None,
+        )
+        self.clock += 8
+        await rank.callback(self.cog, SimpleNamespace(message=message), None)
+        self.gif_generator.assert_awaited_once()
+        self.assertEqual(
+            self.channel.send.call_args.kwargs["file"].filename,
+            "prime-rank.gif",
+        )
+
     async def test_top_prefix_aliases_use_the_same_lifetime_flow(self):
         top = self.bot.get_command("top")
         for alias in ("top", "توب", "متصدرين"):
