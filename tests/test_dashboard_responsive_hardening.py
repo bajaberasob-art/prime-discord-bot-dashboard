@@ -38,6 +38,26 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         self.assertEqual(match.group(1), "mobile-hardening-1")
         self.assertIn('const CACHE = "prime-dashboard-shell-v47";', worker)
 
+    def test_level_card_preview_tools_and_cache_version_are_wired(self):
+        html = (ROOT / "dashboard/index.html").read_text("utf-8")
+        worker = web_server.service_worker_source()
+        app = (ROOT / "dashboard/app.js").read_text("utf-8")
+        styles = (ROOT / "dashboard/visual-refresh.css").read_text("utf-8")
+        match = re.search(
+            r'<script src="static/app\\.js\\?v=([^"]+)"',
+            html,
+        )
+        self.assertIsNotNone(match)
+        version = match.group(1)
+        self.assertEqual(version, "level-card-preview-tools-1")
+        self.assertIn(f'"./static/app.js?v={version}"', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v48";', worker)
+        self.assertIn('text: "تحديث المعاينة"', app)
+        self.assertIn('text: "تنزيل البطاقة"', app)
+        self.assertIn("previewBlob.type", app)
+        self.assertIn(".lv-preview-actions", styles)
+        self.assertIn("@media (max-width: 480px)", styles)
+
     def test_guild_recovery_script_is_cache_busted_in_html_and_worker(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
         worker = web_server.service_worker_source()
