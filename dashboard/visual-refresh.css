@@ -539,7 +539,7 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
   }
 
   .mobile-nav {
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: calc(6px + env(safe-area-inset-bottom));
   }
 }
 
