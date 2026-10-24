@@ -310,6 +310,23 @@ class RankCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.generated), 5)
         self.assertEqual(self.channel.send.await_count, 5)
 
+    async def test_prefix_level_shortcut_uses_fast_static_png_even_when_animation_is_enabled(self):
+        await database.update_level_settings(888, {
+            "card_design": {"animationEnabled": True, "animationIntensity": 62},
+        })
+        rank = self.bot.get_command("rank")
+        message = SimpleNamespace(
+            author=self.members[1], guild=self.guild, channel=self.channel, _state=None,
+        )
+        self.clock += 8
+        await rank.callback(self.cog, SimpleNamespace(message=message), None)
+        self.generator.assert_awaited_once()
+        self.gif_generator.assert_not_awaited()
+        self.assertEqual(
+            self.channel.send.call_args.kwargs["file"].filename,
+            "prime-rank.png",
+        )
+
     async def test_top_prefix_aliases_use_the_same_lifetime_flow(self):
         top = self.bot.get_command("top")
         for alias in ("top", "توب", "متصدرين"):
