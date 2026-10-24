@@ -8476,7 +8476,7 @@
     ["general", "عام"], ["public", "اللوحة العامة"], ["points", "النقاط"], ["voice", "الصوت"], ["rewards", "المكافآت"],
     ["card", "البطاقة"], ["messages", "الرسائل"], ["prime", "PRIME TOP"], ["streak", "سلسلة النشاط"], ["data", "البيانات"],
   ];
-  const LV_LAYOUTS = { vertical: [560, 900, "عمودية"], stats: [1000, 420, "إحصائيات"], minimal: [900, 230, "مصغّرة"], ring: [620, 680, "حلقة"], classic: [1000, 340, "كلاسيكية"], banner: [1000, 300, "شريطية"], square: [640, 640, "مربّعة"], spotlight: [1000, 500, "كشاف"] };
+  const LV_LAYOUTS = { vertical: [560, 900, "عمودية"], stats: [1000, 420, "إحصائيات"], minimal: [900, 230, "مصغّرة"], ring: [620, 680, "حلقة"], classic: [1000, 340, "كلاسيكية"], banner: [1000, 300, "شريطية"], square: [640, 640, "مربّعة"], spotlight: [1000, 500, "كشاف"], showcase: [1100, 460, "استعراضية"] };
   const LV_PARTS = { none: "بدون", sparks: "شرارات", shine: "لمعان", embers: "جمر", snow: "ثلج", petals: "بتلات", neon: "نيون" };
   const LV_CARD_THEMES = [
     { id: "cyberpunk", name: "سايبربنك", description: "HUD وتقنيات نيون", style: { layout: "spotlight", visualStyle: "cyberpunk", color: "#22d3ee", particles: "neon", particleColor: "#a855f7", barStyle: "neon", frame: "diamond", glowStrength: 82, particleDensity: 68, bgOverlay: 42, bgBlur: 5, animationEnabled: true, animationStyle: "beam", animationIntensity: 82 } },
@@ -8487,6 +8487,7 @@
     { id: "obsidian", name: "أوبسيديان", description: "أسود معدني هادئ", style: { layout: "minimal", visualStyle: "obsidian", color: "#cbd5e1", particles: "none", particleColor: "accent", barStyle: "solid", frame: "none", glowStrength: 8, particleDensity: 0, bgOverlay: 20, bgBlur: 0, animationEnabled: false, animationStyle: "beam", animationIntensity: 0 } },
     { id: "inferno", name: "إنفيرنو", description: "لهب وتوهج حاد", style: { layout: "spotlight", visualStyle: "inferno", color: "#fb7185", particles: "embers", particleColor: "#fb923c", barStyle: "neon", frame: "mythic", glowStrength: 88, particleDensity: 78, bgOverlay: 48, bgBlur: 5, animationEnabled: true, animationStyle: "burst", animationIntensity: 90 } },
     { id: "mythic", name: "ميثيك", description: "هوية أسطورية بنفسجية", style: { layout: "square", visualStyle: "royal", color: "#c084fc", particles: "shine", particleColor: "#e9d5ff", barStyle: "neon", frame: "mythic", glowStrength: 86, particleDensity: 60, bgOverlay: 38, bgBlur: 4, animationEnabled: true, animationStyle: "aurora", animationIntensity: 76 } },
+    { id: "showcase", name: "عرض النخبة", description: "تكوين أفقي للصورة والتقدم والإحصائيات", style: { layout: "showcase", visualStyle: "royal", color: "#38bdf8", particles: "neon", particleColor: "#a5f3fc", barStyle: "neon", frame: "diamond", glowStrength: 76, particleDensity: 42, bgOverlay: 36, bgBlur: 4, animationEnabled: true, animationStyle: "aurora", animationIntensity: 68 } },
     { id: "minimal", name: "مينيمال", description: "بساطة نظيفة", style: { layout: "classic", visualStyle: "classic", color: "#f8fafc", particles: "none", particleColor: "accent", barStyle: "solid", frame: "none", glowStrength: 12, particleDensity: 0, bgOverlay: 18, bgBlur: 0, animationEnabled: false, animationStyle: "beam", animationIntensity: 0 } },
   ];
   const LV_STREAK_TEMPLATE_VARS = {
@@ -9471,7 +9472,7 @@
       },
     });
     return el("div", { class: "lv-card-editor" },
-      lvCard("معرض القوالب", "ثمانية تخطيطات عملية؛ اختر القالب ثم اضبط تفاصيله أدناه.", gallery),
+      lvCard("معرض القوالب", "تسعة تخطيطات عملية؛ اختر القالب ثم اضبط تفاصيله أدناه.", gallery),
       el("div", { class: "leveling-split" },
         el("div", { class: "leveling-stack" },
           lvCard("القوالب الجاهزة", "كل قالب يغيّر التكوين والهوية البصرية والإطار والمؤثرات معاً؛ وتقدر تعدّل أي تفصيل بعد تطبيقه.", themeGallery),

@@ -146,13 +146,13 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(sampled), sum(durations))
         self.assertTrue(all(value >= 10 for value in sampled))
 
-    async def test_all_eight_layouts_are_distinct_valid_pngs(self):
+    async def test_all_nine_layouts_are_distinct_valid_pngs(self):
         results = []
         for layout in cards.LAYOUTS:
             data = await self.render({"card_layout": layout})
             self.validate(data, layout)
             results.append(data.getvalue())
-        self.assertEqual(len(set(results)), 8)
+        self.assertEqual(len(set(results)), 9)
 
     async def test_expanded_card_controls_change_the_static_rank_card(self):
         plain = await self.render()
