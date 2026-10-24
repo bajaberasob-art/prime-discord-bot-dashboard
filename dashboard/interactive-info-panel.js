@@ -212,6 +212,11 @@
         const data = await ctx.readJson(response, {});
         if (!response.ok) throw Error(data.message || "تعذر تحميل الإعدادات");
         channels = data.channels || [];
+        // Populate the custom emoji selector from the authenticated API response.
+        // Without this assignment, the picker exists but always appears empty.
+        emojis = Array.isArray(data.emojis)
+          ? data.emojis.filter(item => item && /^\d{15,22}$/.test(String(item.id || "")) && typeof item.name === "string")
+          : [];
         config = { ...defaults(), ...(data.config || {}) };
         if (!Array.isArray(config.buttons)) config.buttons = [];
         // Migrate the old decorative glyph Discord rejected as an invalid emoji.
