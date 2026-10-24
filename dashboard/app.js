@@ -8478,6 +8478,14 @@
   ];
   const LV_LAYOUTS = { vertical: [560, 900, "عمودية"], stats: [1000, 420, "إحصائيات"], minimal: [900, 230, "مصغّرة"], ring: [620, 680, "حلقة"], classic: [1000, 340, "كلاسيكية"], banner: [1000, 300, "شريطية"], square: [640, 640, "مربّعة"], spotlight: [1000, 500, "كشاف"] };
   const LV_PARTS = { none: "بدون", sparks: "شرارات", shine: "لمعان", embers: "جمر", snow: "ثلج", petals: "بتلات", neon: "نيون" };
+  const LV_CARD_THEMES = [
+    { id: "cyberpunk", name: "سايبربنك", description: "نيون وطاقة", style: { color: "#22d3ee", particles: "neon", particleColor: "#a855f7", barStyle: "neon", frame: "diamond", glowStrength: 78, particleDensity: 72, bgOverlay: 38, bgBlur: 5, animationEnabled: true, animationStyle: "beam", animationIntensity: 78 } },
+    { id: "luxury", name: "فخامة", description: "ذهب ومعدن", style: { color: "#fbbf24", particles: "shine", particleColor: "#f59e0b", barStyle: "gradient", frame: "gold", glowStrength: 42, particleDensity: 25, bgOverlay: 48, bgBlur: 3, animationEnabled: true, animationStyle: "aurora", animationIntensity: 32 } },
+    { id: "cosmic", name: "مجرّي", description: "بنفسجي ونجوم", style: { color: "#a78bfa", particles: "embers", particleColor: "#38bdf8", barStyle: "gradient", frame: "diamond", glowStrength: 68, particleDensity: 58, bgOverlay: 32, bgBlur: 7, animationEnabled: true, animationStyle: "aurora", animationIntensity: 66 } },
+    { id: "frost", name: "جليدي", description: "سماوي وفضي", style: { color: "#7dd3fc", particles: "snow", particleColor: "#e0f2fe", barStyle: "segmented", frame: "silver", glowStrength: 55, particleDensity: 45, bgOverlay: 36, bgBlur: 4, animationEnabled: true, animationStyle: "beam", animationIntensity: 44 } },
+    { id: "emerald", name: "زمردي", description: "أخضر متوهّج", style: { color: "#34d399", particles: "petals", particleColor: "#6ee7b7", barStyle: "solid", frame: "gold", glowStrength: 55, particleDensity: 40, bgOverlay: 34, bgBlur: 3, animationEnabled: true, animationStyle: "burst", animationIntensity: 48 } },
+    { id: "minimal", name: "مينيمال", description: "نظيف وهادئ", style: { color: "#f8fafc", particles: "none", particleColor: "accent", barStyle: "solid", frame: "none", glowStrength: 12, particleDensity: 0, bgOverlay: 18, bgBlur: 0, animationEnabled: false, animationStyle: "beam", animationIntensity: 0 } },
+  ];
   const LV_STREAK_TEMPLATE_VARS = {
     duplicate: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank"]),
     success: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank"]),
@@ -8667,8 +8675,64 @@
     if ($(".leveling-view")) lvRender();
   }
   const lvDirty = () => { const s = lvState(); return JSON.stringify(s.draft) !== JSON.stringify(s.saved); };
+  const LV_CARD_HISTORY_LIMIT = 40;
+  let lvCardHistory = { owner: null, entries: [], index: -1 };
+  let lvCardUndoButton = null;
+  let lvCardRedoButton = null;
+  const lvCardHistoryEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  function lvCardHistoryEnsure() {
+    const s = lvState();
+    if (lvCardHistory.owner !== s || lvCardHistory.index < 0 || !lvCardHistory.entries.length) {
+      lvCardHistory = { owner: s, entries: [clone(s.draft.card)], index: 0 };
+    }
+  }
+  function lvCardHistoryCapture() {
+    lvCardHistoryEnsure();
+    const current = clone(lvState().draft.card);
+    if (lvCardHistoryEqual(current, lvCardHistory.entries[lvCardHistory.index])) return;
+    const entries = lvCardHistory.entries.slice(0, lvCardHistory.index + 1);
+    entries.push(current);
+    if (entries.length > LV_CARD_HISTORY_LIMIT) entries.shift();
+    lvCardHistory.entries = entries;
+    lvCardHistory.index = entries.length - 1;
+  }
+  function lvCardThemeMatches(card, theme) {
+    return Object.entries(theme.style).every(([key, value]) => card?.[key] === value);
+  }
+  function lvCardHistoryUpdateControls() {
+    if (lvCardUndoButton) lvCardUndoButton.disabled = lvCardHistory.index <= 0;
+    if (lvCardRedoButton) lvCardRedoButton.disabled = lvCardHistory.index >= lvCardHistory.entries.length - 1;
+    const card = lvState().draft.card;
+    document.querySelectorAll(".lv-theme-option").forEach((button) => {
+      const theme = LV_CARD_THEMES.find((item) => item.id === button.dataset.themeId);
+      if (!theme) return;
+      const active = lvCardThemeMatches(card, theme);
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+  function lvCardHistoryMove(delta) {
+    lvCardHistoryEnsure();
+    const next = lvCardHistory.index + delta;
+    if (next < 0 || next >= lvCardHistory.entries.length) return;
+    lvCardHistory.index = next;
+    lvState().draft.card = clone(lvCardHistory.entries[next]);
+    lvTouch();
+    lvRender();
+  }
+  function lvCardRestoreSaved() {
+    const s = lvState();
+    if (!window.confirm("سيتم استبدال تعديلات البطاقة الحالية بآخر تصميم محفوظ على السيرفر. هل تريد المتابعة؟")) return;
+    s.draft.card = lvMerge(lvDefaults().card, clone(s.saved.card || lvDefaults().card));
+    lvCardHistory = { owner: s, entries: [clone(s.draft.card)], index: 0 };
+    lvTouch();
+    lvRender();
+    toast("تمت استعادة آخر تصميم محفوظ إلى المسودة. احفظ إعدادات المستويات لتطبيقه.", "success");
+  }
   function lvTouch() {
     const s = lvState();
+    lvCardHistoryCapture();
+    lvCardHistoryUpdateControls();
     lvStatus();
     lvPreviews();
     drawLvCard();
@@ -9010,6 +9074,7 @@
   }
   const lvBgOk = (v) => { if (!v) return true; try { const u = new URL(v); return u.protocol === "https:" && v.length <= 400; } catch (_) { return false; } };
   function lvTabCard() {
+    lvCardHistoryEnsure();
     const cv = el("img", { class: "leveling-canvas", role: "img", alt: "معاينة بطاقة المستوى الحقيقية" });
     const color = el("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(lvGet(["card", "color"])) ? lvGet(["card", "color"]) : "#38bdf8" });
     color.addEventListener("input", () => lvSet(["card", "color"], color.value));
@@ -9111,7 +9176,7 @@
     });
     const bgUploadControls = el("div", { class: "lv-bg-upload-controls" },
       lvField("رفع خلفية من جهازك", bgFile,
-        "PNG / JPG / WEBP / GIF حتى 6MB، أو MP4 / WEBM / MOV حتى 20MB."),
+        "PNG / JPG / WEBP / GIF حتى 15 MiB، أو MP4 / WEBM / MOV حتى 20 MiB."),
       el("div", { class: "lv-actions-row" }, bgUploadButton, bgClearButton),
       bgUploadStatus,
     );
@@ -9128,6 +9193,22 @@
       },
       }, el("span", { class: `lv-template-art lv-art-${key}`, "aria-hidden": "true" }, el("i"), el("b", { text: index < 4 ? "PR" : "P" }), el("em"), el("small", { text: "LEVEL 28" })),
       el("span", { class: "lv-template-copy" }, el("b", { text: value[2] }), el("small", { text: `${value[0]} × ${value[1]}` })))));
+    const themeGallery = el("div", { class: "lv-theme-gallery", role: "group", "aria-label": "ثيمات بطاقة المستوى" },
+      ...LV_CARD_THEMES.map((theme) => el("button", {
+        type: "button",
+        class: "lv-theme-option" + (lvCardThemeMatches(lvGet(["card"]), theme) ? " is-active" : ""),
+        "data-theme-id": theme.id,
+        "aria-pressed": String(lvCardThemeMatches(lvGet(["card"]), theme)),
+        onClick: () => {
+          Object.assign(lvState().draft.card, clone(theme.style));
+          lvTouch();
+          lvRender();
+        },
+      },
+        el("span", { class: "lv-theme-swatch lv-theme-swatch-" + theme.id, "aria-hidden": "true" }),
+        el("span", { class: "lv-theme-copy" }, el("b", { text: theme.name }), el("small", { text: theme.description })),
+        el("span", { class: "lv-theme-apply-mark", "aria-hidden": "true", text: "✓" }),
+      )));
     const presetName = el("input", { type: "text", maxlength: 40, placeholder: "اسم الإعداد المحفوظ", "aria-label": "اسم الإعداد المحفوظ" });
     const LV_CARD_PRESET_FORMAT = "prime-level-card-presets";
     const LV_CARD_PRESET_VERSION = 1;
@@ -9343,6 +9424,20 @@
         gifStatus.textContent = error.message === "unauth" ? "انتهت الجلسة؛ سجّل الدخول مجدداً." : "تعذر إنشاء حركة الترقية. أعد المحاولة بعد التحقق من إعدادات البطاقة.";
       } finally { gifButton.disabled = false; }
     } });
+    lvCardUndoButton = el("button", {
+      type: "button", class: "leveling-btn lv-card-undo", text: "↶ تراجع",
+      title: "التراجع عن آخر تعديل للبطاقة", "aria-label": "التراجع عن آخر تعديل للبطاقة",
+      disabled: lvCardHistory.index <= 0, onClick: () => lvCardHistoryMove(-1),
+    });
+    lvCardRedoButton = el("button", {
+      type: "button", class: "leveling-btn lv-card-redo", text: "إعادة ↷",
+      title: "إعادة التعديل الذي تم التراجع عنه", "aria-label": "إعادة التعديل الذي تم التراجع عنه",
+      disabled: lvCardHistory.index >= lvCardHistory.entries.length - 1, onClick: () => lvCardHistoryMove(1),
+    });
+    const restoreCard = el("button", {
+      type: "button", class: "leveling-btn lv-card-restore", text: "استرجاع المحفوظ",
+      title: "استرجاع آخر تصميم محفوظ على السيرفر", onClick: () => lvCardRestoreSaved(),
+    });
     const previewRefresh = el("button", {
       type: "button",
       class: "leveling-btn lv-preview-refresh",
@@ -9375,6 +9470,7 @@
       lvCard("معرض القوالب", "ثمانية تخطيطات عملية؛ اختر القالب ثم اضبط تفاصيله أدناه.", gallery),
       el("div", { class: "leveling-split" },
         el("div", { class: "leveling-stack" },
+          lvCard("الثيمات الجاهزة", "طبّق هوية متناسقة بضغطة واحدة؛ تبقى الخلفية والتخطيط والإحصاءات كما اخترتها.", themeGallery),
           lvCard("الهوية والتكوين", "تُحفظ هذه القيم ضمن إعدادات المستوى الحالية.",
             lvGrid(lvSelect(["card", "particles"], "أثر الجزيئات", Object.entries(LV_PARTS)), lvSelect(["card", "barStyle"], "أسلوب شريط التقدم", [["gradient", "متدرّج"], ["solid", "مصمت"], ["segmented", "مقسّم"], ["neon", "مضيء"]])),
             el("div", { class: "lv-color-row" }, lvField("لون التمييز", color), particleColorControl),
@@ -9388,7 +9484,7 @@
             lvGrid(lvSelect(["card", "animationStyle"], "نمط الحركة", [["beam", "شعاع"], ["aurora", "شفق"], ["burst", "اندفاع"]]), lvNum(["card", "animationIntensity"], "شدّة الحركة", 0, 100, "", true))),
           lvCard("إعدادات قابلة لإعادة الاستخدام", "احفظ حتى 8 توليفات، وانقلها بين السيرفرات بملف JSON. الخلفيات المرفوعة محلية للسيرفر ولا تنتقل مع الملف.", el("div", { class: "lv-preset-create" }, presetName, savePreset), el("div", { class: "lv-preset-portability" }, lvPresetExportCurrent, lvPresetExportAll, lvPresetImportButton), lvPresetImportFile, presetList)),
         el("div", { class: "leveling-stack lv-preview-column" },
-           lvCard("معاينة بطاقة الرتبة", "معاينة من مولّد PRIME الفعلي. حدّثها يدوياً أو نزّل الناتج الحالي كصورة أو GIF.", el("div", { class: "lv-preview-actions" }, previewRefresh, previewDownload), el("div", { class: "leveling-canvas-wrap" }, cv), el("p", { class: "leveling-render-status", role: "status", "aria-live": "polite", text: "جارٍ تحميل بطاقة PRIME…" })),
+           lvCard("معاينة بطاقة الرتبة", "معاينة من مولّد PRIME الفعلي. يمكنك التراجع عن التعديلات، إعادتها، أو استرجاع التصميم المحفوظ.", el("div", { class: "lv-card-history-actions", role: "group", "aria-label": "سجل تعديلات تصميم البطاقة" }, lvCardUndoButton, lvCardRedoButton, restoreCard), el("div", { class: "lv-preview-actions" }, previewRefresh, previewDownload), el("div", { class: "leveling-canvas-wrap" }, cv), el("p", { class: "leveling-render-status", role: "status", "aria-live": "polite", text: "جارٍ تحميل بطاقة PRIME…" })),
           lvCard("اختبار حركة المستوى", "معاينة GIF مستقلة تعرض تأثير الإضاءة المتحرك على بطاقة المستوى؛ لا تحفظ الإعداد.", gifButton, el("div", { class: "lv-gif-wrap" }, gif), gifStatus))));
   }
   let lvBgImg = { url: "", img: null, failed: false };
