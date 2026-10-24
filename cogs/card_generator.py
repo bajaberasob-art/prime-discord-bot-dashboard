@@ -18,6 +18,7 @@ from bidi.algorithm import get_display
 from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 from cogs.card_images import MAX_ANIMATED_FRAMES, fetch_image
+from cogs.card_artwork import render_card_artwork
 from level_progression import total_xp_for_level, xp_required
 
 LAYOUTS = {"vertical": (560, 900), "stats": (1000, 420), "minimal": (900, 230),
@@ -137,6 +138,16 @@ class Card:
         """Render a deterministic, bundled anime-inspired cinematic scene without network calls."""
         width, height = self.image.size
         layout = str(self.design.get("layout", "showcase"))
+        # Prefer bundled authored SVG scenes; keep the procedural renderer as a
+        # graceful fallback if an asset cannot be decoded in a minimal environment.
+        try:
+            bundled = render_card_artwork(layout, (width, height))
+        except Exception:
+            bundled = None
+        if bundled is not None:
+            self.image = bundled.convert("RGB")
+            self.draw = ImageDraw.Draw(self.image)
+            return
         palettes = {
             "showcase": ("#07101e", "#263b68", "#45DDF5", "#AD8BFF"),
             "spotlight": ("#090817", "#30204e", "#AD8BFF", "#45DDF5"),
