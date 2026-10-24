@@ -9032,7 +9032,7 @@
     });
     const bgUploadStatus = el("p", {
       class: "lv-gif-status", role: "status", "aria-live": "polite",
-      text: "ارفع صورة أو GIF حتى 6 ميغابايت، أو فيديو MP4/WEBM/MOV حتى 20 ميغابايت؛ الفيديو يتحول إلى GIF قصير.",
+      text: "ارفع صورة أو GIF حتى 15 ميغابايت، أو فيديو MP4/WEBM/MOV حتى 20 ميغابايت؛ الفيديو يتحول إلى GIF قصير.",
     });
     const bgUploadButton = el("button", {
       type: "button", class: "leveling-btn",
@@ -9055,11 +9055,11 @@
       const file = bgFile.files?.[0];
       if (!file) return;
       const isVideo = /^video\//i.test(file.type) || /\.(mp4|webm|mov)$/i.test(file.name);
-      const maxBytes = (isVideo ? 20 : 6) * 1024 * 1024;
+      const maxBytes = (isVideo ? 20 : 15) * 1024 * 1024;
       if (file.size > maxBytes) {
         bgUploadStatus.textContent = isVideo
           ? "حجم الفيديو يتجاوز 20 ميغابايت."
-          : "حجم الصورة أو GIF يتجاوز 6 ميغابايت.";
+          : "حجم الصورة أو GIF يتجاوز 15 ميغابايت.";
         bgFile.value = "";
         return;
       }

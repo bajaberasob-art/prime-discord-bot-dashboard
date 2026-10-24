@@ -67,7 +67,7 @@ class LevelingMediaUploadTests(unittest.IsolatedAsyncioTestCase):
             read_json_body=read_json_body,
             logger=logging.getLogger("TestLevelingMediaUpload"),
         )
-        app = web.Application(client_max_size=21 * 1024 * 1024)
+        app = web.Application(client_max_size=40 * 1024 * 1024)
         app.add_routes(routes)
         self.client = TestClient(TestServer(app))
         await self.client.start_server()
@@ -145,6 +145,31 @@ class LevelingMediaUploadTests(unittest.IsolatedAsyncioTestCase):
         with Image.open(io.BytesIO(loaded)) as image:
             self.assertEqual(image.format, "GIF")
             self.assertEqual(image.n_frames, 3)
+
+    async def test_large_animated_gif_upload_above_six_mib_is_accepted(self):
+        output = io.BytesIO()
+        frames = [
+            Image.frombytes("RGB", (512, 512), os.urandom(512 * 512 * 3))
+            for _ in range(30)
+        ]
+        frames[0].save(
+            output, format="GIF", save_all=True, append_images=frames[1:],
+            duration=85, loop=0, disposal=2, optimize=False,
+        )
+        raw = output.getvalue()
+        self.assertGreater(len(raw), 6 * 1024 * 1024)
+        self.assertLessEqual(len(raw), 15 * 1024 * 1024)
+
+        response = await self.upload(raw, "large-level-background.gif", "image/gif")
+        self.assertEqual(response.status, 200)
+        payload = await response.json()
+        self.assertTrue(payload["animated"])
+        self.assertEqual(payload["format"], "gif")
+        self.assertGreater(payload["bytes"], 6 * 1024 * 1024)
+        loaded = await card_images.fetch_image(payload["backgroundAsset"])
+        with Image.open(io.BytesIO(loaded)) as image:
+            self.assertEqual(image.format, "GIF")
+            self.assertGreater(image.n_frames, 1)
 
     async def test_mov_upload_without_ftyp_signature_is_probed_by_ffmpeg(self):
         def fake_ffmpeg(command, **_kwargs):

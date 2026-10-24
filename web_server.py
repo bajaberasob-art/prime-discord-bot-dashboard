@@ -7040,7 +7040,7 @@ register_public_leaderboard_routes(
 async def start_web_server(bot):
     global bot_ref
     bot_ref = bot
-    app = web.Application(middlewares=[private_responses], client_max_size=max(MAX_BODY, 21 * 1024 * 1024))
+    app = web.Application(middlewares=[private_responses], client_max_size=max(MAX_BODY, 40 * 1024 * 1024))
     app['bot'] = bot
     app.add_routes(routes)
     # Access logs include callback query strings; do not log authorization codes.
