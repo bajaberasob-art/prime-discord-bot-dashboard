@@ -222,6 +222,7 @@ def local_development_session() -> dict:
         "csrf": "local-development-csrf",
         "_local_dev": True,
         "bot_ready": bot_is_connected(bot_ref),
+        "bot_guilds_checked": bot_is_connected(bot_ref),
         "connected_guilds_count": len(getattr(bot_ref, "guilds", ()) or ()),
     }
 
