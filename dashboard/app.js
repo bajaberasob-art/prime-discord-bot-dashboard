@@ -9142,12 +9142,15 @@
         .replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
       return "prime-card-" + (slug || "preset") + ".json";
     };
-    const lvDownloadJson = (name, style) => {
+    const lvDownloadPresetPackage = (name, items) => {
       const payload = {
         format: LV_CARD_PRESET_FORMAT,
         version: LV_CARD_PRESET_VERSION,
         exportedAt: new Date().toISOString(),
-        presets: [{ name: name, style: lvPortableCardStyle(style) }],
+        presets: items.map((item) => ({
+          name: String(item.name || "").trim(),
+          style: lvPortableCardStyle(item.style || item),
+        })),
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -9159,8 +9162,9 @@
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast("تم تجهيز ملف إعداد البطاقة للتنزيل.", "success");
+      toast("تم تجهيز ملف إعدادات البطاقات للتنزيل.", "success");
     };
+    const lvDownloadJson = (name, style) => lvDownloadPresetPackage(name, [{ name: name, style: style }]);
     const lvImportedPresetStyle = (rawStyle) => {
       if (!rawStyle || typeof rawStyle !== "object" || Array.isArray(rawStyle)) {
         throw Error("بيانات تصميم البطاقة داخل الملف غير صالحة.");
@@ -9236,6 +9240,18 @@
       type: "button", class: "leveling-btn",
       text: "تصدير الإعداد الحالي",
       onClick: () => lvDownloadJson("current-style", lvState().draft.card),
+    });
+    const lvPresetExportAll = el("button", {
+      type: "button", class: "leveling-btn",
+      text: "تصدير جميع الإعدادات",
+      onClick: () => {
+        const items = Array.isArray(lvState().draft.card.presets) ? lvState().draft.card.presets : [];
+        if (!items.length) {
+          toast("لا توجد إعدادات محفوظة للتصدير؛ يمكنك تصدير الإعداد الحالي.", "warn");
+          return;
+        }
+        lvDownloadPresetPackage("saved-presets", items);
+      },
     });
     const lvPresetImportButton = el("button", {
       type: "button", class: "leveling-btn",
@@ -9362,7 +9378,7 @@
           lvCard("الإحصاءات المعروضة", "تحكم مستقل بكل معلومة تظهر على البطاقة.", lvSwitch(["card", "stats", "messages"], "الرسائل"), lvSwitch(["card", "stats", "voice"], "الوقت الصوتي"), lvSwitch(["card", "stats", "streak"], "سلسلة النشاط"), lvSwitch(["card", "stats", "serverRank"], "ترتيب السيرفر")),
           lvCard("حركة الترقية", "تأثيرات المستوى على البطاقة، لا عمليات Discord.", lvSwitch(["card", "animationEnabled"], "تفعيل حركة الترقية"),
             lvGrid(lvSelect(["card", "animationStyle"], "نمط الحركة", [["beam", "شعاع"], ["aurora", "شفق"], ["burst", "اندفاع"]]), lvNum(["card", "animationIntensity"], "شدّة الحركة", 0, 100, "", true))),
-          lvCard("إعدادات قابلة لإعادة الاستخدام", "احفظ حتى 8 توليفات، وانقلها بين السيرفرات بملف JSON. الخلفيات المرفوعة محلية للسيرفر ولا تنتقل مع الملف.", el("div", { class: "lv-preset-create" }, presetName, savePreset), el("div", { class: "lv-preset-portability" }, lvPresetExportCurrent, lvPresetImportButton), lvPresetImportFile, presetList)),
+          lvCard("إعدادات قابلة لإعادة الاستخدام", "احفظ حتى 8 توليفات، وانقلها بين السيرفرات بملف JSON. الخلفيات المرفوعة محلية للسيرفر ولا تنتقل مع الملف.", el("div", { class: "lv-preset-create" }, presetName, savePreset), el("div", { class: "lv-preset-portability" }, lvPresetExportCurrent, lvPresetExportAll, lvPresetImportButton), lvPresetImportFile, presetList)),
         el("div", { class: "leveling-stack lv-preview-column" },
            lvCard("معاينة بطاقة الرتبة", "معاينة من مولّد PRIME الفعلي. حدّثها يدوياً أو نزّل الناتج الحالي كصورة أو GIF.", el("div", { class: "lv-preview-actions" }, previewRefresh, previewDownload), el("div", { class: "leveling-canvas-wrap" }, cv), el("p", { class: "leveling-render-status", role: "status", "aria-live": "polite", text: "جارٍ تحميل بطاقة PRIME…" })),
           lvCard("اختبار حركة المستوى", "معاينة GIF مستقلة تعرض تأثير الإضاءة المتحرك على بطاقة المستوى؛ لا تحفظ الإعداد.", gifButton, el("div", { class: "lv-gif-wrap" }, gif), gifStatus))));
