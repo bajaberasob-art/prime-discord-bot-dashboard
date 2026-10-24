@@ -9135,6 +9135,14 @@
       const style = lvCardStyleSnapshot(lvMerge(lvDefaults().card, source || {}));
       // Uploaded backgrounds are guild-scoped references, not portable file data.
       style.backgroundAsset = "";
+      const stats = style.stats && typeof style.stats === "object" && !Array.isArray(style.stats)
+        ? style.stats : {};
+      style.stats = {
+        messages: stats.messages === true,
+        voice: stats.voice === true,
+        streak: stats.streak === true,
+        serverRank: stats.serverRank === true,
+      };
       return style;
     };
     const lvPresetFilename = (name) => {
