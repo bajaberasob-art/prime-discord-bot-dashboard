@@ -42,6 +42,9 @@ def _resolve_button_emoji(
     raw = str(value or "").strip()
     if not raw:
         return None
+    # Keep old persisted panels functional while replacing the unsupported glyph.
+    if raw == "✦":
+        raw = "✨"
     marker = _CUSTOM_EMOJI_MARKER.fullmatch(raw)
     mention = _CUSTOM_EMOJI_MENTION.fullmatch(raw)
     if marker or mention:
@@ -54,7 +57,7 @@ def _resolve_button_emoji(
              if int(getattr(candidate, "id", 0)) == emoji_id),
             None,
         )
-        if emoji is not None:
+        if emoji is not None and getattr(emoji, "available", True):
             return emoji
         if strict:
             raise ValueError(
@@ -66,6 +69,10 @@ def _resolve_button_emoji(
     if raw.startswith("custom:") or raw.startswith("<:") or raw.startswith("<a:"):
         if strict:
             raise ValueError("صيغة الإيموجي المخصص غير صحيحة. اختر إيموجيًا من قائمة السيرفر.")
+        return None
+    if not store.is_valid_unicode_button_emoji(raw):
+        if strict:
+            raise ValueError("قيمة الإيموجي غير صحيحة. اختر إيموجيًا من السيرفر أو استخدم إيموجيًا Unicode صحيحًا.")
         return None
     return raw
 
