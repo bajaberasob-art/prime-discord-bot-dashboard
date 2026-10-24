@@ -476,3 +476,93 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
 @media (prefers-reduced-motion: reduce) {
   .economy-user-row { transition: none; }
 }
+
+
+/* Mobile hardening: keep dashboard controls usable on narrow screens and with touch. */
+@media (max-width: 640px) {
+  html, body, #app, .app, .workspace-layout, .workspace-main, .workspace-content {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  :is(.workspace-layout, .workspace-main, .workspace-content, .section, .section-content) {
+    min-width: 0;
+  }
+
+  :is(.section-intro, .card-head, .panel-heading, .gaming-card-head) {
+    flex-wrap: wrap;
+    gap: .65rem;
+  }
+
+  :is(.section-intro h1, .card-head h2, .panel-heading h2, .panel-heading h3) {
+    overflow-wrap: anywhere;
+  }
+
+  :is(.card, .panel, .overview-panel, .section, .gaming-card, .economy-config-form, .gaming-deploy-form) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  :is(input, select, textarea, button, .btn, .button) {
+    max-width: 100%;
+  }
+
+  :is(input, select, textarea) {
+    min-width: 0;
+  }
+
+  :is(button, .btn, .button, .nav-item, .mobile-nav button) {
+    touch-action: manipulation;
+  }
+
+  :is(.table-wrap, .table-responsive, .subscription-table-wrap, .analytics-table-wrap, .data-table-wrap) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  :is(.table-wrap table, .table-responsive table, .subscription-table-wrap table, .analytics-table-wrap table, .data-table-wrap table) {
+    min-width: 36rem;
+  }
+
+  :is(.form-actions, .gaming-card-actions, .toolbar-actions, .section-actions) {
+    flex-wrap: wrap;
+  }
+
+  :is(.form-actions, .gaming-card-actions, .toolbar-actions, .section-actions) > button {
+    flex: 1 1 auto;
+  }
+
+  :is(.modal, .dialog, .popover, .dropdown-menu, .mobile-more-menu) {
+    max-width: calc(100vw - 1.25rem);
+  }
+
+  .mobile-nav {
+    padding-bottom: calc(6px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 380px) {
+  :is(.card, .panel, .overview-panel, .gaming-card) {
+    padding-inline: .75rem;
+  }
+
+  :is(.form-actions, .gaming-card-actions, .toolbar-actions, .section-actions) > button {
+    flex-basis: 100%;
+  }
+
+  :is(.mobile-nav .nav-item, .mobile-nav button) {
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
