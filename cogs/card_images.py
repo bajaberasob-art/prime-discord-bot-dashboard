@@ -127,7 +127,11 @@ class PublicResolver(aiohttp.abc.AbstractResolver):
 
 
 def normalize_image(data):
-    """Reject oversized images and preserve small, bounded animated GIFs."""
+    """Validate images and preserve GIF motion within bounded render limits.
+
+    Animated GIFs that exceed the renderer's frame/pixel budget are sampled and
+    resized while remaining animated. They are never silently flattened to PNG.
+    """
     if not data or len(data) > MAX_BYTES:
         raise ValueError("image byte limit")
     with warnings.catch_warnings():
@@ -137,18 +141,58 @@ def normalize_image(data):
                 raise ValueError("unsupported image format")
             if source.width * source.height > MAX_PIXELS:
                 raise ValueError("image pixel limit")
-            frame_count = getattr(source, "n_frames", 1)
-            if (
-                source.format == "GIF"
-                and 1 < frame_count <= MAX_ANIMATED_FRAMES
-                and source.width * source.height * frame_count <= MAX_ANIMATED_PIXELS
-            ):
-                # Decode each frame before retaining the compressed bytes. The
-                # frame and aggregate-pixel limits bound work in the card worker.
+
+            frame_count = int(getattr(source, "n_frames", 1) or 1)
+            if source.format == "GIF" and frame_count > 1:
+                target_count = min(frame_count, MAX_ANIMATED_FRAMES)
+                indices = [
+                    round(index * (frame_count - 1) / (target_count - 1))
+                    for index in range(target_count)
+                ] if target_count > 1 else [0]
+                durations = []
                 for index in range(frame_count):
                     source.seek(index)
-                    source.convert("RGB").load()
-                return bytes(data)
+                    try:
+                        durations.append(max(10, int(source.info.get("duration", 85))))
+                    except (TypeError, ValueError):
+                        durations.append(85)
+
+                target_pixels = max(1, min(MAX_PIXELS, MAX_ANIMATED_PIXELS // target_count))
+                scale = min(1.0, (target_pixels / (source.width * source.height)) ** 0.5)
+                size = (
+                    max(1, int(source.width * scale)),
+                    max(1, int(source.height * scale)),
+                )
+                frames = []
+                sampled_durations = []
+                for position, index in enumerate(indices):
+                    source.seek(index)
+                    frame = source.convert("RGB")
+                    if frame.size != size:
+                        frame = frame.resize(size, Image.Resampling.LANCZOS)
+                    frames.append(frame.copy())
+                    stop = indices[position + 1] if position + 1 < len(indices) else frame_count
+                    sampled_durations.append(max(10, sum(durations[index:stop])))
+
+                output = io.BytesIO()
+                frames[0].save(
+                    output,
+                    format="GIF",
+                    save_all=True,
+                    append_images=frames[1:],
+                    duration=sampled_durations,
+                    loop=source.info.get("loop", 0),
+                    disposal=2,
+                    optimize=True,
+                )
+                normalized = output.getvalue()
+                if len(normalized) > MAX_BYTES:
+                    raise ValueError(
+                        "animated GIF remains too large after safe optimization; "
+                        "try a shorter or lower-resolution GIF"
+                    )
+                return normalized
+
             source.seek(0)
             image = ImageOps.exif_transpose(source).convert("RGB")
             image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
