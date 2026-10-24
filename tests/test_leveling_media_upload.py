@@ -102,6 +102,30 @@ class LevelingMediaUploadTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             leveling_api._clean_card_design({**leveling_api.CARD_DESIGN_DEFAULTS, "evolutionEnabled": "false", "presets": []})
 
+    async def test_card_visual_style_defaults_and_rejects_unknown_styles(self):
+        clean = leveling_api._clean_card_design({
+            **leveling_api.CARD_DESIGN_DEFAULTS, "presets": [],
+        })
+        self.assertEqual(clean["visualStyle"], "cyberpunk")
+        self.assertIn("mythic", leveling_api.CARD_FRAMES)
+        for visual_style in (
+            "cyberpunk", "cosmic", "royal", "frost",
+            "emerald", "obsidian", "inferno", "classic",
+        ):
+            with self.subTest(visual_style=visual_style):
+                result = leveling_api._clean_card_design({
+                    **leveling_api.CARD_DESIGN_DEFAULTS,
+                    "visualStyle": visual_style,
+                    "presets": [],
+                })
+                self.assertEqual(result["visualStyle"], visual_style)
+        with self.assertRaises(ValueError):
+            leveling_api._clean_card_design({
+                **leveling_api.CARD_DESIGN_DEFAULTS,
+                "visualStyle": "untrusted-style",
+                "presets": [],
+            })
+
     async def test_png_upload_is_guild_scoped_and_survives_cold_cache_reload(self):
         response = await self.upload(png_bytes(), "level-background.png", "image/png")
         self.assertEqual(response.status, 200)
