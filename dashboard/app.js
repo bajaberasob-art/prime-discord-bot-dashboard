@@ -9137,6 +9137,70 @@
       el("button", { type: "button", class: "lv-preset-delete", text: "حذف", "aria-label": `حذف الإعداد ${preset.name}`, onClick: () => {
         lvSet(["card", "presets"], lvState().draft.card.presets.filter((item) => item.id !== preset.id)); lvRender();
       } })))) : el("p", { class: "leveling-empty", text: "لا توجد إعدادات محفوظة بعد. احفظ توليفة مناسبة لتطبيقها لاحقاً." });
+    const presetFile = el("input", { type: "file", accept: "application/json,.json", hidden: true, "aria-label": "استيراد إعدادات البطاقة" });
+    const presetTransferStatus = el("p", { class: "lv-preset-transfer-status", role: "status", "aria-live": "polite" });
+    const exportPresets = el("button", { type: "button", class: "leveling-btn lv-preset-export", text: "تصدير الإعدادات", onClick: () => {
+      const current = lvState().draft.card.presets;
+      if (!Array.isArray(current) || !current.length) {
+        toast("احفظ إعداداً واحداً على الأقل قبل التصدير.", "warn");
+        return;
+      }
+      const payload = { schema: "prime-level-card-presets", version: 1, presets: current.map((item) => ({
+        name: String(item.name || "إعداد البطاقة").slice(0, 40),
+        ...lvCardStyleSnapshot(lvMerge(lvDefaults().card, item)),
+      })) };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = el("a", { href: url, download: "prime-level-card-presets.json", rel: "noopener" });
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      presetTransferStatus.textContent = "تم تجهيز ملف JSON للإعدادات المحفوظة.";
+    } });
+    const importPresets = el("button", { type: "button", class: "leveling-btn lv-preset-import", text: "استيراد إعدادات", onClick: () => presetFile.click() });
+    presetFile.addEventListener("change", async () => {
+      const file = presetFile.files?.[0];
+      presetFile.value = "";
+      if (!file) return;
+      if (file.size > 128 * 1024) {
+        presetTransferStatus.textContent = "حجم الملف أكبر من الحد المسموح (128 كيلوبايت).";
+        return;
+      }
+      try {
+        const parsed = JSON.parse(await file.text());
+        if (!parsed || parsed.schema !== "prime-level-card-presets" || parsed.version !== 1 || !Array.isArray(parsed.presets)) {
+          throw Error("invalid_format");
+        }
+        const existing = Array.isArray(lvGet(["card", "presets"])) ? lvGet(["card", "presets"]) : [];
+        const incoming = parsed.presets.filter((item) => item && typeof item === "object" && typeof item.name === "string" && item.name.trim())
+          .slice(0, 8).map((item) => ({
+            id: `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+            name: item.name.trim().slice(0, 40),
+            ...lvCardStyleSnapshot(lvMerge(lvDefaults().card, item)),
+          }));
+        if (!incoming.length) throw Error("empty_presets");
+        const merged = [...existing];
+        let added = 0;
+        for (const item of incoming) {
+          if (merged.length >= 8) break;
+          const baseName = item.name;
+          let name = baseName, suffix = 2;
+          while (merged.some((saved) => String(saved.name).toLocaleLowerCase() === name.toLocaleLowerCase())) {
+            name = `${baseName.slice(0, Math.max(1, 35 - String(suffix).length))} (${suffix++})`;
+          }
+          merged.push({ ...item, name });
+          added++;
+        }
+        if (!added) {
+          presetTransferStatus.textContent = "وصلت إلى الحد الأقصى (8 إعدادات). احذف إعداداً ثم أعد الاستيراد.";
+          return;
+        }
+        lvSet(["card", "presets"], merged);
+        lvRender();
+        presetTransferStatus.textContent = `تم استيراد ${added} إعدادات. احفظ إعدادات القسم لإرسالها إلى السيرفر.`;
+      } catch (_) {
+        presetTransferStatus.textContent = "تعذر الاستيراد: استخدم ملف JSON مُصدّراً من PRIME وبصيغة مدعومة.";
+      }
+    });
     const savePreset = el("button", { type: "button", class: "leveling-btn", text: "حفظ كإعداد", onClick: () => {
       const name = presetName.value.trim();
       if (!name) { presetName.focus(); toast("اكتب اسماً للإعداد المحفوظ", "warn"); return; }
@@ -9203,7 +9267,7 @@
           lvCard("الإحصاءات المعروضة", "تحكم مستقل بكل معلومة تظهر على البطاقة.", lvSwitch(["card", "stats", "messages"], "الرسائل"), lvSwitch(["card", "stats", "voice"], "الوقت الصوتي"), lvSwitch(["card", "stats", "streak"], "سلسلة النشاط"), lvSwitch(["card", "stats", "serverRank"], "ترتيب السيرفر")),
           lvCard("حركة الترقية", "تأثيرات المستوى على البطاقة، لا عمليات Discord.", lvSwitch(["card", "animationEnabled"], "تفعيل حركة الترقية"),
             lvGrid(lvSelect(["card", "animationStyle"], "نمط الحركة", [["beam", "شعاع"], ["aurora", "شفق"], ["burst", "اندفاع"]]), lvNum(["card", "animationIntensity"], "شدّة الحركة", 0, 100, "", true))),
-          lvCard("إعدادات قابلة لإعادة الاستخدام", "تُحفظ ضمن المسودة وتُرسل مع الحفظ المعتاد.", el("div", { class: "lv-preset-create" }, presetName, savePreset), presetList)),
+          lvCard("إعدادات قابلة لإعادة الاستخدام", "احفظ القوالب وصدّرها أو انقلها بين السيرفرات؛ الاستيراد يضيف إعدادات إلى المسودة ولا يحفظها على السيرفر تلقائياً.", el("div", { class: "lv-preset-create" }, presetName, savePreset), el("div", { class: "lv-preset-transfer-actions" }, exportPresets, importPresets, presetFile), presetTransferStatus, presetList)),
         el("div", { class: "leveling-stack lv-preview-column" },
            lvCard("معاينة بطاقة الرتبة", "معاينة من مولّد PRIME الفعلي. حدّثها يدوياً أو نزّل الناتج الحالي كصورة أو GIF.", el("div", { class: "lv-preview-actions" }, previewRefresh, previewDownload), el("div", { class: "leveling-canvas-wrap" }, cv), el("p", { class: "leveling-render-status", role: "status", "aria-live": "polite", text: "جارٍ تحميل بطاقة PRIME…" })),
           lvCard("اختبار حركة المستوى", "معاينة GIF مستقلة تعرض تأثير الإضاءة المتحرك على بطاقة المستوى؛ لا تحفظ الإعداد.", gifButton, el("div", { class: "lv-gif-wrap" }, gif), gifStatus))));
