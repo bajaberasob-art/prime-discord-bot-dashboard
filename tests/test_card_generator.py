@@ -168,6 +168,24 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         self.validate(designed)
         self.assertNotEqual(plain.getvalue(), designed.getvalue())
 
+    async def test_visual_styles_render_distinct_cards_and_mythic_frame_is_supported(self):
+        cyberpunk = await self.render({
+            "card_design": {**cards.CARD_DESIGN_DEFAULTS, "visualStyle": "cyberpunk"},
+        })
+        cosmic = await self.render({
+            "card_design": {**cards.CARD_DESIGN_DEFAULTS, "visualStyle": "cosmic"},
+        })
+        obsidian = await self.render({
+            "card_design": {**cards.CARD_DESIGN_DEFAULTS, "visualStyle": "obsidian"},
+        })
+        mythic = await self.render({
+            "card_design": {**cards.CARD_DESIGN_DEFAULTS, "visualStyle": "royal", "frame": "mythic"},
+        })
+        for data in (cyberpunk, cosmic, obsidian, mythic):
+            self.validate(data)
+        self.assertEqual(len({cyberpunk.getvalue(), cosmic.getvalue(), obsidian.getvalue()}), 3)
+        self.assertNotEqual(cyberpunk.getvalue(), mythic.getvalue())
+
     def test_level_evolution_stage_boundaries_are_stable(self):
         cases = {
             0: "bronze", 9: "bronze", 10: "silver", 24: "silver",
