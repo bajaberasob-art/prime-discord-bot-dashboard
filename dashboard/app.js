@@ -9054,7 +9054,7 @@
     bgFile.addEventListener("change", async () => {
       const file = bgFile.files?.[0];
       if (!file) return;
-      const isVideo = /^video\\//i.test(file.type) || /\\.(mp4|webm|mov)$/i.test(file.name);
+      const isVideo = /^video\//i.test(file.type) || /\.(mp4|webm|mov)$/i.test(file.name);
       const maxBytes = (isVideo ? 20 : 6) * 1024 * 1024;
       if (file.size > maxBytes) {
         bgUploadStatus.textContent = isVideo
