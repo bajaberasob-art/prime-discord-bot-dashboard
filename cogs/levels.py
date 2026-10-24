@@ -684,10 +684,18 @@ class Levels(EngagementXP, commands.Cog):
         image = None
         image_filename = "prime-level-up.png"
         if config["showRankCard"]:
-            # Use the same animation policy as /rank: avoid generating a
-            # multi-frame GIF when all motion is disabled and the background
-            # itself is static. Animated GIF backgrounds still stay animated.
-            animated = await should_use_animated_card(card_settings)
+            # Respect the saved card output format consistently with the editor preview.
+            # Auto keeps the legacy motion policy; explicit PNG/GIF overrides it.
+            design = card_settings.get("card_design")
+            design = design if isinstance(design, dict) else {}
+            output_format = str(design.get("outputFormat", "auto")).lower()
+            if output_format not in {"png", "gif", "auto"}:
+                output_format = "auto"
+            animated = (
+                output_format == "gif" if output_format == "gif"
+                else False if output_format == "png"
+                else await should_use_animated_card(card_settings)
+            )
             renderer = generate_level_up_gif if animated else generate_rank_card
             if animated:
                 image_filename = "prime-level-up.gif"
