@@ -9160,6 +9160,34 @@
         gifStatus.textContent = error.message === "unauth" ? "انتهت الجلسة؛ سجّل الدخول مجدداً." : "تعذر إنشاء حركة الترقية. أعد المحاولة بعد التحقق من إعدادات البطاقة.";
       } finally { gifButton.disabled = false; }
     } });
+    const previewRefresh = el("button", {
+      type: "button",
+      class: "leveling-btn lv-preview-refresh",
+      text: "تحديث المعاينة",
+      onClick: () => drawLvCard(),
+    });
+    const previewDownload = el("button", {
+      type: "button",
+      class: "leveling-btn lv-preview-download",
+      text: "تنزيل البطاقة",
+      disabled: true,
+      onClick: () => {
+        if (!lvCardPreviewUrl) {
+          toast("انتظر اكتمال معاينة البطاقة أولاً.", "warn");
+          return;
+        }
+        const image = $(".leveling-canvas");
+        const mime = String(image?.dataset.mimeType || "image/png").toLowerCase();
+        const extension = mime.includes("gif") ? "gif" : "png";
+        const link = document.createElement("a");
+        link.href = lvCardPreviewUrl;
+        link.download = `prime-level-card-${state.guild?.id || "preview"}.${extension}`;
+        link.rel = "noopener";
+        document.body.append(link);
+        link.click();
+        link.remove();
+      },
+    });
     return el("div", { class: "lv-card-editor" },
       lvCard("معرض القوالب", "ثمانية تخطيطات عملية؛ اختر القالب ثم اضبط تفاصيله أدناه.", gallery),
       el("div", { class: "leveling-split" },
@@ -9177,7 +9205,7 @@
             lvGrid(lvSelect(["card", "animationStyle"], "نمط الحركة", [["beam", "شعاع"], ["aurora", "شفق"], ["burst", "اندفاع"]]), lvNum(["card", "animationIntensity"], "شدّة الحركة", 0, 100, "", true))),
           lvCard("إعدادات قابلة لإعادة الاستخدام", "تُحفظ ضمن المسودة وتُرسل مع الحفظ المعتاد.", el("div", { class: "lv-preset-create" }, presetName, savePreset), presetList)),
         el("div", { class: "leveling-stack lv-preview-column" },
-           lvCard("معاينة بطاقة الرتبة", "تتحدّث مع الإعدادات وبيانات الحساب الحالية؛ وتعرض GIF عند استخدام خلفية متحركة.", el("div", { class: "leveling-canvas-wrap" }, cv), el("p", { class: "leveling-render-status", role: "status", "aria-live": "polite", text: "جارٍ تحميل بطاقة PRIME…" })),
+           lvCard("معاينة بطاقة الرتبة", "معاينة من مولّد PRIME الفعلي. حدّثها يدوياً أو نزّل الناتج الحالي كصورة أو GIF.", el("div", { class: "lv-preview-actions" }, previewRefresh, previewDownload), el("div", { class: "leveling-canvas-wrap" }, cv), el("p", { class: "leveling-render-status", role: "status", "aria-live": "polite", text: "جارٍ تحميل بطاقة PRIME…" })),
           lvCard("اختبار حركة المستوى", "معاينة GIF مستقلة تعرض تأثير الإضاءة المتحرك على بطاقة المستوى؛ لا تحفظ الإعداد.", gifButton, el("div", { class: "lv-gif-wrap" }, gif), gifStatus))));
   }
   let lvBgImg = { url: "", img: null, failed: false };
@@ -9395,6 +9423,8 @@
       const token = ++lvDrawToken, card = { ...lvState().draft.card };
       const status = $(".leveling-render-status");
       image.dataset.ready = "false";
+      const downloadButton = $(".lv-preview-download");
+      if (downloadButton) downloadButton.disabled = true;
       if (status) status.textContent = "ينشئ الخادم معاينة بطاقة بحسابك ونقاطك الحقيقية…";
       lvBgStatus();
       try {
@@ -9406,7 +9436,8 @@
           const problem = await readJson(response, {});
           throw Error(problem.error || "preview");
         }
-        const nextUrl = URL.createObjectURL(await response.blob());
+        const previewBlob = await response.blob();
+        const nextUrl = URL.createObjectURL(previewBlob);
         if (token !== lvDrawToken || !image.isConnected) {
           URL.revokeObjectURL(nextUrl);
           return;
@@ -9415,11 +9446,16 @@
         lvCardPreviewUrl = nextUrl;
         image.src = nextUrl;
         image.dataset.ready = "true";
+        image.dataset.mimeType = previewBlob.type || "image/png";
+        const downloadButton = $(".lv-preview-download");
+        if (downloadButton) downloadButton.disabled = false;
         if (previousUrl) URL.revokeObjectURL(previousUrl);
-        if (status) status.textContent = "المعاينة تعرض بيانات XP والترتيب الحقيقية للحساب المسجّل.";
+        if (status) status.textContent = "اكتملت المعاينة. يمكنك تنزيل الناتج الحالي أو تعديل الإعدادات لإعادة إنشائه.";
       } catch (error) {
         if (token !== lvDrawToken || !image.isConnected) return;
         image.dataset.ready = "error";
+        const downloadButton = $(".lv-preview-download");
+        if (downloadButton) downloadButton.disabled = true;
         if (status) status.textContent = error.message === "unauth"
           ? "انتهت الجلسة؛ سجّل الدخول مجدداً."
           : "تعذر إنشاء المعاينة الحقيقية. تحقق من إعدادات البطاقة ثم أعد المحاولة.";
