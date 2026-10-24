@@ -96,6 +96,23 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         self.assertIn("@media (max-width: 380px)", styles)
         self.assertIn("prefers-reduced-motion: reduce", styles)
 
+    def test_level_evolution_setting_is_saved_previewed_and_cache_busted(self):
+        html = (ROOT / "dashboard/index.html").read_text("utf-8")
+        worker = web_server.service_worker_source()
+        app = (ROOT / "dashboard/app.js").read_text("utf-8")
+        styles = (ROOT / "dashboard/visual-refresh.css").read_text("utf-8")
+        self.assertIn('"evolutionEnabled"', app)
+        self.assertIn('lvSwitch(["card", "evolutionEnabled"], "تطور البطاقة حسب المستوى")', app)
+        self.assertIn('evolutionEnabled: String(card.evolutionEnabled !== false)', app)
+        self.assertIn("lv-evolution-track", app)
+        self.assertIn("100+", app)
+        self.assertIn(".lv-evolution-track", styles)
+        self.assertIn("@media (max-width: 480px)", styles)
+        self.assertIn("prime-card-evolution-phase2-1", html)
+        self.assertIn("./static/app.js?v=prime-card-evolution-phase2-1", worker)
+        self.assertIn("./static/visual-refresh.css?v=phase2-card-evolution-1", worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v51";', worker)
+
     def test_guild_recovery_script_is_cache_busted_in_html_and_worker(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
         worker = web_server.service_worker_source()
