@@ -223,6 +223,7 @@ def local_development_session() -> dict:
         "_local_dev": True,
         "bot_ready": bot_is_connected(bot_ref),
         "bot_guilds_checked": bot_is_connected(bot_ref),
+        "bot_identity_matches_client": bot_identity_matches_client(bot_ref),
         "connected_guilds_count": len(getattr(bot_ref, "guilds", ()) or ()),
     }
 
@@ -272,6 +273,19 @@ def bot_is_connected(bot) -> bool:
         except Exception:
             logger.debug("Could not read Discord gateway readiness.", exc_info=True)
     return bool(getattr(bot, "guilds", ()))
+
+
+def bot_identity_matches_client(bot) -> bool | None:
+    """Return whether CLIENT_ID matches the live bot user ID, when known."""
+    if not C_ID:
+        return None
+    bot_user_id = getattr(getattr(bot, "user", None), "id", None)
+    if bot_user_id is None:
+        return None
+    try:
+        return int(bot_user_id) == int(C_ID)
+    except (TypeError, ValueError):
+        return False
 
 
 def configured_admin_role_ids() -> set[int]:
@@ -485,6 +499,7 @@ async def sync_session_guilds(request, session: dict) -> list[dict]:
     if bot is None:
         session["bot_ready"] = False
         session["bot_guilds_checked"] = False
+        session["bot_identity_matches_client"] = None
         return session.get("guilds", [])
     if session.get("_local_dev"):
         bot_guilds, snapshot_checked = await bot_guild_snapshot(bot)
@@ -494,6 +509,7 @@ async def sync_session_guilds(request, session: dict) -> list[dict]:
         ]
         session["bot_ready"] = bot_is_connected(bot)
         session["bot_guilds_checked"] = snapshot_checked
+        session["bot_identity_matches_client"] = bot_identity_matches_client(bot)
         session["connected_guilds_count"] = len(bot_guilds)
         return session["guilds"]
     bot_guilds, snapshot_checked = await bot_guild_snapshot(bot)
@@ -512,6 +528,7 @@ async def sync_session_guilds(request, session: dict) -> list[dict]:
     session["guilds"] = verified
     session["bot_ready"] = bot_is_connected(bot)
     session["bot_guilds_checked"] = snapshot_checked
+    session["bot_identity_matches_client"] = bot_identity_matches_client(bot)
     session["connected_guilds_count"] = len(bot_guilds)
     return verified
 
@@ -748,6 +765,7 @@ async def callback(request):
             "csrf": secrets.token_urlsafe(32),
             "bot_ready": bot_is_connected(bot),
             "bot_guilds_checked": bot_guilds_checked,
+            "bot_identity_matches_client": bot_identity_matches_client(bot),
             "connected_guilds_count": len(bot_guilds),
             # Keep the provider's mutual-guild view private so later dashboard
             # requests can re-check live bot membership and role access.
