@@ -23,6 +23,7 @@ from cogs.card_generator import (
     generate_level_up_gif,
     generate_rank_card,
     has_animated_background,
+    should_use_animated_card,
 )
 from cogs import card_images
 from cogs.card_images import is_uploaded_background, validate_url
@@ -1161,7 +1162,7 @@ def register_leveling_routes(
             }
             output_format = design["outputFormat"]
             if output_format == "auto":
-                output_format = "gif" if await has_animated_background(settings) else "png"
+                output_format = "gif" if await should_use_animated_card(settings) else "png"
             renderer = generate_level_up_gif if output_format == "gif" else generate_rank_card
             image = await renderer(
                 member, text_level, text_xp, xp_required(text_level), rank, total, settings,
