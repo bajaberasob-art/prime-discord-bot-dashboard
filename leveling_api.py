@@ -853,7 +853,11 @@ def register_leveling_routes(
             if field is None or field.name != "file":
                 raise ValueError("اختر ملف صورة أو GIF أو فيديو أولاً.")
             mime = (field.headers.get("Content-Type") or "").lower()
-            video_mime = mime in {"video/mp4", "video/webm", "video/quicktime"}
+            video_mime = (
+                mime in {"video/mp4", "video/webm", "video/quicktime"}
+                or Path(str(getattr(field, "filename", "") or "")).suffix.lower()
+                in {".mp4", ".webm", ".mov"}
+            )
             max_input = MAX_CARD_VIDEO_BYTES if video_mime else card_images.MAX_BYTES
             chunks = []
             total = 0
@@ -875,7 +879,7 @@ def register_leveling_routes(
             # Detect the actual container by signature; MIME type alone is
             # controlled by the client and is not sufficient validation.
             is_mp4 = len(raw) >= 12 and raw[4:8] == b"ftyp"
-            is_webm = raw.startswith(b"\\x1a\\x45\\xdf\\xa3")
+            is_webm = raw.startswith(b"\x1a\x45\xdf\xa3")
             video_input = is_mp4 or is_webm
             if video_input:
                 if len(raw) > MAX_CARD_VIDEO_BYTES:
