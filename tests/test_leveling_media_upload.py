@@ -146,6 +146,22 @@ class LevelingMediaUploadTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(image.format, "GIF")
             self.assertEqual(image.n_frames, 3)
 
+    async def test_mov_upload_without_ftyp_signature_is_probed_by_ffmpeg(self):
+        def fake_ffmpeg(command, **_kwargs):
+            Path(command[-1]).write_bytes(gif_bytes())
+            return SimpleNamespace(returncode=0)
+
+        # Some QuickTime MOV containers do not begin with an MP4-style ftyp atom.
+        with patch("leveling_api.subprocess.run", side_effect=fake_ffmpeg):
+            response = await self.upload(
+                b"quicktime container with a moov atom", "level-background.mov",
+                "video/quicktime",
+            )
+        self.assertEqual(response.status, 200)
+        payload = await response.json()
+        self.assertTrue(payload["transcodedVideo"])
+        self.assertEqual(payload["format"], "gif")
+
     async def test_mp4_upload_is_transcoded_to_a_guild_owned_gif(self):
         def fake_ffmpeg(command, **_kwargs):
             Path(command[-1]).write_bytes(gif_bytes())
