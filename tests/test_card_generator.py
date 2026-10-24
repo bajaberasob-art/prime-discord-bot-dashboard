@@ -57,6 +57,43 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(getattr(image, "n_frames", 1), 1)
             image.verify()
 
+    async def test_uploaded_background_tokens_are_guild_scoped_and_cached(self):
+        guild_id = 1516185800146944000
+        asset_id = "a" * 32
+        token = f"upload:{guild_id}:{asset_id}.png"
+        previous_root = os.environ.get("PRIME_LEVEL_CARD_UPLOAD_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                os.environ["PRIME_LEVEL_CARD_UPLOAD_DIR"] = directory
+                path = Path(directory) / f"{guild_id}-{asset_id}.png"
+                path.write_bytes(image_bytes())
+                self.assertTrue(card_images.is_uploaded_background(token, guild_id))
+                self.assertFalse(card_images.is_uploaded_background(token, guild_id + 1))
+                self.assertFalse(card_images.is_uploaded_background(
+                    f"upload:{guild_id + 1}:{asset_id}.png", guild_id,
+                ))
+                decoded = await card_images.fetch_image(token)
+                self.assertTrue(decoded and decoded.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        finally:
+            if previous_root is None:
+                os.environ.pop("PRIME_LEVEL_CARD_UPLOAD_DIR", None)
+            else:
+                os.environ["PRIME_LEVEL_CARD_UPLOAD_DIR"] = previous_root
+            with card_images._cache_lock:
+                card_images._cache.clear()
+
+    async def test_zero_animation_intensity_uses_static_rank_card_when_background_is_static(self):
+        settings = {
+            "card_bg_url": "",
+            "card_design": {
+                **cards.CARD_DESIGN_DEFAULTS,
+                "animationEnabled": True,
+                "animationIntensity": 0,
+            },
+        }
+        with patch("cogs.card_generator.fetch_image", new=AsyncMock(return_value=None)):
+            self.assertFalse(await cards.should_use_animated_card(settings))
+
     async def test_all_eight_layouts_are_distinct_valid_pngs(self):
         results = []
         for layout in cards.LAYOUTS:
