@@ -42,7 +42,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
         worker = web_server.service_worker_source()
         match = re.search(
-            r'<script src="static/app\\.js\\?v=([^"]+)"',
+            r'<script src="static/app\.js\?v=([^"]+)"',
             html,
         )
         self.assertIsNotNone(match)
