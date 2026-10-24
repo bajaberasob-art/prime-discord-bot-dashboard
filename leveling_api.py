@@ -1,9 +1,13 @@
 """Authenticated dashboard API for the existing PRIME leveling system."""
+import asyncio
 import math
+import os
 import re
 import secrets
 import sqlite3
 import string
+import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -16,7 +20,8 @@ from cogs.card_generator import (
     generate_rank_card,
     has_animated_background,
 )
-from cogs.card_images import validate_url
+from cogs import card_images
+from cogs.card_images import is_uploaded_background, validate_url
 from level_progression import text_progress, xp_required
 from prime_level_controls import TEMPLATE_VARIABLES, controls_with_defaults, validate_controls
 
@@ -29,6 +34,7 @@ CARD_DESIGN_DEFAULTS = {
     "glowStrength": 54, "particleDensity": 46, "particleColor": "accent",
     "barStyle": "gradient", "frame": "auto", "bgOverlay": 28, "bgBlur": 4,
     "animationEnabled": True, "animationStyle": "beam", "animationIntensity": 62,
+    "backgroundAsset": "",
     "stats": {"messages": True, "voice": True, "streak": True, "serverRank": True},
 }
 CARD_BAR_STYLES = {"gradient", "solid", "segmented", "neon"}
@@ -553,12 +559,29 @@ def _validate_draft(guild, draft, current_settings):
         if not bg.startswith("https://"):
             raise ValueError("card background must use HTTPS")
         validate_url(bg)
+    background_asset = card.get(
+        "backgroundAsset",
+        (current_settings.get("card_design") or {}).get("backgroundAsset", "")
+        if isinstance(current_settings.get("card_design"), dict) else "",
+    )
+    if not isinstance(background_asset, str) or len(background_asset) > 100:
+        raise ValueError("invalid uploaded card background")
+    background_asset = background_asset.strip()
+    if background_asset and not is_uploaded_background(
+        background_asset, guild.id, require_exists=True,
+    ):
+        raise ValueError("الخلفية المرفوعة غير صالحة أو لم تعد موجودة؛ ارفعها مرة أخرى.")
+    if background_asset:
+        # Uploaded media supersedes the external URL; never attempt both.
+        bg = ""
+    card_design = _clean_card_design(card)
+    card_design["backgroundAsset"] = background_asset
     settings.update({
         "card_layout": card["layout"],
         "card_particles": card["particles"],
         "card_color": color.lower(),
         "card_bg_url": bg or None,
-        "card_design": _clean_card_design(card),
+        "card_design": card_design,
     })
 
     multipliers = []
@@ -767,6 +790,78 @@ def register_leveling_routes(
                     guild.id, session.get("id"))
         return web.json_response({"ok": True, **result})
 
+    @routes.post("/api/guild/{guild_id}/leveling/card-background")
+    async def api_leveling_card_background_upload(req):
+        """Upload and normalize a guild-owned PNG/JPG/WEBP/GIF card background."""
+        _, guild = await authorize(req, write=True)
+        try:
+            reader = await req.multipart()
+            field = await reader.next()
+            if field is None or field.name != "file":
+                raise ValueError("اختر ملف صورة أو GIF أولاً.")
+            chunks = []
+            total = 0
+            while True:
+                chunk = await field.read_chunk(size=64 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > card_images.MAX_BYTES:
+                    raise ValueError("حجم الخلفية يجب ألا يتجاوز 6 ميغابايت.")
+                chunks.append(chunk)
+            if not total:
+                raise ValueError("الملف المحدد فارغ.")
+            if await reader.next() is not None:
+                raise ValueError("ارفع ملف خلفية واحدًا في كل مرة.")
+            raw = b"".join(chunks)
+            try:
+                normalized = await asyncio.to_thread(card_images.normalize_image, raw)
+            except Exception as error:
+                raise ValueError(
+                    "الملف غير صالح أو صيغته غير مدعومة. استخدم PNG أو JPG أو WEBP أو GIF."
+                ) from error
+            if not normalized or len(normalized) > card_images.MAX_BYTES:
+                raise ValueError("حجم الخلفية بعد المعالجة يتجاوز 6 ميغابايت.")
+
+            animated = normalized.startswith((b"GIF87a", b"GIF89a"))
+            extension = "gif" if animated else "png"
+            root = card_images.upload_root()
+            root.mkdir(parents=True, exist_ok=True)
+            asset_id = uuid.uuid4().hex
+            token = f"upload:{int(guild.id)}:{asset_id}.{extension}"
+            target = (root / f"{int(guild.id)}-{asset_id}.{extension}").resolve()
+            if target.parent != root:
+                raise ValueError("مسار الخلفية غير صالح.")
+            await asyncio.to_thread(target.write_bytes, normalized)
+            if not is_uploaded_background(token, guild.id, require_exists=True):
+                with contextlib.suppress(OSError):
+                    target.unlink()
+                raise ValueError("تعذر التحقق من الخلفية المحفوظة.")
+
+            # Warm the bounded in-memory cache during upload so the first card
+            # render does not pay the disk-read/decode cost on a level-up event.
+            await card_images.fetch_image(token)
+            return web.json_response({
+                "ok": True,
+                "backgroundAsset": token,
+                "format": extension,
+                "animated": animated,
+                "bytes": len(normalized),
+            })
+        except ValueError as error:
+            return web.json_response({
+                "error": "invalid_card_background", "message": str(error),
+            }, status=400)
+        except Exception:
+            logger.exception(
+                "Leveling card background upload failed guild=%s", req.match_info.get("guild_id"),
+            )
+            return web.json_response({
+                "error": "card_background_upload_failed",
+                "message": "تعذر رفع الخلفية؛ راجع سجل الخادم ثم أعد المحاولة.",
+            }, status=500)
+
+
     @routes.post("/api/guild/{guild_id}/leveling/reset-progress")
     async def api_leveling_reset_progress(req):
         session, guild = await authorize(req, write=True)
@@ -847,6 +942,7 @@ def register_leveling_routes(
     async def api_leveling_card_preview(req):
         session, guild = await authorize(req)
         output_format = req.query.get("format", "png").lower()
+        background_asset = req.query.get("backgroundAsset", "").strip()
         body = {
             "layout": req.query.get("layout", "vertical"),
             "particles": req.query.get("particles", "none"),
@@ -871,6 +967,12 @@ def register_leveling_routes(
                 if not bg.startswith("https://"):
                     raise ValueError("card background must use HTTPS")
                 validate_url(bg)
+            if background_asset and not is_uploaded_background(
+                background_asset, guild.id, require_exists=True,
+            ):
+                raise ValueError("الخلفية المرفوعة غير صالحة أو لم تعد موجودة؛ ارفعها مرة أخرى.")
+            if background_asset:
+                bg = ""
             design = dict(CARD_DESIGN_DEFAULTS)
             for key, minimum, maximum in (
                 ("glowStrength", 0, 100), ("particleDensity", 0, 100),
@@ -904,6 +1006,7 @@ def register_leveling_routes(
                 "serverRank": query_bool("showServerRank", True),
             }
             design = _clean_card_design({**design, "presets": []})
+            design["backgroundAsset"] = background_asset
             body["animated"] = query_bool("animated", True)
             body["showStats"] = query_bool("showStats", True)
         except (TypeError, ValueError) as error:
