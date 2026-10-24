@@ -9027,7 +9027,7 @@
     });
     const bgFile = el("input", {
       type: "file",
-      accept: "image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm",
+      accept: "image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime,.mov",
       "aria-label": "رفع خلفية بطاقة المستوى",
     });
     const bgUploadStatus = el("p", {
