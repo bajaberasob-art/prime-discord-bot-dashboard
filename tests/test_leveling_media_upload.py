@@ -113,6 +113,28 @@ class LevelingMediaUploadTests(unittest.IsolatedAsyncioTestCase):
         loaded = await card_images.fetch_image(token)
         self.assertTrue(loaded and loaded.startswith(b"\x89PNG\r\n\x1a\n"))
 
+    async def test_saved_card_presets_retain_uploaded_background_tokens(self):
+        token = f"upload:{GUILD_ID}:{'a' * 32}.png"
+        preset = {
+            **leveling_api.CARD_DESIGN_DEFAULTS,
+            "id": "uploaded-background",
+            "name": "Uploaded background",
+            "layout": "vertical",
+            "particles": "none",
+            "color": "#26cbab",
+            "bg": "",
+            "backgroundAsset": token,
+            "animated": True,
+            "showStats": True,
+        }
+        cleaned = leveling_api._clean_card_design({
+            **leveling_api.CARD_DESIGN_DEFAULTS,
+            "presets": [preset],
+        })
+        saved = cleaned["presets"][0]
+        self.assertEqual(saved["backgroundAsset"], token)
+        self.assertEqual(saved["bg"], "")
+
     async def test_animated_gif_upload_preserves_motion(self):
         response = await self.upload(gif_bytes(), "level-background.gif", "image/gif")
         self.assertEqual(response.status, 200)
