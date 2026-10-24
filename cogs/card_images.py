@@ -35,10 +35,25 @@ _pending = {}
 
 
 def upload_root():
-    """Resolve the private directory used for dashboard-uploaded card backgrounds."""
-    return Path(
-        os.environ.get("PRIME_LEVEL_CARD_UPLOAD_DIR") or "data/level_card_uploads"
-    ).resolve()
+    """Resolve a private upload directory beside the configured database.
+
+    Keeping uploads beside the database makes the default follow the same persistent
+    mount (for example DB_PATH=/data/bot.db on Fly). Deployments can override the
+    directory explicitly without exposing it to dashboard clients.
+    """
+    configured = (os.environ.get("PRIME_LEVEL_CARD_UPLOAD_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    db_path = (os.environ.get("DB_PATH") or "").strip()
+    if not db_path:
+        # Match database.DB_NAME's legacy filename fallback so existing deployments
+        # don't split their durable database and uploaded backgrounds across roots.
+        if os.path.exists("bot_database.db") and not os.path.exists("data/bot.db"):
+            db_path = "bot_database.db"
+        else:
+            db_path = "data/bot.db"
+    return (Path(db_path).expanduser().resolve().parent / "level_card_uploads").resolve()
 
 
 def uploaded_background_path(reference, guild_id=None):
