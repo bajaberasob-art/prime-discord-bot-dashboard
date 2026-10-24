@@ -34,16 +34,18 @@ SNOWFLAKE_RE = re.compile(r"^\d{15,22}$")
 PUBLIC_SLUG_RE = re.compile(r"^(?=.{3,40}$)[a-z0-9]+(?:-[a-z0-9]+)*$")
 LAYOUTS = {"vertical", "stats", "minimal", "ring", "classic", "banner", "square", "spotlight"}
 PARTICLES = {"none", "sparks", "shine", "embers", "snow", "petals", "neon"}
+CARD_VISUAL_STYLES = {"cyberpunk", "cosmic", "royal", "frost", "emerald", "obsidian", "inferno", "classic"}
 CARD_DESIGN_DEFAULTS = {
     "glowStrength": 54, "particleDensity": 46, "particleColor": "accent",
     "barStyle": "gradient", "frame": "auto", "bgOverlay": 28, "bgBlur": 4,
     "animationEnabled": True, "animationStyle": "beam", "animationIntensity": 62,
+    "visualStyle": "cyberpunk",
     "evolutionEnabled": True,
     "backgroundAsset": "",
     "stats": {"messages": True, "voice": True, "streak": True, "serverRank": True},
 }
 CARD_BAR_STYLES = {"gradient", "solid", "segmented", "neon"}
-CARD_FRAMES = {"auto", "none", "bronze", "silver", "gold", "diamond"}
+CARD_FRAMES = {"auto", "none", "bronze", "silver", "gold", "diamond", "mythic"}
 CARD_ANIMATION_STYLES = {"beam", "aurora", "burst"}
 TEMPLATE_FIELDS = {
     "levelup": set(TEMPLATE_VARIABLES),
@@ -150,6 +152,7 @@ def _clean_card_design(card):
         "evolutionEnabled": _bool(card.get("evolutionEnabled", True), "evolutionEnabled"),
         "animationStyle": card.get("animationStyle", "beam"),
         "animationIntensity": _integer(card.get("animationIntensity", 62), "animationIntensity", 0, 100),
+        "visualStyle": card.get("visualStyle", "cyberpunk"),
     }
     if design["particleColor"] != "accent" and (
         not isinstance(design["particleColor"], str)
@@ -162,6 +165,8 @@ def _clean_card_design(card):
         raise ValueError("invalid rank frame")
     if design["animationStyle"] not in CARD_ANIMATION_STYLES:
         raise ValueError("invalid level-up animation style")
+    if not isinstance(design["visualStyle"], str) or design["visualStyle"] not in CARD_VISUAL_STYLES:
+        raise ValueError("invalid card visual style")
     stats = card.get("stats", CARD_DESIGN_DEFAULTS["stats"])
     if not isinstance(stats, dict):
         raise ValueError("card stats must be an object")
@@ -1085,7 +1090,7 @@ def register_leveling_routes(
                     except (TypeError, ValueError):
                         raise ValueError(f"{key} must be an integer") from None
                     design[key] = _integer(raw, key, minimum, maximum)
-            for key in ("particleColor", "barStyle", "frame", "animationStyle"):
+            for key in ("particleColor", "barStyle", "frame", "animationStyle", "visualStyle"):
                 if key in req.query:
                     design[key] = req.query[key]
 
