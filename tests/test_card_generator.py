@@ -107,6 +107,16 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(image.format, "GIF")
             self.assertEqual(image.n_frames, 3)
 
+    def test_long_animated_backgrounds_are_sampled_to_eighteen_frames_without_speedup(self):
+        durations = [100 + (index % 3) * 10 for index in range(30)]
+        indices, sampled = cards._sample_background_frames(30, durations)
+        self.assertEqual(len(indices), 18)
+        self.assertEqual(len(sampled), 18)
+        self.assertEqual(indices[0], 0)
+        self.assertEqual(indices[-1], 29)
+        self.assertEqual(sum(sampled), sum(durations))
+        self.assertTrue(all(value >= 10 for value in sampled))
+
     async def test_all_eight_layouts_are_distinct_valid_pngs(self):
         results = []
         for layout in cards.LAYOUTS:
