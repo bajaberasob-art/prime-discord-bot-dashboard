@@ -380,14 +380,14 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
             (1000, 300), "#42B9FF", None, "none", {"glowStrength": 0},
         )
         theme = cards._streak_card_theme({"stage_key": "spark"})
+        # Capture the artwork/lighting baseline before drawing; the background is no
+        # longer a flat RGB fill, so asserting a fixed color would be brittle.
+        center_track_pixel = (454 * cards.SCALE, 113 * cards.SCALE)
+        center_track_before = card.image.getpixel(center_track_pixel)
         cards._draw_streak_emblem(card, (908, 226), 34, None, "⚡", theme)
 
         # The emblem belongs in the lower-right panel, not the center track.
-        self.assertEqual(
-            # Ambient card lighting intentionally changes the far-field background color.
-            card.image.getpixel((454 * cards.SCALE, 113 * cards.SCALE)),
-            (10, 16, 24),
-        )
+        self.assertEqual(card.image.getpixel(center_track_pixel), center_track_before)
         self.assertEqual(
             card.image.getpixel((908 * cards.SCALE, 209 * cards.SCALE)),
             (66, 185, 255),
