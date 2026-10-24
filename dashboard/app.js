@@ -8493,7 +8493,7 @@
     points: { xpMultiplier: 1, minXp: 15, maxXp: 25, cooldown: 60, roleMult: [], chanMult: [], boosts: [], allowedChannels: [], bl: { channels: [], users: [], roles: [] } },
     voice: { enabled: true, xpPerMin: 20, muteBlock: true, deafBlock: true, minMembers: 2, dimEnabled: false, dimThreshold: 60, dimRate: 50, separate: true },
     rewards: { highestOnly: true, list: [] },
-    card: { layout: "vertical", particles: "none", color: "#38bdf8", bg: "", animated: true, showStats: true, glowStrength: 54, particleDensity: 46, particleColor: "accent", barStyle: "gradient", frame: "auto", bgOverlay: 28, bgBlur: 4, animationEnabled: true, animationStyle: "beam", animationIntensity: 62, stats: { messages: true, voice: true, streak: true, serverRank: true }, presets: [] },
+    card: { layout: "vertical", particles: "none", color: "#38bdf8", bg: "", backgroundAsset: "", animated: true, showStats: true, glowStrength: 54, particleDensity: 46, particleColor: "accent", barStyle: "gradient", frame: "auto", bgOverlay: 28, bgBlur: 4, animationEnabled: true, animationStyle: "beam", animationIntensity: 62, stats: { messages: true, voice: true, streak: true, serverRank: true }, presets: [] },
     messages: {
       levelup: { on: true, channel: "", tpl: "مبروك {user}! وصلت إلى المستوى {level} في {server}." },
       milestone: { on: true, channel: "", tpl: "{user} حقق إنجازاً جديداً عند المستوى {level}." },
@@ -9017,8 +9017,104 @@
     particleColor.addEventListener("input", () => lvSet(["card", "particleColor"], particleColor.value));
     const particleColorControl = el("div", { class: "lv-particle-color-control" }, lvField("لون الجزيئات المخصص", particleColor),
       el("button", { type: "button", class: "leveling-btn", text: "استخدام لون التمييز", onClick: () => lvSet(["card", "particleColor"], "accent") }));
-    const bg = lvText(["card", "bg"], "رابط الخلفية (HTTPS فقط)", { type: "text", dir: "ltr", placeholder: "https://" }, "اختياري. يتحقق الخادم من الرابط ويحمّله عند إنشاء المعاينة.");
-    bg.querySelector("input").addEventListener("input", (e) => e.target.setAttribute("aria-invalid", String(!lvBgOk(e.target.value.trim()))));
+    const bg = lvText(["card", "bg"], "رابط خلفية خارجي (HTTPS)", { type: "text", dir: "ltr", placeholder: "https://" }, "اختياري؛ أو ارفع ملفًا مباشرة أدناه.");
+    bg.querySelector("input").addEventListener("input", (e) => {
+      e.target.setAttribute("aria-invalid", String(!lvBgOk(e.target.value.trim())));
+      if (e.target.value.trim() && lvGet(["card", "backgroundAsset"])) {
+        lvState().draft.card.backgroundAsset = "";
+        lvTouch();
+      }
+    });
+    const bgFile = el("input", {
+      type: "file",
+      accept: "image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm",
+      "aria-label": "رفع خلفية بطاقة المستوى",
+    });
+    const bgUploadStatus = el("p", {
+      class: "lv-gif-status", role: "status", "aria-live": "polite",
+      text: "ارفع صورة أو GIF حتى 6 ميغابايت، أو فيديو MP4/WEBM حتى 20 ميغابايت؛ الفيديو يتحول إلى GIF قصير.",
+    });
+    const bgUploadButton = el("button", {
+      type: "button", class: "leveling-btn",
+      text: "رفع الصورة أو GIF أو الفيديو",
+      onClick: () => bgFile.click(),
+    });
+    const bgClearButton = el("button", {
+      type: "button", class: "leveling-btn",
+      text: "إزالة الخلفية",
+      onClick: () => {
+        lvState().draft.card.backgroundAsset = "";
+        lvState().draft.card.bg = "";
+        const external = bg.querySelector("input");
+        if (external) external.value = "";
+        bgUploadStatus.textContent = "تمت إزالة الخلفية من المسودة؛ احفظ الإعداد لتطبيق التغيير.";
+        lvTouch();
+      },
+    });
+    bgFile.addEventListener("change", async () => {
+      const file = bgFile.files?.[0];
+      if (!file) return;
+      const isVideo = /^video\\//i.test(file.type) || /\\.(mp4|webm|mov)$/i.test(file.name);
+      const maxBytes = (isVideo ? 20 : 6) * 1024 * 1024;
+      if (file.size > maxBytes) {
+        bgUploadStatus.textContent = isVideo
+          ? "حجم الفيديو يتجاوز 20 ميغابايت."
+          : "حجم الصورة أو GIF يتجاوز 6 ميغابايت.";
+        bgFile.value = "";
+        return;
+      }
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const endpoint = `api/guild/${state.guild.id}/leveling/card-background`;
+      const headers = { "X-CSRF-Token": state.session?.csrf || "" };
+      bgFile.disabled = true;
+      bgUploadButton.disabled = true;
+      bgUploadStatus.textContent = isVideo
+        ? "يجري رفع الفيديو وتحويله إلى GIF قصير…"
+        : "يجري رفع الخلفية والتحقق منها…";
+      try {
+        let response = await api(endpoint, { method: "POST", headers, body: form });
+        if (response.status === 403) {
+          const denied = await readJson(response, {});
+          if (denied.error !== "csrf" || !(await refreshSession())) {
+            throw Error(denied.message || denied.error || "upload_forbidden");
+          }
+          headers["X-CSRF-Token"] = state.session.csrf;
+          response = await api(endpoint, { method: "POST", headers, body: form });
+        }
+        const payload = await readJson(response, {});
+        if (!response.ok || !payload.backgroundAsset) {
+          throw Error(payload.message || payload.error || "upload_failed");
+        }
+        const card = lvState().draft.card;
+        card.backgroundAsset = payload.backgroundAsset;
+        card.bg = "";
+        const external = bg.querySelector("input");
+        if (external) external.value = "";
+        bgUploadStatus.textContent = payload.transcodedVideo
+          ? "تم تحويل الفيديو إلى GIF متحرك مدته حتى 2.4 ثانية؛ احفظ الإعداد لتطبيق الخلفية."
+          : payload.animated
+            ? "تم رفع GIF والتحقق من الحركة؛ احفظ الإعداد لتطبيق الخلفية."
+            : "تم رفع الصورة ومعالجتها؛ احفظ الإعداد لتطبيق الخلفية.";
+        lvTouch();
+      } catch (error) {
+        bgUploadStatus.textContent = error.message === "unauth"
+          ? "انتهت الجلسة؛ سجّل الدخول مجددًا."
+          : (error.message && !/upload_failed|upload_forbidden/.test(error.message)
+            ? error.message
+            : "تعذر رفع الخلفية؛ تحقق من الصيغة والحجم ثم أعد المحاولة.");
+      } finally {
+        bgFile.disabled = false;
+        bgUploadButton.disabled = false;
+        bgFile.value = "";
+      }
+    });
+    const bgUploadControls = el("div", { class: "lv-bg-upload-controls" },
+      lvField("رفع خلفية من جهازك", bgFile,
+        "PNG / JPG / WEBP / GIF حتى 6MB، أو MP4 / WEBM حتى 20MB."),
+      el("div", { class: "lv-actions-row" }, bgUploadButton, bgClearButton),
+      bgUploadStatus,
+    );
     const gallery = el("div", { class: "lv-template-gallery", role: "group", "aria-label": "قوالب بطاقات الرتب" },
       ...Object.entries(LV_LAYOUTS).map(([key, value], index) => el("button", {
         type: "button", class: `lv-template${lvGet(["card", "layout"]) === key ? " is-active" : ""}`,
@@ -9074,6 +9170,7 @@
             lvSelect(["card", "frame"], "إطار الرتبة والمستوى", [["auto", "تلقائي حسب المستوى"], ["none", "بلا إطار"], ["bronze", "برونزي"], ["silver", "فضي"], ["gold", "ذهبي"], ["diamond", "ماسي"]]),
             lvSwitch(["card", "showStats"], "عرض الإحصاءات"), lvSwitch(["card", "animated"], "لمعان شريط التقدم"), lvIdentity(), bg,
             el("p", { class: "leveling-bg-status", role: "status", "aria-live": "polite" }),
+            bgUploadControls,
             lvGrid(lvNum(["card", "glowStrength"], "قوة التوهج", 0, 100, "0 هادئ · 100 قوي", true), lvNum(["card", "particleDensity"], "كثافة الجزيئات", 0, 100, "", true), lvNum(["card", "bgOverlay"], "طبقة تعتيم الخلفية", 0, 85, "تحافظ على وضوح النص.", true), lvNum(["card", "bgBlur"], "تمويه الخلفية", 0, 18, "بالبكسل.", true))),
           lvCard("الإحصاءات المعروضة", "تحكم مستقل بكل معلومة تظهر على البطاقة.", lvSwitch(["card", "stats", "messages"], "الرسائل"), lvSwitch(["card", "stats", "voice"], "الوقت الصوتي"), lvSwitch(["card", "stats", "streak"], "سلسلة النشاط"), lvSwitch(["card", "stats", "serverRank"], "ترتيب السيرفر")),
           lvCard("حركة الترقية", "تأثيرات المستوى على البطاقة، لا عمليات Discord.", lvSwitch(["card", "animationEnabled"], "تفعيل حركة الترقية"),
@@ -9087,9 +9184,15 @@
   function lvBgStatus() {
     const n = $(".leveling-bg-status");
     if (!n) return;
-    const u = String(lvState().draft.card.bg || "").trim();
+    const card = lvState().draft.card;
+    const u = String(card.bg || "").trim();
+    const asset = String(card.backgroundAsset || "").trim();
     let t = "", warn = false;
-    if (!u) t = "لا توجد خلفية مخصصة.";
+    if (asset) {
+      t = asset.endsWith(".gif")
+        ? "خلفية GIF مرفوعة ومحفوظة؛ ستُدمج مع بيانات المستوى عند إنشاء البطاقة."
+        : "خلفية مرفوعة ومحفوظة؛ ستُدمج مع بيانات المستوى عند إنشاء البطاقة.";
+    } else if (!u) t = "لا توجد خلفية مخصصة.";
     else if (!lvBgOk(u)) { t = "تحذير: الرابط غير صالح، يلزم رابط https://."; warn = true; }
     else t = "يحمّل الخادم الخلفية بعد التحقق من أن عنوانها عام وآمن.";
     n.textContent = t;
@@ -9271,6 +9374,7 @@
   function lvBuildCardPreviewParams(card, format) {
     const params = new URLSearchParams({
       layout: card.layout, particles: card.particles, color: card.color, bg: String(card.bg || "").trim(),
+      backgroundAsset: String(card.backgroundAsset || ""),
       animated: String(Boolean(card.animated)), showStats: String(Boolean(card.showStats)),
       glowStrength: String(card.glowStrength ?? 54), particleDensity: String(card.particleDensity ?? 46),
       particleColor: String(card.particleColor || "accent"), barStyle: String(card.barStyle || "gradient"),
