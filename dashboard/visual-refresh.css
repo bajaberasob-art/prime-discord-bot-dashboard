@@ -640,3 +640,70 @@ html.dashboard-theme-enabled :is(.card, .panel, .overview-panel, .overview-pro-c
     flex-basis: 100%;
   }
 }
+
+/* PRIME Card Studio phase 1: accessible theme selection and non-destructive editing controls. */
+.lv-theme-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: .65rem;
+  min-width: 0;
+}
+.lv-theme-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .65rem;
+  min-width: 0;
+  padding: .75rem;
+  color: var(--text);
+  text-align: start;
+  border: 1px solid var(--line);
+  border-radius: .9rem;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .16s ease, background-color .16s ease, transform .16s ease;
+}
+.lv-theme-option:hover { border-color: var(--blue); background: var(--surface-2); }
+.lv-theme-option:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.lv-theme-option.is-active { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 11%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 40%, transparent); }
+.lv-theme-swatch {
+  display: block;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid rgb(255 255 255 / .35);
+  border-radius: .7rem;
+  background: linear-gradient(135deg, var(--theme-a), var(--theme-b));
+  box-shadow: 0 0 1rem color-mix(in srgb, var(--theme-a) 25%, transparent);
+}
+.lv-theme-swatch-cyberpunk { --theme-a: #22d3ee; --theme-b: #a855f7; }
+.lv-theme-swatch-luxury { --theme-a: #fbbf24; --theme-b: #78350f; }
+.lv-theme-swatch-cosmic { --theme-a: #a78bfa; --theme-b: #38bdf8; }
+.lv-theme-swatch-frost { --theme-a: #e0f2fe; --theme-b: #0284c7; }
+.lv-theme-swatch-emerald { --theme-a: #34d399; --theme-b: #065f46; }
+.lv-theme-swatch-minimal { --theme-a: #f8fafc; --theme-b: #64748b; }
+.lv-theme-copy { display: grid; gap: .2rem; min-width: 0; }
+.lv-theme-copy b { overflow-wrap: anywhere; font-size: .9rem; }
+.lv-theme-copy small { color: var(--muted); font-size: .75rem; }
+.lv-theme-apply-mark { color: var(--blue); font-weight: 800; opacity: 0; }
+.lv-theme-option.is-active .lv-theme-apply-mark { opacity: 1; }
+.lv-card-history-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-block: .5rem .8rem; }
+.lv-card-history-actions > button { flex: 1 1 8rem; min-width: 0; }
+.lv-card-history-actions > button:disabled { cursor: not-allowed; opacity: .45; }
+.lv-card-history-actions > .lv-card-restore { flex: 1 1 10rem; }
+@media (max-width: 640px) {
+  .lv-theme-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+  .lv-theme-option { grid-template-columns: auto minmax(0, 1fr); padding: .6rem; gap: .5rem; }
+  .lv-theme-apply-mark { display: none; }
+  .lv-card-history-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lv-card-history-actions > button { width: 100%; }
+  .lv-card-history-actions > .lv-card-restore { grid-column: 1 / -1; }
+}
+@media (max-width: 380px) {
+  .lv-theme-gallery { grid-template-columns: minmax(0, 1fr); }
+  .lv-theme-option { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .lv-theme-apply-mark { display: inline; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lv-theme-option { transition: none; }
+}
