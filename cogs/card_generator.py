@@ -122,9 +122,37 @@ class Card:
         self.image = Image.blend(self.image, glow, 0.18 * strength / 100)
         self.draw = ImageDraw.Draw(self.image)
         self.fonts = {}
+        self._draw_ambient_lighting()
         self.panel((12, 12, self.w - 12, self.h - 12), radius=28, fill=None)
         self.particles(mode)
         self._draw_visual_motif()
+
+    def _draw_ambient_lighting(self):
+        """Give every template a layered backdrop without hiding profile photos."""
+        width, height = self.image.size
+        accent = ImageColor.getrgb(self.accent)[:3]
+        bloom = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        glow = ImageDraw.Draw(bloom)
+        glow.ellipse(
+            (-int(width * .28), -int(height * .62), int(width * .52), int(height * .72)),
+            fill=(*accent, 42),
+        )
+        glow.ellipse(
+            (int(width * .54), int(height * .36), int(width * 1.28), int(height * 1.35)),
+            fill=(87, 103, 246, 34),
+        )
+        bloom = bloom.filter(ImageFilter.GaussianBlur(max(24, SCALE * 40)))
+        self.image = Image.alpha_composite(self.image.convert("RGBA"), bloom).convert("RGB")
+
+        # Near-invisible texture avoids flat, muddy black areas on OLED screens.
+        texture = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        td = ImageDraw.Draw(texture)
+        for x in range(32 * SCALE, width, 64 * SCALE):
+            td.line((x, 0, x, height), fill=(230, 240, 255, 4), width=SCALE)
+        for y in range(32 * SCALE, height, 64 * SCALE):
+            td.line((0, y, width, y), fill=(230, 240, 255, 4), width=SCALE)
+        self.image = Image.alpha_composite(self.image.convert("RGBA"), texture).convert("RGB")
+        self.draw = ImageDraw.Draw(self.image)
 
     def _draw_visual_motif(self):
         """Theme-level card art: circuit traces, orbits, frames and bevels."""
