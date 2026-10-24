@@ -9961,6 +9961,7 @@
         lvPicker([...p, "rank", "channels"], "تقييد القنوات (فارغ = كل القنوات)", "channel"),
         lvSwitch([...p, "rank", "imageOnly"], "صورة فقط (تتجاوز النص والإمبد)"),
         lvSwitch([...p, "rank", "showCard"], "عرض بطاقة PRIME"),
+        lvSelect([...p, "rank", "cardFormat"], "صيغة البطاقة", [["png", "صورة PNG ثابتة · أسرع"], ["gif", "GIF متحرك · حجم محسّن"]]),
         lvSwitch([...p, "rank", "showCustomMessage"], "عرض رسالة مخصصة"),
         lvArea([...p, "rank", "customMessage"], "الرسالة المخصصة", "متغيرات: {user} {username} {mention} {level} {xp} {required_xp} {progress} {rank} {total_members} {messages} {voice_time} {streak} {server}"),
         lvSwitch([...p, "rank", "sendEmbed"], "إرسال الرسالة داخل Embed"),

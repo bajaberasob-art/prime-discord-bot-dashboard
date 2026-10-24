@@ -14,7 +14,6 @@ import database
 from cogs.card_generator import (
     generate_level_up_gif,
     generate_rank_card,
-    should_use_animated_card,
 )
 from cogs.utilities import ShortcutInteraction
 from interaction_runtime import send_interaction_message
@@ -232,19 +231,11 @@ class RankCommands(commands.Cog):
             image = None
             image_filename = "prime-rank.png"
             if should_render_card:
-                # The text shortcut adapter cannot acknowledge a deferred response
-                # in Discord. Rendering an 18-frame GIF before sending anything
-                # made !لفل / !level look frozen. Keep slash /rank animated but
-                # use the fast static renderer for message-based shortcuts.
-                is_shortcut = bool(getattr(interaction, "_shortcut_adapter", False))
-                if is_shortcut:
-                    renderer = generate_rank_card
-                else:
-                    renderer = (
-                        generate_level_up_gif
-                        if await should_use_animated_card(card_settings)
-                        else generate_rank_card
-                    )
+                # Respect the explicit dashboard output choice for both slash and
+                # message shortcuts. GIF output is palette-optimized in the renderer;
+                # PNG remains the fastest option for users who prioritize latency.
+                card_format = str(rank_config.get("cardFormat", "png")).lower()
+                renderer = generate_level_up_gif if card_format == "gif" else generate_rank_card
                 if renderer is generate_level_up_gif:
                     image_filename = "prime-rank.gif"
                 image = await renderer(
