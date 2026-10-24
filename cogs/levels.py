@@ -18,7 +18,7 @@ from cogs.card_generator import (
     generate_level_up_gif,
     generate_rank_card,
     generate_streak_card,
-    has_animated_background,
+    should_use_animated_card,
 )
 from cogs.card_images import fetch_image
 from level_engagement import EngagementXP
@@ -684,11 +684,10 @@ class Levels(EngagementXP, commands.Cog):
         image = None
         image_filename = "prime-level-up.png"
         if config["showRankCard"]:
-            card_design = card_settings.get("card_design")
-            if not isinstance(card_design, dict):
-                card_design = {}
-            animated = card_design.get("animationEnabled", True) is not False
-            animated = animated or await has_animated_background(card_settings)
+            # Use the same animation policy as /rank: avoid generating a
+            # multi-frame GIF when all motion is disabled and the background
+            # itself is static. Animated GIF backgrounds still stay animated.
+            animated = await should_use_animated_card(card_settings)
             renderer = generate_level_up_gif if animated else generate_rank_card
             if animated:
                 image_filename = "prime-level-up.gif"
