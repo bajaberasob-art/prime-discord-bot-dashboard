@@ -106,3 +106,8 @@ Manual commands include `/rank`, `/lvl`, `لفل`, and `rank`; `/rank` defaults 
 Dashboard notification settings are stored in PRIME controls and are applied through the leveling settings API. Legacy leveling fields remain as compatibility storage for existing installations.
 
 Runtime SQLite files are ignored by Git via `*.db`, `*.sqlite`, and `*.sqlite3`. Existing deployments that intentionally use a tracked legacy database should migrate that data to their persistent `DB_PATH` before removing the legacy file from the repository; do not delete a live production database blindly.
+
+
+## Discloud deployment verification
+
+After a change is merged into `main`, verify the deployed revision in the Discloud app details before testing dashboard features. The latest GitHub commit and the latest deployed commit are separate states; a successful rebuild or restart alone does not prove that the newest revision was deployed. If the displayed revision is stale, refresh the GitHub repository list and inspect the deployment event/log before retrying the build.
