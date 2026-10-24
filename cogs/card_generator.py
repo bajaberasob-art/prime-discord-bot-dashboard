@@ -131,17 +131,22 @@ class Card:
         """Give every template a layered backdrop without hiding profile photos."""
         width, height = self.image.size
         accent = ImageColor.getrgb(self.accent)[:3]
-        bloom = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+
+        # Build soft light at low resolution and upscale it; this keeps the new finish cheap.
+        bloom_size = (max(1, width // 5), max(1, height // 5))
+        bw, bh = bloom_size
+        bloom = Image.new("RGBA", bloom_size, (0, 0, 0, 0))
         glow = ImageDraw.Draw(bloom)
         glow.ellipse(
-            (-int(width * .28), -int(height * .62), int(width * .52), int(height * .72)),
+            (-int(bw * .28), -int(bh * .62), int(bw * .52), int(bh * .72)),
             fill=(*accent, 42),
         )
         glow.ellipse(
-            (int(width * .54), int(height * .36), int(width * 1.28), int(height * 1.35)),
+            (int(bw * .54), int(bh * .36), int(bw * 1.28), int(bh * 1.35)),
             fill=(87, 103, 246, 34),
         )
-        bloom = bloom.filter(ImageFilter.GaussianBlur(max(24, SCALE * 40)))
+        bloom = bloom.filter(ImageFilter.GaussianBlur(max(5, SCALE * 8)))
+        bloom = bloom.resize((width, height), Image.Resampling.BILINEAR)
         self.image = Image.alpha_composite(self.image.convert("RGBA"), bloom).convert("RGB")
 
         # Near-invisible texture avoids flat, muddy black areas on OLED screens.
