@@ -1112,7 +1112,7 @@ def register_leveling_routes(
             design["evolutionEnabled"] = query_bool("evolutionEnabled", True)
             design["outputFormat"] = (
                 requested_format.lower() if requested_format is not None
-                else req.query.get("outputFormat", "auto").lower()
+                else req.query.get("outputFormat", "png").lower()
             )
             if design["outputFormat"] not in {"png", "gif", "auto"}:
                 raise ValueError("unsupported card output format")
