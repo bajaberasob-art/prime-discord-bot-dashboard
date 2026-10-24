@@ -111,7 +111,7 @@ class Card:
                 if overlay:
                     self.image = Image.blend(
                         self.image, Image.new("RGB", self.image.size, "#030611"),
-                        min(0.38, overlay / 100),
+                        min(0.38, overlay / 180),
                     )
         else:
             # Bundled procedural artwork fallback: a distinct cinematic environment for
