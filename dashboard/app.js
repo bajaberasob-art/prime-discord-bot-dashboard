@@ -11348,14 +11348,21 @@
         const botReady = state.session.bot_ready === true;
         const guildsChecked = state.session.bot_guilds_checked === true;
         const botGuildCount = Number(state.session.connected_guilds_count || 0);
+        const botIdentityMatches = state.session.bot_identity_matches_client;
+        const identityMismatch = botIdentityMatches === false;
         const confirmedNoBotGuilds = guildsChecked && botGuildCount === 0;
-        const statusText = !guildsChecked
-          ? "تعذر تأكيد قائمة سيرفرات البوت من Discord حالياً. لا تعِد دعوة البوت لمجرد ظهور هذه الرسالة؛ تأكد من أن خدمة البوت تعمل ثم أعد الفحص."
-          : confirmedNoBotGuilds
-            ? "تم التحقق من Discord، لكن هوية البوت الحالية لا تظهر ضمن أي سيرفر. تأكد من تشغيل النسخة الصحيحة من البوت قبل إعادة الدعوة."
-            : botReady
-              ? "البوت متصل، لكن حسابك لا يملك صلاحية الإدارة في السيرفرات المشتركة معه. سجّل الدخول بحساب مالك السيرفر أو حساب لديه Administrator أو Manage Server."
-              : "تم العثور على البوت ضمن سيرفرات، لكن اتصال Discord Gateway لم يكتمل بعد. لا تحتاج إلى دعوة البوت مجدداً؛ أعد الفحص بعد استقرار الاتصال.";
+        const canInvite = confirmedNoBotGuilds && botIdentityMatches === true && Boolean(inviteUrl);
+        const statusText = identityMismatch
+          ? "إعداد CLIENT_ID لا يطابق معرّف البوت الذي يعمل فعلياً. صحّح إعدادات Discord Developer Portal ومتغيرات Discloud؛ لا تدعُ رابطاً قد يشغّل بوتاً مختلفاً."
+          : !guildsChecked
+            ? "تعذر تأكيد قائمة سيرفرات البوت من Discord حالياً. لا تعِد دعوة البوت لمجرد ظهور هذه الرسالة؛ تأكد من أن خدمة البوت تعمل ثم أعد الفحص."
+            : confirmedNoBotGuilds && botIdentityMatches !== true
+              ? "قائمة سيرفرات البوت فارغة، لكن تعذر تأكيد أن CLIENT_ID يطابق هوية البوت العامل. تحقق من إعدادات التطبيق والرمز قبل إعادة الدعوة."
+              : confirmedNoBotGuilds
+                ? "تم التحقق من Discord، لكن هوية البوت الحالية لا تظهر ضمن أي سيرفر. تأكد من تشغيل النسخة الصحيحة من البوت قبل إعادة الدعوة."
+                : botReady
+                  ? "البوت متصل، لكن حسابك لا يملك صلاحية الإدارة في السيرفرات المشتركة معه. سجّل الدخول بحساب مالك السيرفر أو حساب لديه Administrator أو Manage Server."
+                  : "تم العثور على البوت ضمن سيرفرات، لكن اتصال Discord Gateway لم يكتمل بعد. لا تحتاج إلى دعوة البوت مجدداً؛ أعد الفحص بعد استقرار الاتصال.";
         app.replaceChildren(
           el(
             "main",
@@ -11368,7 +11375,7 @@
               el(
                 "div",
                 { class: "empty-actions" },
-                confirmedNoBotGuilds && inviteUrl
+                canInvite
                   ? el(
                       "a",
                       {
@@ -11386,7 +11393,7 @@
                   text: "إعادة فحص اتصال البوت",
                   onClick: () => window.location.reload(),
                 }),
-                !guildsChecked
+                (!guildsChecked || botIdentityMatches !== true)
                   ? el("small", {
                       class: "empty-hint",
                       text: "إذا استمرت المشكلة، راجع سجلات تشغيل البوت في Discloud وتأكد أن DISCORD_TOKEN وCLIENT_ID يعودان إلى التطبيق نفسه.",
