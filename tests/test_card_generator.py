@@ -57,6 +57,29 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(getattr(image, "n_frames", 1), 1)
             image.verify()
 
+    def test_upload_root_tracks_the_configured_database_volume(self):
+        old_upload_root = os.environ.get("PRIME_LEVEL_CARD_UPLOAD_DIR")
+        old_db_path = os.environ.get("DB_PATH")
+        try:
+            os.environ.pop("PRIME_LEVEL_CARD_UPLOAD_DIR", None)
+            with tempfile.TemporaryDirectory() as directory:
+                db_path = Path(directory) / "persistent" / "bot.db"
+                os.environ["DB_PATH"] = str(db_path)
+                expected = (db_path.parent / "level_card_uploads").resolve()
+                self.assertEqual(card_images.upload_root(), expected)
+                override = Path(directory) / "custom-media"
+                os.environ["PRIME_LEVEL_CARD_UPLOAD_DIR"] = str(override)
+                self.assertEqual(card_images.upload_root(), override.resolve())
+        finally:
+            if old_upload_root is None:
+                os.environ.pop("PRIME_LEVEL_CARD_UPLOAD_DIR", None)
+            else:
+                os.environ["PRIME_LEVEL_CARD_UPLOAD_DIR"] = old_upload_root
+            if old_db_path is None:
+                os.environ.pop("DB_PATH", None)
+            else:
+                os.environ["DB_PATH"] = old_db_path
+
     async def test_uploaded_background_tokens_are_guild_scoped_and_cached(self):
         guild_id = 1516185800146944000
         asset_id = "a" * 32
@@ -74,6 +97,12 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
                 ))
                 decoded = await card_images.fetch_image(token)
                 self.assertTrue(decoded and decoded.startswith(b"\x89PNG\r\n\x1a\n"))
+                # A cold-cache reload must still work from the persisted file,
+                # which models a process restart rather than relying on RAM cache.
+                with card_images._cache_lock:
+                    card_images._cache.clear()
+                after_restart = await card_images.fetch_image(token)
+                self.assertTrue(after_restart and after_restart.startswith(b"\x89PNG\r\n\x1a\n"))
         finally:
             if previous_root is None:
                 os.environ.pop("PRIME_LEVEL_CARD_UPLOAD_DIR", None)
