@@ -32,7 +32,7 @@ from prime_level_controls import TEMPLATE_VARIABLES, controls_with_defaults, val
 
 SNOWFLAKE_RE = re.compile(r"^\d{15,22}$")
 PUBLIC_SLUG_RE = re.compile(r"^(?=.{3,40}$)[a-z0-9]+(?:-[a-z0-9]+)*$")
-LAYOUTS = {"vertical", "stats", "minimal", "ring", "classic", "banner", "square", "spotlight"}
+LAYOUTS = {"vertical", "stats", "minimal", "ring", "classic", "banner", "square", "spotlight", "showcase"}
 PARTICLES = {"none", "sparks", "shine", "embers", "snow", "petals", "neon"}
 CARD_VISUAL_STYLES = {"cyberpunk", "cosmic", "royal", "frost", "emerald", "obsidian", "inferno", "classic"}
 CARD_DESIGN_DEFAULTS = {
