@@ -8479,12 +8479,15 @@
   const LV_LAYOUTS = { vertical: [560, 900, "عمودية"], stats: [1000, 420, "إحصائيات"], minimal: [900, 230, "مصغّرة"], ring: [620, 680, "حلقة"], classic: [1000, 340, "كلاسيكية"], banner: [1000, 300, "شريطية"], square: [640, 640, "مربّعة"], spotlight: [1000, 500, "كشاف"] };
   const LV_PARTS = { none: "بدون", sparks: "شرارات", shine: "لمعان", embers: "جمر", snow: "ثلج", petals: "بتلات", neon: "نيون" };
   const LV_CARD_THEMES = [
-    { id: "cyberpunk", name: "سايبربنك", description: "نيون وطاقة", style: { color: "#22d3ee", particles: "neon", particleColor: "#a855f7", barStyle: "neon", frame: "diamond", glowStrength: 78, particleDensity: 72, bgOverlay: 38, bgBlur: 5, animationEnabled: true, animationStyle: "beam", animationIntensity: 78 } },
-    { id: "luxury", name: "فخامة", description: "ذهب ومعدن", style: { color: "#fbbf24", particles: "shine", particleColor: "#f59e0b", barStyle: "gradient", frame: "gold", glowStrength: 42, particleDensity: 25, bgOverlay: 48, bgBlur: 3, animationEnabled: true, animationStyle: "aurora", animationIntensity: 32 } },
-    { id: "cosmic", name: "مجرّي", description: "بنفسجي ونجوم", style: { color: "#a78bfa", particles: "embers", particleColor: "#38bdf8", barStyle: "gradient", frame: "diamond", glowStrength: 68, particleDensity: 58, bgOverlay: 32, bgBlur: 7, animationEnabled: true, animationStyle: "aurora", animationIntensity: 66 } },
-    { id: "frost", name: "جليدي", description: "سماوي وفضي", style: { color: "#7dd3fc", particles: "snow", particleColor: "#e0f2fe", barStyle: "segmented", frame: "silver", glowStrength: 55, particleDensity: 45, bgOverlay: 36, bgBlur: 4, animationEnabled: true, animationStyle: "beam", animationIntensity: 44 } },
-    { id: "emerald", name: "زمردي", description: "أخضر متوهّج", style: { color: "#34d399", particles: "petals", particleColor: "#6ee7b7", barStyle: "solid", frame: "gold", glowStrength: 55, particleDensity: 40, bgOverlay: 34, bgBlur: 3, animationEnabled: true, animationStyle: "burst", animationIntensity: 48 } },
-    { id: "minimal", name: "مينيمال", description: "نظيف وهادئ", style: { color: "#f8fafc", particles: "none", particleColor: "accent", barStyle: "solid", frame: "none", glowStrength: 12, particleDensity: 0, bgOverlay: 18, bgBlur: 0, animationEnabled: false, animationStyle: "beam", animationIntensity: 0 } },
+    { id: "cyberpunk", name: "سايبربنك", description: "HUD وتقنيات نيون", style: { layout: "spotlight", visualStyle: "cyberpunk", color: "#22d3ee", particles: "neon", particleColor: "#a855f7", barStyle: "neon", frame: "diamond", glowStrength: 82, particleDensity: 68, bgOverlay: 42, bgBlur: 5, animationEnabled: true, animationStyle: "beam", animationIntensity: 82 } },
+    { id: "luxury", name: "ملكي فاخر", description: "ذهب وإطار مزدوج", style: { layout: "stats", visualStyle: "royal", color: "#fbbf24", particles: "shine", particleColor: "#f59e0b", barStyle: "gradient", frame: "gold", glowStrength: 48, particleDensity: 24, bgOverlay: 48, bgBlur: 3, animationEnabled: true, animationStyle: "aurora", animationIntensity: 32 } },
+    { id: "cosmic", name: "مجرّي", description: "مدارات ووهج فضائي", style: { layout: "ring", visualStyle: "cosmic", color: "#a78bfa", particles: "embers", particleColor: "#38bdf8", barStyle: "gradient", frame: "diamond", glowStrength: 72, particleDensity: 56, bgOverlay: 34, bgBlur: 7, animationEnabled: true, animationStyle: "aurora", animationIntensity: 70 } },
+    { id: "frost", name: "جليدي", description: "بلّورات وتكوين عريض", style: { layout: "banner", visualStyle: "frost", color: "#7dd3fc", particles: "snow", particleColor: "#e0f2fe", barStyle: "segmented", frame: "silver", glowStrength: 60, particleDensity: 38, bgOverlay: 36, bgBlur: 4, animationEnabled: true, animationStyle: "beam", animationIntensity: 44 } },
+    { id: "emerald", name: "زمردي", description: "وصلات هندسية خضراء", style: { layout: "vertical", visualStyle: "emerald", color: "#34d399", particles: "petals", particleColor: "#6ee7b7", barStyle: "solid", frame: "gold", glowStrength: 58, particleDensity: 40, bgOverlay: 34, bgBlur: 3, animationEnabled: true, animationStyle: "burst", animationIntensity: 48 } },
+    { id: "obsidian", name: "أوبسيديان", description: "أسود معدني هادئ", style: { layout: "minimal", visualStyle: "obsidian", color: "#cbd5e1", particles: "none", particleColor: "accent", barStyle: "solid", frame: "none", glowStrength: 8, particleDensity: 0, bgOverlay: 20, bgBlur: 0, animationEnabled: false, animationStyle: "beam", animationIntensity: 0 } },
+    { id: "inferno", name: "إنفيرنو", description: "لهب وتوهج حاد", style: { layout: "spotlight", visualStyle: "inferno", color: "#fb7185", particles: "embers", particleColor: "#fb923c", barStyle: "neon", frame: "mythic", glowStrength: 88, particleDensity: 78, bgOverlay: 48, bgBlur: 5, animationEnabled: true, animationStyle: "burst", animationIntensity: 90 } },
+    { id: "mythic", name: "ميثيك", description: "هوية أسطورية بنفسجية", style: { layout: "square", visualStyle: "royal", color: "#c084fc", particles: "shine", particleColor: "#e9d5ff", barStyle: "neon", frame: "mythic", glowStrength: 86, particleDensity: 60, bgOverlay: 38, bgBlur: 4, animationEnabled: true, animationStyle: "aurora", animationIntensity: 76 } },
+    { id: "minimal", name: "مينيمال", description: "بساطة نظيفة", style: { layout: "classic", visualStyle: "classic", color: "#f8fafc", particles: "none", particleColor: "accent", barStyle: "solid", frame: "none", glowStrength: 12, particleDensity: 0, bgOverlay: 18, bgBlur: 0, animationEnabled: false, animationStyle: "beam", animationIntensity: 0 } },
   ];
   const LV_STREAK_TEMPLATE_VARS = {
     duplicate: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank"]),
@@ -8493,7 +8496,7 @@
     milestone: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank", "threshold"]),
     reminder: new Set(["user", "username", "mention", "streak", "current_streak", "best", "best_streak", "stage", "stage_name", "next_stage", "remaining", "progress", "time_remaining", "server", "server_rank", "global_rank"]),
   };
-  const LV_CARD_STYLE_KEYS = ["layout", "particles", "color", "bg", "backgroundAsset", "animated", "showStats", "glowStrength", "particleDensity", "particleColor", "barStyle", "frame", "bgOverlay", "bgBlur", "animationEnabled", "evolutionEnabled", "animationStyle", "animationIntensity", "stats"];
+  const LV_CARD_STYLE_KEYS = ["layout", "visualStyle", "particles", "color", "bg", "backgroundAsset", "animated", "showStats", "glowStrength", "particleDensity", "particleColor", "barStyle", "frame", "bgOverlay", "bgBlur", "animationEnabled", "evolutionEnabled", "animationStyle", "animationIntensity", "stats"];
   const lvCardStyleSnapshot = (card) => Object.fromEntries(LV_CARD_STYLE_KEYS.map((key) => [key, clone(card[key])]));
   const lvDefaults = () => ({
     public: { enabled: false, slug: "" },
@@ -8501,7 +8504,7 @@
     points: { xpMultiplier: 1, minXp: 15, maxXp: 25, cooldown: 60, roleMult: [], chanMult: [], boosts: [], allowedChannels: [], bl: { channels: [], users: [], roles: [] } },
     voice: { enabled: true, xpPerMin: 20, muteBlock: true, deafBlock: true, minMembers: 2, dimEnabled: false, dimThreshold: 60, dimRate: 50, separate: true },
     rewards: { highestOnly: true, list: [] },
-    card: { layout: "vertical", particles: "none", color: "#38bdf8", bg: "", backgroundAsset: "", animated: true, showStats: true, glowStrength: 54, particleDensity: 46, particleColor: "accent", barStyle: "gradient", frame: "auto", bgOverlay: 28, bgBlur: 4, animationEnabled: true, evolutionEnabled: true, animationStyle: "beam", animationIntensity: 62, stats: { messages: true, voice: true, streak: true, serverRank: true }, presets: [] },
+    card: { layout: "vertical", visualStyle: "cyberpunk", particles: "none", color: "#38bdf8", bg: "", backgroundAsset: "", animated: true, showStats: true, glowStrength: 54, particleDensity: 46, particleColor: "accent", barStyle: "gradient", frame: "auto", bgOverlay: 28, bgBlur: 4, animationEnabled: true, evolutionEnabled: true, animationStyle: "beam", animationIntensity: 62, stats: { messages: true, voice: true, streak: true, serverRank: true }, presets: [] },
     messages: {
       levelup: { on: true, channel: "", tpl: "مبروك {user}! وصلت إلى المستوى {level} في {server}." },
       milestone: { on: true, channel: "", tpl: "{user} حقق إنجازاً جديداً عند المستوى {level}." },
@@ -9258,7 +9261,7 @@
       if (!rawStyle || typeof rawStyle !== "object" || Array.isArray(rawStyle)) {
         throw Error("بيانات تصميم البطاقة داخل الملف غير صالحة.");
       }
-      const stringKeys = ["layout", "particles", "color", "bg", "particleColor", "barStyle", "frame", "animationStyle"];
+      const stringKeys = ["layout", "visualStyle", "particles", "color", "bg", "particleColor", "barStyle", "frame", "animationStyle"];
       for (const key of stringKeys) {
         if (key in rawStyle && typeof rawStyle[key] !== "string") {
           throw Error("قيمة " + key + " يجب أن تكون نصاً.");
@@ -9297,8 +9300,9 @@
         throw Error("رابط الخلفية يجب أن يكون HTTPS صالحاً وألا يتجاوز 400 حرف.");
       }
       if (!["gradient", "solid", "segmented", "neon"].includes(style.barStyle)) throw Error("أسلوب شريط التقدم داخل الملف غير صالح.");
-      if (!["auto", "none", "bronze", "silver", "gold", "diamond"].includes(style.frame)) throw Error("إطار البطاقة داخل الملف غير صالح.");
+      if (!["auto", "none", "bronze", "silver", "gold", "diamond", "mythic"].includes(style.frame)) throw Error("إطار البطاقة داخل الملف غير صالح.");
       if (!["beam", "aurora", "burst"].includes(style.animationStyle)) throw Error("نمط الحركة داخل الملف غير صالح.");
+      if (!["cyberpunk", "cosmic", "royal", "frost", "emerald", "obsidian", "inferno", "classic"].includes(style.visualStyle)) throw Error("الهوية البصرية داخل الملف غير صالحة.");
       const ranges = [
         ["glowStrength", 0, 100], ["particleDensity", 0, 100],
         ["bgOverlay", 0, 85], ["bgBlur", 0, 18], ["animationIntensity", 0, 100],
@@ -9470,11 +9474,12 @@
       lvCard("معرض القوالب", "ثمانية تخطيطات عملية؛ اختر القالب ثم اضبط تفاصيله أدناه.", gallery),
       el("div", { class: "leveling-split" },
         el("div", { class: "leveling-stack" },
-          lvCard("الثيمات الجاهزة", "طبّق هوية متناسقة بضغطة واحدة؛ تبقى الخلفية والتخطيط والإحصاءات كما اخترتها.", themeGallery),
+          lvCard("القوالب الجاهزة", "كل قالب يغيّر التكوين والهوية البصرية والإطار والمؤثرات معاً؛ وتقدر تعدّل أي تفصيل بعد تطبيقه.", themeGallery),
           lvCard("الهوية والتكوين", "تُحفظ هذه القيم ضمن إعدادات المستوى الحالية.",
             lvGrid(lvSelect(["card", "particles"], "أثر الجزيئات", Object.entries(LV_PARTS)), lvSelect(["card", "barStyle"], "أسلوب شريط التقدم", [["gradient", "متدرّج"], ["solid", "مصمت"], ["segmented", "مقسّم"], ["neon", "مضيء"]])),
             el("div", { class: "lv-color-row" }, lvField("لون التمييز", color), particleColorControl),
-            lvSelect(["card", "frame"], "إطار الرتبة والمستوى", [["auto", "تلقائي حسب المستوى"], ["none", "بلا إطار"], ["bronze", "برونزي"], ["silver", "فضي"], ["gold", "ذهبي"], ["diamond", "ماسي"]]),
+            lvSelect(["card", "frame"], "إطار الرتبة والمستوى", [["auto", "تلقائي حسب المستوى"], ["none", "بلا إطار"], ["bronze", "برونزي"], ["silver", "فضي"], ["gold", "ذهبي"], ["diamond", "ماسي"], ["mythic", "ميثيك"]]),
+            lvSelect(["card", "visualStyle"], "الهوية البصرية الفعلية", [["cyberpunk", "سايبربنك"], ["cosmic", "مجرّي"], ["royal", "ملكي"], ["frost", "جليدي"], ["emerald", "زمردي"], ["obsidian", "أوبسيديان"], ["inferno", "إنفيرنو"], ["classic", "كلاسيكي"]]),
             lvSwitch(["card", "evolutionEnabled"], "تطور البطاقة حسب المستوى"),
             el("div", { class: "lv-evolution-track", role: "img", "aria-label": "مراحل تطور البطاقة: برونزي من المستوى 0، فضي من 10، ذهبي من 25، ماسي من 50، وميثيك من 100" },
               ...[{ key: "bronze", label: "برونزي", level: "0+", color: "#c88754" }, { key: "silver", label: "فضي", level: "10+", color: "#d3d9e6" }, { key: "gold", label: "ذهبي", level: "25+", color: "#ffd166" }, { key: "diamond", label: "ماسي", level: "50+", color: "#77e4f2" }, { key: "mythic", label: "ميثيك", level: "100+", color: "#c084fc" }].map((stage) => el("div", { class: "lv-evolution-stage lv-evolution-" + stage.key }, el("i", { "aria-hidden": "true", style: "background:" + stage.color }), el("b", { text: stage.label }), el("small", { text: "LV " + stage.level })))), 
@@ -9688,7 +9693,7 @@
       animated: String(Boolean(card.animated)), showStats: String(Boolean(card.showStats)),
       glowStrength: String(card.glowStrength ?? 54), particleDensity: String(card.particleDensity ?? 46),
       particleColor: String(card.particleColor || "accent"), barStyle: String(card.barStyle || "gradient"),
-      frame: String(card.frame || "auto"), bgOverlay: String(card.bgOverlay ?? 28), bgBlur: String(card.bgBlur ?? 4),
+      frame: String(card.frame || "auto"), visualStyle: String(card.visualStyle || "cyberpunk"), bgOverlay: String(card.bgOverlay ?? 28), bgBlur: String(card.bgBlur ?? 4),
       animationEnabled: String(Boolean(card.animationEnabled)), evolutionEnabled: String(card.evolutionEnabled !== false), animationStyle: String(card.animationStyle || "beam"),
       animationIntensity: String(card.animationIntensity ?? 62),
       showMessages: String(Boolean(card.stats?.messages)), showVoice: String(Boolean(card.stats?.voice)),
@@ -9710,7 +9715,7 @@
       if (status) status.textContent = "ينشئ الخادم معاينة بطاقة بحسابك ونقاطك الحقيقية…";
       lvBgStatus();
       try {
-        const params = lvBuildCardPreviewParams(card, "auto");
+        const params = lvBuildCardPreviewParams(card, "png");
         const response = await api(
           `api/guild/${state.guild.id}/leveling/card-preview?${params.toString()}`,
         );

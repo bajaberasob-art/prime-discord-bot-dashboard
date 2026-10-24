@@ -24,10 +24,12 @@ LAYOUTS = {"vertical": (560, 900), "stats": (1000, 420), "minimal": (900, 230),
            "ring": (620, 680), "classic": (1000, 340), "banner": (1000, 300),
            "square": (640, 640), "spotlight": (1000, 500)}
 PARTICLES = {"none", "sparks", "shine", "embers", "snow", "petals", "neon"}
+CARD_VISUAL_STYLES = {"cyberpunk", "cosmic", "royal", "frost", "emerald", "obsidian", "inferno", "classic"}
 CARD_DESIGN_DEFAULTS = {
     "glowStrength": 54, "particleDensity": 46, "particleColor": "accent",
     "barStyle": "gradient", "frame": "auto", "bgOverlay": 28, "bgBlur": 4,
     "animationEnabled": True, "animationStyle": "beam", "animationIntensity": 62,
+    "visualStyle": "cyberpunk",
     "evolutionEnabled": True,
     "stats": {"messages": True, "voice": True, "streak": True, "serverRank": True},
 }
@@ -122,6 +124,95 @@ class Card:
         self.fonts = {}
         self.panel((12, 12, self.w - 12, self.h - 12), radius=28, fill=None)
         self.particles(mode)
+        self._draw_visual_motif()
+
+    def _draw_visual_motif(self):
+        """Theme-level card art: circuit traces, orbits, frames and bevels."""
+        style = self.design.get("visualStyle", "cyberpunk")
+        if not isinstance(style, str) or style not in CARD_VISUAL_STYLES:
+            style = "cyberpunk"
+        if style == "classic":
+            return
+
+        w, h = self.w, self.h
+        accent = ImageColor.getrgb(self.accent)
+        overlay = Image.new("RGBA", self.image.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        def point(x, y):
+            return int(x * SCALE), int(y * SCALE)
+
+        def trace(points, alpha=32, weight=1):
+            draw.line([point(x, y) for x, y in points],
+                      fill=(*accent, alpha), width=max(1, weight * SCALE), joint="curve")
+
+        def tint(points, alpha=14):
+            draw.polygon([point(x, y) for x, y in points], fill=(*accent, alpha))
+
+        if style == "cyberpunk":
+            tint([(0, 0), (w * .28, 0), (w * .23, 8), (12, 8)], 22)
+            tint([(w, h), (w * .72, h), (w * .77, h - 8), (w - 12, h - 8)], 22)
+            for x in range(18, max(19, w - 18), 44):
+                trace([(x, 14), (x + 7, 14), (x + 7, 22)], 24)
+                trace([(x, h - 22), (x + 7, h - 22), (x + 7, h - 14)], 18)
+            trace([(14, h * .19), (24, h * .19), (36, h * .19 + 10),
+                   (36, h * .19 + 24)], 70, 2)
+            trace([(w - 14, h * .72), (w - 25, h * .72),
+                   (w - 36, h * .72 - 10), (w - 36, h * .72 - 24)], 58, 2)
+        elif style == "cosmic":
+            cx, cy = w * .84, h * .18
+            for rx, ry, alpha in ((h * .10, h * .07, 42), (h * .14, h * .035, 24)):
+                draw.ellipse((int((cx-rx)*SCALE), int((cy-ry)*SCALE),
+                              int((cx+rx)*SCALE), int((cy+ry)*SCALE)),
+                             outline=(*accent, alpha), width=1*SCALE)
+            trace([(cx - 16, cy), (cx + 16, cy)], 40)
+            rng = random.Random(731)
+            for _ in range(max(12, min(28, w // 28))):
+                x = rng.choice([rng.uniform(18, w * .17), rng.uniform(w * .83, w - 18)])
+                y = rng.uniform(20, h - 20)
+                draw.ellipse((int(x*SCALE), int(y*SCALE), int((x+2)*SCALE),
+                              int((y+2)*SCALE)), fill=(*accent, rng.randint(25, 62)))
+        elif style == "royal":
+            draw.rounded_rectangle((18*SCALE, 18*SCALE, (w-18)*SCALE, (h-18)*SCALE),
+                                   radius=24*SCALE, outline=(*accent, 52), width=2*SCALE)
+            draw.rounded_rectangle((25*SCALE, 25*SCALE, (w-25)*SCALE, (h-25)*SCALE),
+                                   radius=20*SCALE, outline=(*accent, 24), width=1*SCALE)
+            for x, y, direction in ((21, 21, 1), (w-21, 21, -1),
+                                    (21, h-21, 1), (w-21, h-21, -1)):
+                tint([(x, y-5), (x+5*direction, y), (x, y+5),
+                      (x-5*direction, y)], 70)
+        elif style == "frost":
+            for side in (0, 1):
+                x = 18 if side == 0 else w - 18
+                direction = 1 if side == 0 else -1
+                for y in range(34, max(35, h - 24), 68):
+                    trace([(x, y-12), (x+direction*7, y-4), (x+direction*7, y+5),
+                           (x, y+13), (x-direction*7, y+5), (x-direction*7, y-4),
+                           (x, y-12)], 34)
+            tint([(0, 0), (w*.18, 0), (0, h*.12)], 12)
+            tint([(w, h), (w*.82, h), (w, h*.88)], 12)
+        elif style == "emerald":
+            for side in (0, 1):
+                x = 18 if side == 0 else w - 18
+                direction = 1 if side == 0 else -1
+                for y in range(42, max(43, h - 30), 82):
+                    trace([(x, y), (x+direction*18, y), (x+direction*18, y+14),
+                           (x+direction*30, y+14)], 42)
+        elif style == "obsidian":
+            neutral = (190, 198, 214, 42)
+            trace([(14, 44), (14, 14), (w*.22, 14)], 36)
+            trace([(w-14, h-44), (w-14, h-14), (w*.78, h-14)], 36)
+            draw.polygon([point(0, 0), point(34, 0), point(0, 34)], fill=neutral)
+            draw.polygon([point(w, h), point(w-34, h), point(w, h-34)], fill=neutral)
+        elif style == "inferno":
+            tint([(0, h*.25), (w*.15, h*.08), (w*.12, h*.17), (0, h*.32)], 24)
+            tint([(w, h*.67), (w*.85, h*.84), (w*.88, h*.75), (w, h*.58)], 24)
+            for offset in range(4):
+                trace([(8 + offset*5, h*.35 + offset*9),
+                       (30 + offset*5, h*.23 + offset*9)], 24 + offset*7)
+
+        self.image = Image.alpha_composite(self.image.convert("RGBA"), overlay).convert("RGB")
+        self.draw = ImageDraw.Draw(self.image)
 
     def font(self, size, bold=False, emoji=False):
         key = (size, bold, emoji)
@@ -335,8 +426,11 @@ def _render(
     evolution = level_evolution_stage(level) if design.get("evolutionEnabled", True) is not False else None
     design["evolution"] = evolution
     if frame == "auto":
-        frame = "bronze" if number(level) < 10 else "silver" if number(level) < 25 else (
-            "gold" if number(level) < 50 else "diamond"
+        frame = (
+            "bronze" if number(level) < 10 else
+            "silver" if number(level) < 25 else
+            "gold" if number(level) < 50 else
+            "diamond" if number(level) < 100 else "mythic"
         )
     voice = settings.get("total_voice_seconds")
     stats = [
@@ -461,11 +555,12 @@ def _render(
         if show_stat("messages"): card.compact_stat((42, 270, 336, 328), *stats[0])
         if show_stat("voice"): card.compact_stat((353, 270, 647, 328), *stats[1])
         if show_stat("streak"): card.compact_stat((664, 270, 958, 328), *stats[2])
-    if frame in {"bronze", "silver", "gold", "diamond"}:
+    if frame in {"bronze", "silver", "gold", "diamond", "mythic"}:
         frame_color = (
             evolution["color"] if auto_frame and evolution
             else {"bronze": "#c88754", "silver": "#d3d9e6",
-                  "gold": "#ffd166", "diamond": "#77e4f2"}[frame]
+                  "gold": "#ffd166", "diamond": "#77e4f2",
+                  "mythic": "#c084fc"}[frame]
         )
         card.draw.rounded_rectangle(
             (8*SCALE, 8*SCALE, (card.w-8)*SCALE, (card.h-8)*SCALE),
