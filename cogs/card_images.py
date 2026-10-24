@@ -144,6 +144,7 @@ def normalize_image(data):
 
             frame_count = int(getattr(source, "n_frames", 1) or 1)
             if source.format == "GIF" and frame_count > 1:
+                loop_count = source.info.get("loop", 0)
                 target_count = min(frame_count, MAX_ANIMATED_FRAMES)
                 indices = [
                     round(index * (frame_count - 1) / (target_count - 1))
@@ -181,7 +182,7 @@ def normalize_image(data):
                     save_all=True,
                     append_images=frames[1:],
                     duration=sampled_durations,
-                    loop=source.info.get("loop", 0),
+                    loop=loop_count,
                     disposal=2,
                     optimize=True,
                 )
