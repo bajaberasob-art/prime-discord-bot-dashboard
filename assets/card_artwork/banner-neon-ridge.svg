@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="420" viewBox="0 0 1000 420">
+<defs><linearGradient id="bg" x2="1" y2="0"><stop stop-color="#080f20"/><stop offset=".48" stop-color="#18354a"/><stop offset="1" stop-color="#171331"/></linearGradient><linearGradient id="slash"><stop stop-color="#45ddf5" stop-opacity="0"/><stop offset=".5" stop-color="#45ddf5" stop-opacity=".7"/><stop offset="1" stop-color="#ad8bff" stop-opacity="0"/></linearGradient></defs>
+<rect width="1000" height="420" fill="url(#bg)"/><path d="M490 -30 610 -30 440 450 320 450Z" fill="url(#slash)" opacity=".65"/><path d="M660 -20 730 -20 570 440 500 440Z" fill="url(#slash)" opacity=".4"/>
+<circle cx="760" cy="120" r="120" fill="#45ddf5" opacity=".06"/><circle cx="760" cy="120" r="76" fill="none" stroke="#45ddf5" stroke-opacity=".35" stroke-width="2"/>
+<path d="M0 310 100 260 180 300 270 220 355 315 430 270 520 335 620 245 710 325 800 250 900 315 1000 260V420H0Z" fill="#0b1427"/>
+<path d="M0 365 140 325 245 360 365 310 470 380 600 330 720 375 835 320 1000 365V420H0Z" fill="#050914"/>
+<g stroke="#45ddf5" stroke-opacity=".5" fill="none" stroke-width="2"><path d="M24 24H180M24 24V78M976 24H820M976 24V78"/><path d="M24 396H180M24 396V342M976 396H820M976 396V342"/></g>
+</svg>
