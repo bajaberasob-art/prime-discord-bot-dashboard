@@ -23,6 +23,7 @@ from cogs.card_generator import (
     generate_level_up_gif,
     generate_rank_card,
     has_animated_background,
+    should_use_animated_card,
 )
 from cogs import card_images
 from cogs.card_images import is_uploaded_background, validate_url
@@ -39,6 +40,7 @@ CARD_DESIGN_DEFAULTS = {
     "glowStrength": 54, "particleDensity": 46, "particleColor": "accent",
     "barStyle": "gradient", "frame": "auto", "bgOverlay": 28, "bgBlur": 4,
     "animationEnabled": True, "animationStyle": "beam", "animationIntensity": 62,
+    "outputFormat": "auto",
     "visualStyle": "cyberpunk",
     "evolutionEnabled": True,
     "backgroundAsset": "",
@@ -152,6 +154,7 @@ def _clean_card_design(card):
         "evolutionEnabled": _bool(card.get("evolutionEnabled", True), "evolutionEnabled"),
         "animationStyle": card.get("animationStyle", "beam"),
         "animationIntensity": _integer(card.get("animationIntensity", 62), "animationIntensity", 0, 100),
+        "outputFormat": card.get("outputFormat", "auto"),
         "visualStyle": card.get("visualStyle", "cyberpunk"),
     }
     if design["particleColor"] != "accent" and (
@@ -165,6 +168,8 @@ def _clean_card_design(card):
         raise ValueError("invalid rank frame")
     if design["animationStyle"] not in CARD_ANIMATION_STYLES:
         raise ValueError("invalid level-up animation style")
+    if design["outputFormat"] not in {"png", "gif", "auto"}:
+        raise ValueError("invalid card output format")
     if not isinstance(design["visualStyle"], str) or design["visualStyle"] not in CARD_VISUAL_STYLES:
         raise ValueError("invalid card visual style")
     stats = card.get("stats", CARD_DESIGN_DEFAULTS["stats"])
@@ -1046,7 +1051,7 @@ def register_leveling_routes(
     @routes.get("/api/guild/{guild_id}/leveling/card-preview")
     async def api_leveling_card_preview(req):
         session, guild = await authorize(req)
-        output_format = req.query.get("format", "png").lower()
+        requested_format = req.query.get("format")
         background_asset = req.query.get("backgroundAsset", "").strip()
         body = {
             "layout": req.query.get("layout", "vertical"),
@@ -1055,7 +1060,7 @@ def register_leveling_routes(
             "bg": req.query.get("bg", ""),
         }
         try:
-            if output_format not in {"png", "gif", "auto"}:
+            if requested_format is not None and requested_format.lower() not in {"png", "gif", "auto"}:
                 raise ValueError("unsupported card preview format")
             layout = body.get("layout", "vertical")
             particles = body.get("particles", "none")
@@ -1105,6 +1110,12 @@ def register_leveling_routes(
 
             design["animationEnabled"] = query_bool("animationEnabled", True)
             design["evolutionEnabled"] = query_bool("evolutionEnabled", True)
+            design["outputFormat"] = (
+                requested_format.lower() if requested_format is not None
+                else req.query.get("outputFormat", "png").lower()
+            )
+            if design["outputFormat"] not in {"png", "gif", "auto"}:
+                raise ValueError("unsupported card output format")
             design["stats"] = {
                 "messages": query_bool("showMessages", True),
                 "voice": query_bool("showVoice", True),
@@ -1149,10 +1160,9 @@ def register_leveling_routes(
                 "total_voice_seconds": (row or {}).get("total_voice_seconds"),
                 "current_streak": (row or {}).get("current_streak"),
             }
+            output_format = design["outputFormat"]
             if output_format == "auto":
-                output_format = (
-                    "gif" if await has_animated_background(settings) else "png"
-                )
+                output_format = "gif" if await should_use_animated_card(settings) else "png"
             renderer = generate_level_up_gif if output_format == "gif" else generate_rank_card
             image = await renderer(
                 member, text_level, text_xp, xp_required(text_level), rank, total, settings,

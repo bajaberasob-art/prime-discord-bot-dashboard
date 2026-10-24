@@ -111,6 +111,14 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
             with card_images._cache_lock:
                 card_images._cache.clear()
 
+    async def test_card_output_format_defaults_to_png_and_rejects_invalid_values(self):
+        from leveling_api import _clean_card_design
+        self.assertEqual(_clean_card_design({})["outputFormat"], "auto")
+        self.assertEqual(_clean_card_design({"outputFormat": "gif"})["outputFormat"], "gif")
+        self.assertEqual(_clean_card_design({"outputFormat": "auto"})["outputFormat"], "auto")
+        with self.assertRaises(ValueError):
+            _clean_card_design({"outputFormat": "webp"})
+
     async def test_zero_animation_intensity_uses_static_rank_card_when_background_is_static(self):
         settings = {
             "card_bg_url": "",
