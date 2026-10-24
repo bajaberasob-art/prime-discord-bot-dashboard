@@ -9165,6 +9165,32 @@
       if (!rawStyle || typeof rawStyle !== "object" || Array.isArray(rawStyle)) {
         throw Error("بيانات تصميم البطاقة داخل الملف غير صالحة.");
       }
+      const stringKeys = ["layout", "particles", "color", "bg", "particleColor", "barStyle", "frame", "animationStyle"];
+      for (const key of stringKeys) {
+        if (key in rawStyle && typeof rawStyle[key] !== "string") {
+          throw Error("قيمة " + key + " يجب أن تكون نصاً.");
+        }
+      }
+      for (const key of ["animated", "showStats", "animationEnabled"]) {
+        if (key in rawStyle && typeof rawStyle[key] !== "boolean") {
+          throw Error("إعداد " + key + " يجب أن يكون true أو false.");
+        }
+      }
+      for (const key of ["glowStrength", "particleDensity", "bgOverlay", "bgBlur", "animationIntensity"]) {
+        if (key in rawStyle && (typeof rawStyle[key] !== "number" || !Number.isFinite(rawStyle[key]))) {
+          throw Error("قيمة " + key + " يجب أن تكون رقماً.");
+        }
+      }
+      if ("stats" in rawStyle && (!rawStyle.stats || typeof rawStyle.stats !== "object" || Array.isArray(rawStyle.stats))) {
+        throw Error("خيارات الإحصاءات داخل الملف غير صالحة.");
+      }
+      if (rawStyle.stats && typeof rawStyle.stats === "object" && !Array.isArray(rawStyle.stats)) {
+        for (const key of ["messages", "voice", "streak", "serverRank"]) {
+          if (key in rawStyle.stats && typeof rawStyle.stats[key] !== "boolean") {
+            throw Error("خيار إحصاءات " + key + " يجب أن يكون true أو false.");
+          }
+        }
+      }
       const defaults = lvDefaults().card;
       const merged = lvMerge(defaults, rawStyle);
       const style = lvPortableCardStyle(merged);
