@@ -9715,7 +9715,7 @@
       if (status) status.textContent = "ينشئ الخادم معاينة بطاقة بحسابك ونقاطك الحقيقية…";
       lvBgStatus();
       try {
-        const params = lvBuildCardPreviewParams(card, "auto");
+        const params = lvBuildCardPreviewParams(card, "png");
         const response = await api(
           `api/guild/${state.guild.id}/leveling/card-preview?${params.toString()}`,
         );
