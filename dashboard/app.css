@@ -12209,6 +12209,10 @@ body.leveling-route .nav-item.active[data-nav-view="leveling"] { color: #e6f4ff;
 .leveling-errors p { margin: 2px 0; }
 .leveling-bg-status, .leveling-legend { margin: 0; font-size: 12px; color: #8ba3c9; }
 .leveling-bg-status.is-warn { color: #ff9fc0; }
+.lv-bg-upload-controls { display: grid; gap: 10px; margin: 10px 0 4px; padding: 12px; border: 1px solid var(--lv-line); border-radius: 14px; background: #050b1a; }
+.lv-bg-upload-controls input[type="file"] { width: 100%; min-width: 0; color: #9fb3cb; font-size: 12px; }
+.lv-actions-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lv-actions-row .leveling-btn { flex: 1 1 150px; }
 .leveling-avatar-status { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--lv-line); border-radius: 14px; background: #050b1a; }
 .leveling-chart-wrap { padding: 8px; border: 1px solid var(--lv-line); border-radius: 14px; background: #050b1a; }
 .leveling-chart { display: block; width: 100%; height: auto; max-height: 220px; }
