@@ -11345,7 +11345,17 @@
       }
       if (!state.session.guilds?.length) {
         const inviteUrl = state.session.invite_url;
-         const botReady = state.session.bot_ready === true;
+        const botReady = state.session.bot_ready === true;
+        const guildsChecked = state.session.bot_guilds_checked === true;
+        const botGuildCount = Number(state.session.connected_guilds_count || 0);
+        const confirmedNoBotGuilds = guildsChecked && botGuildCount === 0;
+        const statusText = !guildsChecked
+          ? "تعذر تأكيد قائمة سيرفرات البوت من Discord حالياً. لا تعِد دعوة البوت لمجرد ظهور هذه الرسالة؛ تأكد من أن خدمة البوت تعمل ثم أعد الفحص."
+          : confirmedNoBotGuilds
+            ? "تم التحقق من Discord، لكن هوية البوت الحالية لا تظهر ضمن أي سيرفر. تأكد من تشغيل النسخة الصحيحة من البوت قبل إعادة الدعوة."
+            : botReady
+              ? "البوت متصل، لكن حسابك لا يملك صلاحية الإدارة في السيرفرات المشتركة معه. سجّل الدخول بحساب مالك السيرفر أو حساب لديه Administrator أو Manage Server."
+              : "تم العثور على البوت ضمن سيرفرات، لكن اتصال Discord Gateway لم يكتمل بعد. لا تحتاج إلى دعوة البوت مجدداً؛ أعد الفحص بعد استقرار الاتصال.";
         app.replaceChildren(
           el(
             "main",
@@ -11353,17 +11363,13 @@
             el(
               "div",
               { class: "empty access-empty" },
-              el("strong", { text: "لا توجد سيرفرات مصرّح بها" }),
-              el("span", {
-                text: botReady
-                  ? "البوت متصل، لكن لا توجد صلاحية إدارة في السيرفرات التي تملكها أو أن البوت غير مضاف إليها."
-                  : "البوت غير متصل حالياً بـ Discord، لذلك لا تستطيع اللوحة رؤية السيرفرات التي أُضيف إليها.",
-              }),
-              inviteUrl
-                ? el(
-                    "div",
-                    { class: "empty-actions" },
-                    el(
+              el("strong", { text: "تعذر العثور على سيرفر قابل للإدارة" }),
+              el("span", { text: statusText }),
+              el(
+                "div",
+                { class: "empty-actions" },
+                confirmedNoBotGuilds && inviteUrl
+                  ? el(
                       "a",
                       {
                         class: "invite-button",
@@ -11372,18 +11378,21 @@
                         rel: "noopener noreferrer",
                       },
                       "دعوة البوت إلى سيرفر",
-                    ),
-                     el("small", {
-                       class: "empty-hint",
-                       text: botReady
-                         ? "اختر السيرفر من صفحة Discord ثم وافق على الدعوة، وبعدها أعد تحميل الداشبورد."
-                         : "شغّل البوت وانتظر ظهور رسالة الاتصال بـ Discord، ثم سجّل الخروج وأعد تسجيل الدخول.",
-                     }),
-                  )
-                : el("span", {
-                    class: "empty-hint",
-                    text: "رابط دعوة البوت غير متاح حالياً. تحقق من إعداد CLIENT_ID ثم أعد المحاولة.",
-                  }),
+                    )
+                  : null,
+                el("button", {
+                  class: "btn secondary",
+                  type: "button",
+                  text: "إعادة فحص اتصال البوت",
+                  onClick: () => window.location.reload(),
+                }),
+                !guildsChecked
+                  ? el("small", {
+                      class: "empty-hint",
+                      text: "إذا استمرت المشكلة، راجع سجلات تشغيل البوت في Discloud وتأكد أن DISCORD_TOKEN وCLIENT_ID يعودان إلى التطبيق نفسه.",
+                    })
+                  : null,
+              ),
             ),
           ),
         );
