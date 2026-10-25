@@ -478,6 +478,31 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             )
         return session, guild
 
+    @routes.get("/profile-store-admin/{guild_id}")
+    async def profile_store_admin_page(request):
+        session, _guild = await store_authorize(request)
+        page_path = Path(__file__).resolve().parent / "dashboard" / "profile-store-admin.html"
+        try:
+            html = await asyncio.to_thread(page_path.read_text, "utf-8")
+        except OSError:
+            return _json_error(503, "store_admin_ui_unavailable")
+        # The token comes from the authenticated server session, not a client parameter.
+        csrf_token = str(session.get("csrf", ""))
+        safe_csrf = json.dumps(csrf_token, ensure_ascii=True)
+        safe_guild_id = json.dumps(str(_guild.id), ensure_ascii=True)
+        html = html.replace('data-guild-id="" data-csrf=""',
+                            f'data-guild-id={safe_guild_id} data-csrf={safe_csrf}')
+        return web.Response(
+            text=html,
+            content_type="text/html",
+            charset="utf-8",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "same-origin",
+            },
+        )
+
     @routes.get("/api/guild/{guild_id}/profile-store")
     async def profile_store_admin_get(request):
         _session, guild = await store_authorize(request)
