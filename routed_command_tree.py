@@ -162,8 +162,9 @@ class RoutedCommandTree(app_commands.CommandTree):
                     continue
                 group = self._ensure_group_registry().get(group_name)
                 if group is not None:
-                    removed = group.remove_command(command)
+                    removed = group.get_command(command)
                     if removed is not None:
+                        group.remove_command(command)
                         self._remove_empty_group(group_name, group)
                         return removed
 
@@ -175,8 +176,9 @@ class RoutedCommandTree(app_commands.CommandTree):
         # example, unloading an extension after startup).
         if guild is None and type is discord.AppCommandType.chat_input:
             for group_name, group in list(self._ensure_group_registry().items()):
-                removed = group.remove_command(command)
+                removed = group.get_command(command)
                 if removed is not None:
+                    group.remove_command(command)
                     self._remove_empty_group(group_name, group)
                     return removed
         return None
