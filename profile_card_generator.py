@@ -180,20 +180,19 @@ def _scale_position(box: dict, key: str, default: int, upper: int) -> int:
 
 
 def _draw_gradient(width: int, height: int, base: str, accent: str) -> Image.Image:
+    """Build a smooth dark gradient in O(height), then add a blurred accent glow."""
     base_rgb = ImageColor.getrgb(base)
     accent_rgb = ImageColor.getrgb(accent)
     image = Image.new("RGB", (width, height), base_rgb)
-    pixels = image.load()
+    draw = ImageDraw.Draw(image)
     for y in range(height):
-        vertical = y / max(1, height - 1)
-        for x in range(width):
-            horizontal = x / max(1, width - 1)
-            glow = max(0.0, 1.0 - abs(horizontal - 0.78) * 1.65 - vertical * 0.65) * 0.22
-            blend = min(0.3, glow + vertical * 0.045)
-            pixels[x, y] = tuple(
-                int(base_rgb[i] * (1 - blend) + accent_rgb[i] * blend)
-                for i in range(3)
-            )
+        fraction = y / max(1, height - 1)
+        blend = 0.06 + fraction * 0.10
+        color = tuple(
+            int(base_rgb[channel] * (1 - blend) + accent_rgb[channel] * blend)
+            for channel in range(3)
+        )
+        draw.line((0, y, width, y), fill=color)
     glow_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     glow_draw = ImageDraw.Draw(glow_layer)
     glow_draw.ellipse(
@@ -457,7 +456,7 @@ def render_profile_card(
 
     # A clean, high-resolution PNG avoids accidentally treating template sheets as cards.
     output = io.BytesIO()
-    canvas.convert("RGB").save(output, format="PNG", optimize=True)
+    canvas.save(output, format="PNG", optimize=True)
     output.seek(0)
     return output
 
