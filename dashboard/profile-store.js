@@ -4,7 +4,7 @@
   const state = {
     items: [], wallet: { coins: 0, gems: 0, bank: 0 }, user: {}, guild: {}, equipped: {},
     category: "all", subcategory: "all", filter: "all", sort: "recommended", search: "",
-    selectedId: null, busy: false, loaded: false
+    selectedId: null, busy: false, loaded: false, previewBusy: false, previewObjectUrl: null
   };
   const CATEGORIES = {
     all: { label: "كل الأقسام", icon: "▦" },
@@ -343,7 +343,17 @@
   function openSheet(itemId) {
     const item = findItem(itemId);
     if (!item) return;
-    state.selectedId = Number(item.item_id);
+    const nextId = Number(item.item_id);
+    if (state.selectedId !== nextId) {
+      const previousImage = $("#serverPreviewImage");
+      if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
+      state.previewObjectUrl = null;
+      previousImage.removeAttribute("src");
+      previousImage.hidden = true;
+      $("#serverPreviewResult").hidden = true;
+      $("#serverPreviewStatus").textContent = "";
+    }
+    state.selectedId = nextId;
     const art = productArt(item, true);
     $("#detailArt").replaceChildren(...Array.from(art.childNodes));
     $("#detailArt").style.setProperty("--item-accent", safeColor(item.style && item.style.accent));
@@ -402,6 +412,55 @@
     state.selectedId = null;
     renderGrid();
   }
+  async function renderFullPreview() {
+    const item = findItem();
+    if (!item || state.previewBusy) return;
+    const button = $("#renderFullPreview");
+    const result = $("#serverPreviewResult");
+    const status = $("#serverPreviewStatus");
+    const image = $("#serverPreviewImage");
+    state.previewBusy = true;
+    button.disabled = true;
+    button.textContent = "جاري إنشاء البطاقة...";
+    result.hidden = false;
+    status.textContent = "يتم الآن تشغيل مولّد بطاقات PRIME على بياناتك الحقيقية. لا يتم خصم رصيد أو تغيير تجهيزاتك.";
+    image.hidden = true;
+    try {
+      const response = await fetch("/api/profile-store/preview/" + encodeURIComponent(String(item.item_id)), {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { Accept: "image/png, application/json" }
+      });
+      if (!response.ok) {
+        let data = {};
+        try { data = await response.json(); } catch (_) {}
+        const code = typeof data.error === "string" ? data.error : "preview_failed";
+        throw Object.assign(new Error(code), {
+          code,
+          status: response.status,
+          message: typeof data.message === "string" ? data.message : ""
+        });
+      }
+      const blob = await response.blob();
+      if (!blob.type.toLowerCase().includes("image/png") || !blob.size) {
+        throw Object.assign(new Error("preview_invalid_image"), { code: "preview_failed" });
+      }
+      if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
+      state.previewObjectUrl = URL.createObjectURL(blob);
+      image.src = state.previewObjectUrl;
+      image.hidden = false;
+      status.textContent = "هذه معاينة ناتجة من مولّد بطاقة PRIME الفعلي. لم يتم حفظ أي تغيير.";
+    } catch (error) {
+      status.textContent = errorText(error);
+      toast(errorText(error), "error");
+    } finally {
+      state.previewBusy = false;
+      button.disabled = false;
+      button.textContent = "تحديث المعاينة الفعلية";
+    }
+  }
+
   async function runAction(action, item) {
     if (state.busy || !item) return;
     state.busy = true;
@@ -485,6 +544,7 @@
     const button = event.target.closest("[data-item-id]");
     if (button) openSheet(button.dataset.itemId);
   });
+  $("#renderFullPreview").addEventListener("click", renderFullPreview);
   $("#closeSheet").addEventListener("click", closeSheet);
   $("#sheetScrim").addEventListener("click", closeSheet);
   document.addEventListener("keydown", event => { if (event.key === "Escape") closeSheet(); });
@@ -498,6 +558,11 @@
     $("#storeSort").value = "recommended";
     renderGrid();
   });
+  window.addEventListener("pagehide", () => {
+    if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
+    state.previewObjectUrl = null;
+  });
+
   $("#storeLogout").addEventListener("click", async () => {
     try {
       await api("/api/profile-store/logout", { method: "POST", body: {} });
