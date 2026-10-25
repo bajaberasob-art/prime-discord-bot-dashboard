@@ -473,11 +473,17 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
     max_radius = max(radii)
     step_x = max(3, width // 72)
     step_y = max(3, height // 72)
-    # Search enough of the canvas to support mirrored/custom designs but avoid extreme
-    # edge/corner ornaments that cannot fit a useful avatar crop.
-    for cy in range(max_radius + 4, height - max_radius - 3, step_y):
-        for cx in range(max_radius + 4, width - max_radius - 3, step_x):
+    # Search the canvas using the smallest radius, then validate each radius against the
+    # image bounds individually. Using max_radius for the scan bounds misses rings near
+    # the right/bottom edges, which are common avatar locations in profile templates.
+    for cy in range(min_radius + 4, height - min_radius - 3, step_y):
+        for cx in range(min_radius + 4, width - min_radius - 3, step_x):
             for radius in radii:
+                if (
+                    cx - radius < 3 or cx + radius >= width - 3
+                    or cy - radius < 3 or cy + radius >= height - 3
+                ):
+                    continue
                 edge_score = mean_ring(cx, cy, radius, edge_pixels) / 255.0
                 if edge_score < 0.075:
                     continue
