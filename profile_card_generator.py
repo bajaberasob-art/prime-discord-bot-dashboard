@@ -567,7 +567,7 @@ def _detect_template_avatar_slot(raw_frame: bytes | Image.Image | None) -> dict 
     }
 
 
-_TEMPLATE_VISION_CACHE: dict[tuple[int, int], tuple[dict | None, dict | None]] = {}
+_TEMPLATE_VISION_CACHE: dict[tuple[int, int], tuple[dict | None, dict | None, bool]] = {}
 
 
 def _prefix_sum_grid(values: list[float], width: int, height: int) -> list[list[float]]:
@@ -963,27 +963,37 @@ def _default_stat_boxes(
 
 def _get_template_vision(
     raw_frame: bytes | None,
+    *,
+    detect_avatar: bool = True,
 ) -> tuple[dict | None, dict | None]:
-    """Cache expensive pixel analysis and avatar detection per immutable template asset."""
+    """Cache pixel analysis and only run expensive circle detection when metadata is missing."""
     if not raw_frame:
         return None, None
     key = (len(raw_frame), hash(raw_frame))
     cached = _TEMPLATE_VISION_CACHE.get(key)
     if cached is not None:
-        # Move the most recently used entry to the end without retaining the image bytes.
-        _TEMPLATE_VISION_CACHE.pop(key, None)
-        _TEMPLATE_VISION_CACHE[key] = cached
-        return cached
+        analysis, detected, detection_attempted = cached
+        if detect_avatar and not detection_attempted:
+            frame = _image_from_bytes(raw_frame)
+            detected = _detect_template_avatar_slot(frame) if frame is not None else None
+            cached = (analysis, detected, True)
+            _TEMPLATE_VISION_CACHE.pop(key, None)
+            _TEMPLATE_VISION_CACHE[key] = cached
+        else:
+            _TEMPLATE_VISION_CACHE.pop(key, None)
+            _TEMPLATE_VISION_CACHE[key] = cached
+        return analysis, detected if detect_avatar else None
+
     frame = _image_from_bytes(raw_frame)
     if frame is None:
         return None, None
     analysis = _build_template_analysis(frame)
-    detected = _detect_template_avatar_slot(frame)
-    value = (analysis, detected)
-    _TEMPLATE_VISION_CACHE[key] = value
+    detected = _detect_template_avatar_slot(frame) if detect_avatar else None
+    _TEMPLATE_VISION_CACHE[key] = (analysis, detected, detect_avatar)
     while len(_TEMPLATE_VISION_CACHE) > 12:
         _TEMPLATE_VISION_CACHE.pop(next(iter(_TEMPLATE_VISION_CACHE)))
-    return value
+    return analysis, detected
+
 
 
 def _apply_smart_template_layout(
@@ -1005,7 +1015,17 @@ def _apply_smart_template_layout(
     handle = "@" + str(profile.get("username") or "member").strip()[:42].lstrip("@")
     level_text = f"المستوى {_number(profile.get('level'), 0)}"
 
-    analysis, detected = _get_template_vision(raw_frame)
+    avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
+    has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
+    # The bundled PRIME templates carry hand-art-directed avatar coordinates. Trust those
+    # curated anchors; reserve slow circle detection for user-uploaded/custom metadata.
+    trusted_template_layout = (
+        has_curated_avatar
+        and str(result.get("layout_engine") or "").startswith("prime-smart-v")
+    )
+    analysis, detected = _get_template_vision(
+        raw_frame, detect_avatar=not trusted_template_layout
+    )
     if analysis is None:
         result["layout_engine"] = "prime-vision-layout-v4"
         result["layout_analysis"] = {
@@ -1016,8 +1036,6 @@ def _apply_smart_template_layout(
         }
         return result
 
-    avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
-    has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
     if detected and detected.get("confidence", 0) >= 0.28:
         detected_center = (
             int(detected["x"]) + int(detected["size"]) / 2,
