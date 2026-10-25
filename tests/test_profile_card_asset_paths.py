@@ -14,7 +14,7 @@ class ProfileCardAssetPathTests(unittest.TestCase):
 
     def test_approved_png_template_resolves_and_is_readable(self):
         template_path = "assets/profile_templates/02_wide_icy_blue.png"
-        resolved = generator._resolve_local_asset(template_path, template_asset=True)
+        resolved = generator._resolve_local_asset(template_path)
         self.assertIsNotNone(
             resolved,
             "The live renderer must find the repository's approved PNG template.",
