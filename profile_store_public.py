@@ -250,11 +250,13 @@ async def _store_state(request, session) -> dict:
             (user_id, guild_id),
         ) as cursor:
             wallet_row = await cursor.fetchone()
+        wallet_data = dict(wallet_row) if wallet_row else {"balance": 0, "bank": 0}
         async with db.execute(
             "SELECT balance FROM user_profile_gem_wallets WHERE guild_id = ? AND user_id = ?",
             (guild_id, user_id),
         ) as cursor:
             gem_row = await cursor.fetchone()
+        gem_data = dict(gem_row) if gem_row else {"balance": 0}
 
         async with db.execute(
             """
@@ -331,9 +333,9 @@ async def _store_state(request, session) -> dict:
             "expires_at": session["expires_at"],
         },
         "wallet": {
-            "coins": int((wallet_row or {}).get("balance") or 0),
-            "bank": int((wallet_row or {}).get("bank") or 0),
-            "gems": int((gem_row or {}).get("balance") or 0),
+            "coins": int(wallet_data.get("balance") or 0),
+            "bank": int(wallet_data.get("bank") or 0),
+            "gems": int(gem_data.get("balance") or 0),
         },
         "equipped": {
             "background_item_id": settings.get("background_item_id"),
