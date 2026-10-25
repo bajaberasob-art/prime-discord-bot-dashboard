@@ -422,6 +422,7 @@
   async function renderFullPreview() {
     const item = findItem();
     if (!item || state.previewBusy) return;
+    const requestedItemId = Number(item.item_id);
     const button = $("#renderFullPreview");
     const result = $("#serverPreviewResult");
     const status = $("#serverPreviewStatus");
@@ -453,6 +454,7 @@
       if (!blob.type.toLowerCase().includes("image/png") || !blob.size) {
         throw Object.assign(new Error("preview_invalid_image"), { code: "preview_failed" });
       }
+      if (state.selectedId !== requestedItemId) return;
       if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
       state.previewObjectUrl = URL.createObjectURL(blob);
       image.src = state.previewObjectUrl;
@@ -479,7 +481,22 @@
     try {
       const endpoint = "/api/profile-store/" + action;
       const data = await api(endpoint, { method: "POST", body: { item_id: Number(item.item_id) } });
-      await loadState(false);
+      const stateRefreshed = await loadState(false);
+      if (!stateRefreshed) {
+        const localItem = findItem(item.item_id);
+        if (action === "purchase" && localItem) {
+          localItem.owned = true;
+          if (item.currency === "gem") state.wallet.gems = amount(data.purchase && data.purchase.balance);
+          else state.wallet.coins = amount(data.purchase && data.purchase.balance);
+        } else if (action === "equip" && localItem) {
+          localItem.equipped = true;
+        } else if (action === "unequip" && localItem) {
+          localItem.equipped = false;
+        }
+        renderWallet();
+        renderGrid();
+        setNotice("تم تأكيد العملية من الخادم، لكن تعذر تحديث الكتالوج. حدّث الصفحة لتأكيد الحالة الحالية.", true);
+      }
       const refreshed = findItem(item.item_id);
       if (action === "purchase") toast("تم اقتناء «" + (data.purchase && data.purchase.name || item.name) + "» بنجاح.");
       else if (action === "equip") toast("تم حفظ تجهيز «" + item.name + "». استخدم /profile لعرض البطاقة الجديدة داخل Discord.");
@@ -512,9 +529,15 @@
       if (state.selectedId && findItem(state.selectedId)) openSheet(state.selectedId);
       return true;
     } catch (error) {
-      handleSessionNotice();
-      $("#productGrid").hidden = true;
-      $("#emptyState").hidden = true;
+      if (error && (error.status === 401 || error.code === "store_session_expired")) {
+        handleSessionNotice();
+      } else {
+        setNotice(errorText(error), true);
+      }
+      if (!state.loaded) {
+        $("#productGrid").hidden = true;
+        $("#emptyState").hidden = true;
+      }
       if (showMessage) toast(errorText(error), "error");
       return false;
     }
