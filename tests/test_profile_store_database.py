@@ -69,7 +69,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             ) as cursor:
                 settings_count = (await cursor.fetchone())[0]
             async with db.execute(
-                "SELECT version FROM profile_store_migrations"
+                "SELECT version FROM profile_store_migrations ORDER BY version"
             ) as cursor:
                 versions = [row[0] for row in await cursor.fetchall()]
 
