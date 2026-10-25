@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -142,14 +143,48 @@ def _read_local_asset(raw_path: Any, *, template_asset: bool = False) -> bytes |
         return None
 
 
-async def _read_store_asset(item: dict | None, *, template_asset: bool = False) -> bytes | None:
+async def _read_store_asset(
+    item: dict | None,
+    *,
+    template_asset: bool = False,
+    color_style: dict | None = None,
+) -> bytes | None:
     if not isinstance(item, dict):
         return None
     asset_url = item.get("asset_url")
     if isinstance(asset_url, str) and asset_url:
         # Existing downloader enforces public HTTP(S), DNS, body-size, and image checks.
         return await fetch_image(asset_url)
-    return _read_local_asset(item.get("asset_path"), template_asset=template_asset)
+
+    path = _resolve_local_asset(item.get("asset_path"), allow_svg=template_asset)
+    if path is None:
+        return None
+    if template_asset and path.suffix.lower() == ".svg":
+        try:
+            # SVG template frames are separate, repo-owned transparent assets.
+            # Replace only their known palette colors, leaving geometry untouched.
+            svg = path.read_text(encoding="utf-8")
+            source_style = _parse_object(item.get("style") or item.get("style_json"))
+            selected = _parse_object(color_style)
+            original_accent = _safe_color(source_style.get("accent"), "#B34CFF")
+            original_secondary = _safe_color(
+                source_style.get("accent2") or source_style.get("glow"),
+                original_accent,
+            )
+            target_accent = _safe_color(selected.get("accent"), original_accent)
+            target_secondary = _safe_color(
+                selected.get("divider") or selected.get("accent2"),
+                original_secondary,
+            )
+            if original_accent != target_accent:
+                svg = re.sub(re.escape(original_accent), target_accent, svg, flags=re.IGNORECASE)
+            if original_secondary != target_secondary:
+                svg = re.sub(re.escape(original_secondary), target_secondary, svg, flags=re.IGNORECASE)
+            return cairosvg.svg2png(bytestring=svg.encode("utf-8"))
+        except Exception:
+            logger.exception("Could not render profile template SVG: %s", path.name)
+            return None
+    return _read_local_asset(str(path), template_asset=template_asset)
 
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
@@ -306,6 +341,14 @@ def render_profile_card(
     style.update(color_style)
     accent = _safe_color(profile.get("accent_color") if profile.get("accent_color") != "#F58FB2" else style.get("accent"),
                          "#B34CFF")
+    divider_color = _safe_color(
+        profile.get("divider_color") if profile.get("divider_color") != "#F58FB2" else style.get("divider"),
+        style.get("accent2") or accent,
+    )
+    xp_color = _safe_color(
+        profile.get("xp_color") if profile.get("xp_color") != "#F58FB2" else style.get("xp"),
+        accent,
+    )
     style["accent"] = accent
     width, height = metadata["width"], metadata["height"]
     scale = max(.55, min(1.25, width / 1000))
@@ -405,11 +448,11 @@ def render_profile_card(
     bar_w = min(bar_w, width - bar_x - 12)
     draw.rounded_rectangle((bar_x, bar_y, bar_x+bar_w, bar_y+bar_h),
                            radius=bar_h//2, fill=(5, 7, 14, 220),
-                           outline=(*ImageColor.getrgb(accent), 180), width=1)
+                           outline=(*ImageColor.getrgb(xp_color), 180), width=1)
     fill_w = int(bar_w * min(1.0, xp / required))
     if fill_w > 0:
         draw.rounded_rectangle((bar_x, bar_y, bar_x+max(bar_h, fill_w), bar_y+bar_h),
-                               radius=bar_h//2, fill=accent)
+                               radius=bar_h//2, fill=xp_color)
     xp_font = _load_font(max(10, int(15*scale)))
     draw.text((bar_x, min(height-2, bar_y+bar_h+int(17*scale))),
               _display_text(f"{xp:,} / {required:,} XP"),
@@ -485,8 +528,13 @@ async def generate_profile_card(user: Any, profile: dict, configuration: dict) -
     background_item = config.get("background")
     flag_item = config.get("flag")
     badges = config.get("badges") or []
+    tint_style = dict(color_style) if isinstance(color_style, dict) else {}
+    if config.get("accent_color") and config.get("accent_color") != "#F58FB2":
+        tint_style["accent"] = config["accent_color"]
+    if config.get("divider_color") and config.get("divider_color") != "#F58FB2":
+        tint_style["divider"] = config["divider_color"]
     template_bytes, background_bytes, flag_bytes, avatar_bytes = await asyncio.gather(
-        _read_store_asset(template, template_asset=True),
+        _read_store_asset(template, template_asset=True, color_style=tint_style),
         _read_store_asset(background_item),
         _read_store_asset(flag_item),
         fetch_image(avatar_url) if avatar_url else asyncio.sleep(0, result=None),
