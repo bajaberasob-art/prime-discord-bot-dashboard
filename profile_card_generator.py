@@ -342,6 +342,23 @@ def _display_text(value: Any) -> str:
         return text
 
 
+def _draw_display_text(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int],
+    value: Any,
+    **kwargs: Any,
+) -> None:
+    """Draw pre-shaped Arabic in visual order without applying a second RTL reorder."""
+    shown = _display_text(value)
+    try:
+        # _display_text already performs Arabic shaping and bidi ordering. Explicit LTR
+        # prevents RAQM-enabled Pillow builds from reordering the visual string again.
+        draw.text(xy, shown, direction="ltr", **kwargs)
+    except (TypeError, ValueError):
+        # Compatibility with Pillow builds compiled without libraqm.
+        draw.text(xy, shown, **kwargs)
+
+
 def _number(value: Any, default: int = 0) -> int:
     try:
         return max(0, min(int(value), 10**18))
@@ -533,14 +550,30 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
 
 
 def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dict:
-    """Use explicit template metadata when present; otherwise infer a custom frame layout."""
+    """Use image analysis to validate curated anchors and infer missing template layout."""
     result = dict(metadata or {})
     avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
-    # Valid curated/manual anchor data always wins over heuristic image detection.
-    if all(key in avatar for key in ("x", "y", "size")):
-        return result
-
+    has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
     detected = _detect_template_avatar_slot(raw_frame)
+
+    # Stored coordinates can become stale when an administrator replaces a template image.
+    # Keep curated anchors when they match the artwork, but prefer a high-confidence ring
+    # detected in the actual pixels when it clearly disagrees with those old coordinates.
+    if has_curated_avatar and detected:
+        current_x = int(avatar.get("x", 0)) + int(avatar.get("size", 0)) / 2
+        current_y = int(avatar.get("y", 0)) + int(avatar.get("size", 0)) / 2
+        detected_x = int(detected.get("x", 0)) + int(detected.get("size", 0)) / 2
+        detected_y = int(detected.get("y", 0)) + int(detected.get("size", 0)) / 2
+        disagreement = math.hypot(current_x - detected_x, current_y - detected_y)
+        if detected.get("confidence", 0) < 0.28 or disagreement < max(24, int(avatar.get("size", 0) * 0.30)):
+            return result
+        # A real high-contrast circular slot is a stronger anchor than old database metadata.
+        result["avatar_detection"] = {
+            "method": "circular-contour-override",
+            "confidence": detected["confidence"],
+        }
+    elif has_curated_avatar:
+        return result
     width = _clamp(result.get("width"), 320, 2048, 1280)
     height = _clamp(result.get("height"), 320, 2048, 720)
     if detected:
