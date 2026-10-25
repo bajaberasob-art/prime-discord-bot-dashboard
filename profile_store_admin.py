@@ -552,6 +552,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                        style_json, metadata_json, is_active, is_featured,
                        created_at, updated_at, deleted_at
                 FROM profile_store_items
+                WHERE deleted_at IS NULL
                 ORDER BY is_active DESC, item_id DESC
                 LIMIT ?
                 """,
