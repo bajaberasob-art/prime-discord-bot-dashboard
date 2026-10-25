@@ -806,6 +806,30 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             logger.exception("PRIME gem wallet adjustment failed guild=%s user=%s", guild.id, user_id)
             return _json_error(500, "gem_adjustment_failed")
 
+    @routes.get("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
+    async def profile_store_item_asset_read(request):
+        _session, _guild = await store_authorize(request)
+        raw_id = str(request.match_info.get("item_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "item_not_found")
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                "SELECT asset_path FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
+                (int(raw_id),),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row or not row["asset_path"]:
+            return _json_error(404, "asset_not_found")
+        root = profile_asset_root().resolve()
+        path = (root / str(row["asset_path"])).resolve()
+        if root not in path.parents or not path.is_file():
+            return _json_error(404, "asset_not_found")
+        return web.FileResponse(path, headers={
+            "Cache-Control": "private, max-age=60",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        })
+
     @routes.post("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
     async def profile_store_item_upload(request):
         return await _write_item_asset(request, authorize=store_authorize)
