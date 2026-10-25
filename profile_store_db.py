@@ -10,6 +10,7 @@ Temporary browser tokens are stored as SHA-256 digests, never in plaintext.
 
 from __future__ import annotations
 
+import hashlib
 import database
 
 PROFILE_STORE_SCHEMA_VERSION = 1
@@ -148,7 +149,10 @@ _SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS profile_store_sessions (
         session_id INTEGER PRIMARY KEY AUTOINCREMENT,
         token_hash TEXT NOT NULL UNIQUE
-            CHECK (length(token_hash) = 64),
+            CHECK (
+                length(token_hash) = 64
+                AND token_hash NOT GLOB '*[^0-9a-f]*'
+            ),
         guild_id INTEGER NOT NULL CHECK (guild_id > 0),
         user_id INTEGER NOT NULL CHECK (user_id > 0),
         created_at TEXT NOT NULL,
@@ -214,3 +218,10 @@ async def ensure_profile_store_schema() -> None:
         except BaseException:
             await db.rollback()
             raise
+
+
+def hash_session_token(raw_token: str) -> str:
+    """Return the lowercase SHA-256 digest to persist instead of a raw token."""
+    if not isinstance(raw_token, str) or not raw_token or len(raw_token) > 512:
+        raise ValueError("session token must be a non-empty string of at most 512 characters")
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
