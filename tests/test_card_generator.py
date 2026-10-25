@@ -270,6 +270,12 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
             image.seek(8)
             middle = image.convert("RGB").tobytes()
             self.assertNotEqual(first, middle)
+        # All frames should share a stable palette to prevent animated color flicker.
+        with Image.open(gif) as image:
+            image.seek(0)
+            first_palette = image.getpalette()
+            image.seek(8)
+            self.assertEqual(image.getpalette(), first_palette)
         self.validate(await self.render())
 
     async def test_disabled_animation_returns_single_frame_gif_preview(self):
