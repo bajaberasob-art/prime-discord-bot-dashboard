@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 import database
 
-PROFILE_STORE_SCHEMA_VERSION = 4
+PROFILE_STORE_SCHEMA_VERSION = 5
 DEFAULT_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -211,6 +211,19 @@ _SCHEMA_STATEMENTS = (
         session_ttl_seconds INTEGER NOT NULL DEFAULT 900
             CHECK (session_ttl_seconds BETWEEN 60 AND 900),
         updated_by INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS profile_store_categories (
+        category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT NOT NULL UNIQUE CHECK (length(trim(slug)) BETWEEN 1 AND 80),
+        name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 80),
+        description TEXT NOT NULL DEFAULT '',
+        icon TEXT NOT NULL DEFAULT '▦',
+        sort_order INTEGER NOT NULL DEFAULT 100 CHECK (sort_order BETWEEN 0 AND 10000),
+        is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -496,12 +509,90 @@ async def ensure_profile_store_schema() -> None:
                   AND item_type = 'card_template'
                 """
             )
+            # Normalize generic legacy categories into type-appropriate store sections.
+            await db.execute(
+                """
+                UPDATE profile_store_items
+                SET category = CASE item_type
+                    WHEN 'background' THEN 'backgrounds'
+                    WHEN 'card_color' THEN 'colors'
+                    WHEN 'card_template' THEN 'templates'
+                    WHEN 'flag' THEN 'flags'
+                    WHEN 'badge' THEN 'stickers'
+                    WHEN 'shape' THEN 'shapes'
+                    WHEN 'club_logo' THEN 'club-logos'
+                    ELSE 'backgrounds'
+                END
+                WHERE trim(category) = '' OR lower(trim(category)) = 'all'
+                """
+            )
+            default_categories = (
+                ("backgrounds", "الخلفيات", "خلفيات وصور بانر للبطاقة", "▧", 10),
+                ("templates", "قوالب البروفايل", "قوالب تصميم البطاقة", "▣", 20),
+                ("banners", "البانرات", "صور وبانرات للمظهر", "▤", 30),
+                ("stickers", "الاستكرات", "استكرات وشارات قابلة للتجهيز", "✦", 40),
+                ("flags", "الأعلام", "أعلام الملف الشخصي", "⚑", 50),
+                ("colors", "ألوان البطاقة", "ألوان وإضاءات البطاقة", "◉", 60),
+                ("shapes", "الأشكال", "أشكال وإطارات إضافية", "⬡", 70),
+                ("club-logos", "شعارات الأندية", "شعارات وهوية النادي", "★", 80),
+            )
+            await db.executemany(
+                """
+                INSERT OR IGNORE INTO profile_store_categories
+                    (slug, name, description, icon, sort_order)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                default_categories,
+            )
+
+            # Preserve categories created by an earlier catalog version; map each
+            # legacy label to a stable slug and keep its original label as its name.
+            async with db.execute(
+                "SELECT DISTINCT category FROM profile_store_items WHERE trim(category) != ''"
+            ) as cursor:
+                legacy_categories = [str(row[0]).strip() for row in await cursor.fetchall()]
+            for legacy_name in legacy_categories:
+                slug = "".join(
+                    ch.lower() if ch.isascii() and ch.isalnum() else "-"
+                    for ch in legacy_name
+                )
+                while "--" in slug:
+                    slug = slug.replace("--", "-")
+                slug = slug.strip("-")[:80]
+                if not slug or not slug[0].isalnum():
+                    slug = "legacy-" + hashlib.sha256(legacy_name.encode("utf-8")).hexdigest()[:12]
+                async with db.execute(
+                    "SELECT category_id FROM profile_store_categories WHERE slug = ?",
+                    (slug,),
+                ) as cursor:
+                    existing_category = await cursor.fetchone()
+                if existing_category:
+                    if legacy_name != slug:
+                        await db.execute(
+                            "UPDATE profile_store_items SET category = ? WHERE category = ?",
+                            (slug, legacy_name),
+                        )
+                    continue
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO profile_store_categories
+                        (slug, name, description, icon, sort_order, is_active)
+                    VALUES (?, ?, '', '▦', 500, 1)
+                    """,
+                    (slug, legacy_name[:80] or slug),
+                )
+                if legacy_name != slug:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ? WHERE category = ?",
+                        (slug, legacy_name),
+                    )
+
             await db.execute(
                 """
                 INSERT OR IGNORE INTO profile_store_migrations (version, description)
                 VALUES (?, ?)
                 """,
-                (PROFILE_STORE_SCHEMA_VERSION, "Add audited admin gem adjustments to the PRIME storefront"),
+                (PROFILE_STORE_SCHEMA_VERSION, "Add managed storefront categories and admin catalog console"),
             )
             await db.commit()
         except BaseException:
