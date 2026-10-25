@@ -11,6 +11,7 @@ import asyncio
 import io
 import json
 import logging
+import math
 import os
 import re
 from pathlib import Path
@@ -447,7 +448,10 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
         return None
 
     # A compact angular sample keeps the scan cheap enough for previews, even on mobile.
-    angles = tuple(2.0 * 3.141592653589793 * index / 32 for index in range(32))
+    unit_circle = tuple(
+        (math.cos(2.0 * math.pi * index / 32), math.sin(2.0 * math.pi * index / 32))
+        for index in range(32)
+    )
     radii = list(range(max(10, int(min_dimension * 0.075)),
                        max(12, int(min_dimension * 0.235)), 2))
     if not radii:
@@ -456,9 +460,9 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
     def mean_ring(cx: int, cy: int, radius: int, pixels, radial_offset: int = 0) -> float:
         values = []
         r = radius + radial_offset
-        for angle in angles:
-            x = int(round(cx + r * __import__("math").cos(angle)))
-            y = int(round(cy + r * __import__("math").sin(angle)))
+        for unit_x, unit_y in unit_circle:
+            x = int(round(cx + r * unit_x))
+            y = int(round(cy + r * unit_y))
             if 0 <= x < width and 0 <= y < height:
                 values.append(pixels[x, y])
         return sum(values) / len(values) if values else 0.0
@@ -473,7 +477,6 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
     # edge/corner ornaments that cannot fit a useful avatar crop.
     for cy in range(max_radius + 4, height - max_radius - 3, step_y):
         for cx in range(max_radius + 4, width - max_radius - 3, step_x):
-            inner = mean_ring(cx, cy, max(3, min_radius * 0.48).__int__(), gray_pixels)
             for radius in radii:
                 edge_score = mean_ring(cx, cy, radius, edge_pixels) / 255.0
                 if edge_score < 0.075:
