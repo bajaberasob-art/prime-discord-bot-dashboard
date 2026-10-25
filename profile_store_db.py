@@ -337,6 +337,7 @@ _SCHEMA_STATEMENTS = (
     CREATE INDEX IF NOT EXISTS idx_profile_store_transactions_owner
         ON profile_store_transactions(guild_id, user_id, created_at DESC)
     """,
+    """
     CREATE INDEX IF NOT EXISTS idx_profile_store_items_catalog
         ON profile_store_items(item_type, category, is_active, rarity, price)
     """,
