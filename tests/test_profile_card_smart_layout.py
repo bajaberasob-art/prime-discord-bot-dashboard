@@ -1,10 +1,12 @@
 """Regression tests for the PRIME smart profile-template renderer."""
 
+import io
 import unittest
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import profile_card_generator as generator
+import profile_store_admin
 import profile_store_db
 
 
@@ -53,6 +55,44 @@ class ProfileCardSmartLayoutTests(unittest.TestCase):
             generator._contrast_text_color(light_art, box, "#F9F7FF", "#101522", line_height=24),
             "#101522",
         )
+
+
+    def test_unknown_template_detects_lower_right_avatar_ring(self):
+        width, height = 280, 360
+        image = Image.new("RGBA", (width, height), (10, 13, 22, 255))
+        draw = ImageDraw.Draw(image)
+        center = (220, 245)
+        radius = 38
+        draw.ellipse(
+            (center[0] - radius, center[1] - radius,
+             center[0] + radius, center[1] + radius),
+            fill=(4, 8, 18, 255),
+            outline=(230, 240, 255, 255),
+            width=5,
+        )
+        encoded = io.BytesIO()
+        image.save(encoded, format="PNG")
+
+        detected = generator._detect_template_avatar_slot(encoded.getvalue())
+        self.assertIsNotNone(detected)
+        inferred_center_x = detected["x"] + detected["size"] // 2
+        inferred_center_y = detected["y"] + detected["size"] // 2
+        self.assertLess(abs(inferred_center_x - center[0]), 25)
+        self.assertLess(abs(inferred_center_y - center[1]), 25)
+
+        metadata = {
+            "width": width, "height": height, "layout": "portrait",
+            "avatar": {}, "name": {}, "handle": {}, "level": {}, "xp_bar": {},
+            "stats": [],
+        }
+        resolved = generator._apply_smart_template_layout(metadata, encoded.getvalue())
+        self.assertEqual(resolved["layout_engine"], "prime-smart-v2")
+        self.assertEqual(resolved["avatar_detection"]["method"], "circular-contour")
+        self.assertEqual(len(resolved["stats"]), 4)
+        self.assertGreater(resolved["xp_bar"]["width"], 0)
+
+    def test_admin_allows_profile_template_artwork_upload(self):
+        self.assertIn("card_template", profile_store_admin._ASSET_ITEM_TYPES)
 
     def test_arabic_mixed_text_remains_renderable_with_template_fonts(self):
         text = generator._display_text("المستوى 117")
