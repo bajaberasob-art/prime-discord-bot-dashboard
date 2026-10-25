@@ -1015,6 +1015,25 @@ def render_profile_card(
     level_x = _scale_position(level_box, "x", inset * 3, width)
     level_y = _scale_position(level_box, "y", int(height * .48), height)
     level = _number(profile.get("level"), 0)
+    level_text = f"المستوى {level}"
+    level_available = _clamp(level_box.get("max_width"), 100, width, int(width * .44))
+    progress_font = _fit_font(
+        level_text, level_available, max(30, min(60, int(min(width, height) * .052))),
+        minimum_size=18, bold=True, font_family=font_family,
+    )
+    level_color = (
+        light_text if not auto_contrast else _contrast_text_color(
+            canvas, level_box, light_text, dark_text,
+            line_height=max(22, int(min(width, height) * .065)),
+        )
+    )
+    _draw_display_text(
+        draw, (level_x, level_y), level_text,
+        font=progress_font, fill=level_color,
+        anchor=str(level_box.get("anchor") or "ra"), stroke_width=2,
+        stroke_fill=(0, 0, 0, 190),
+    )
+
     # The XP track is part of the template artwork. Do not draw a second progress bar
     # or caption over it; that duplicated the line and collided with the level/stat labels.
     stat_values = {
