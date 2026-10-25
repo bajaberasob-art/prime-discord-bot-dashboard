@@ -839,6 +839,12 @@
         "nav",
         { class: "nav-list" },
         ...Object.keys(viewLabels).map((view) => navButton(view)),
+        el(
+          "a",
+          { class: "nav-item sidebar-item nav-link store-admin-link", href: "/profile-store-admin", title: "إدارة منتجات متجر PRIME" },
+          el("span", { class: "nav-icon", text: "▦", "aria-hidden": "true" }),
+          el("span", { class: "nav-copy" }, el("b", { text: "إدارة متجر PRIME" }), el("small", { text: "المنتجات والأسعار والتصنيفات" })),
+        ),
       ),
       el(
         "div",
@@ -873,6 +879,10 @@
       navButton("settings"),
       navButton("backup"),
       navButton("system"),
+      el("a", { class: "nav-item", href: "/profile-store-admin" },
+        el("span", { class: "nav-icon", text: "▦", "aria-hidden": "true" }),
+        el("span", { class: "nav-copy" }, el("b", { text: "إدارة متجر PRIME" }), el("small", { text: "المنتجات والأسعار" })),
+      ),
     );
     const moreButton = el(
       "button",
