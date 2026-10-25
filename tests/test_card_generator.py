@@ -275,7 +275,7 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         # so inspect the GIF header instead of relying on frame-local palette metadata.
         gif_bytes = gif.getvalue()
         self.assertGreaterEqual(len(gif_bytes), 13)
-        self.assertEqual(gif_bytes[:6], b"GIF87a" if gif_bytes[:6] == b"GIF87a" else b"GIF89a")
+        self.assertIn(gif_bytes[:6], (b"GIF87a", b"GIF89a"))
         self.assertTrue(gif_bytes[10] & 0x80, "GIF must include a global color table")
         self.validate(await self.render())
 
