@@ -344,9 +344,9 @@ def _validation_response(error: ValueError) -> web.Response:
     return _json_error(400, str(error))
 
 
-async def _read_item_payload(request) -> dict:
+async def _read_item_payload(request, read_json_body=None) -> dict:
     try:
-        body = await request.json(loads=json.loads)
+        body = await read_json_body(request) if read_json_body else await request.json(loads=json.loads)
     except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as error:
         raise ValueError("invalid_json") from error
     if not isinstance(body, dict):
@@ -461,7 +461,7 @@ async def _write_item_asset(request, *, authorize):
     }, status=201)
 
 
-def register_profile_store_admin_routes(routes, authorize) -> None:
+def register_profile_store_admin_routes(routes, authorize, read_json_body=None) -> None:
     """Register these endpoints once on PRIME's existing aiohttp RouteTableDef."""
     global _registered
     if _registered:
@@ -515,7 +515,7 @@ def register_profile_store_admin_routes(routes, authorize) -> None:
     async def profile_store_admin_settings_save(request):
         _session, guild = await store_authorize(request, write=True)
         try:
-            body = await _read_item_payload(request)
+            body = await _read_item_payload(request, read_json_body)
             if not body:
                 raise ValueError("settings_required")
             async with database.connect(aiosqlite.Row) as db:
