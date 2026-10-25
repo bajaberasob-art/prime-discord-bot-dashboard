@@ -1256,13 +1256,15 @@ def render_profile_card(
     """Render one PNG using the selected template's own dimensions and layout."""
     profile = dict(profile or {})
     template = dict(template or {})
-    metadata = _apply_smart_template_layout(
-        _metadata_for_native_frame(_safe_metadata(template), template_bytes),
-        template_bytes,
-    )
     style = _parse_object(template.get("style") or template.get("style_json"))
     color_style = _parse_object(profile.get("color_style"))
     style.update(color_style)
+    metadata = _apply_smart_template_layout(
+        _metadata_for_native_frame(_safe_metadata(template), template_bytes),
+        template_bytes,
+        profile=profile,
+        style=style,
+    )
     requested_accent = profile.get("accent_color")
     requested_divider = profile.get("divider_color")
     requested_xp = profile.get("xp_color")
