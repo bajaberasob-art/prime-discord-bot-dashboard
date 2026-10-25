@@ -2,12 +2,16 @@ import io
 import struct
 import unittest
 import zlib
+import os
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from PIL import Image
 
 from profile_store_admin import (
     MAX_PROFILE_UPLOAD_BYTES,
     MAX_PROFILE_UPLOAD_PIXELS,
+    is_profile_store_owner,
     validate_catalog_item_payload,
     validate_static_image,
 )
@@ -146,6 +150,39 @@ class ProfileCatalogPayloadTests(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(ValueError, expected):
                     validate_catalog_item_payload(payload)
+
+
+
+class ProfileStoreOwnerAccessTests(unittest.TestCase):
+    def test_only_configured_global_admins_or_detected_bot_owners_pass(self):
+        request = SimpleNamespace(app={"bot": SimpleNamespace(owner_id=None, owner_ids=set(), application=None)})
+        with patch.dict(os.environ, {
+            "PROFILE_STORE_ADMIN_IDS": "",
+            "BOT_OWNER_IDS": "",
+            "BOT_OWNER_ID": "",
+        }):
+            self.assertFalse(is_profile_store_owner(request, {"id": "123"}))
+            with patch.dict(os.environ, {"PROFILE_STORE_ADMIN_IDS": "123, 456"}):
+                self.assertTrue(is_profile_store_owner(request, {"id": "123"}))
+                self.assertFalse(is_profile_store_owner(request, {"id": "789"}))
+
+    def test_runtime_bot_owner_and_local_development_admin_are_allowed(self):
+        request = SimpleNamespace(app={
+            "bot": SimpleNamespace(
+                owner_id=9001,
+                owner_ids={9002},
+                application=SimpleNamespace(owner=SimpleNamespace(id=9003)),
+            )
+        })
+        with patch.dict(os.environ, {
+            "PROFILE_STORE_ADMIN_IDS": "",
+            "BOT_OWNER_IDS": "",
+            "BOT_OWNER_ID": "",
+        }):
+            self.assertTrue(is_profile_store_owner(request, {"id": "9001"}))
+            self.assertTrue(is_profile_store_owner(request, {"id": "9002"}))
+            self.assertTrue(is_profile_store_owner(request, {"id": "9003"}))
+            self.assertTrue(is_profile_store_owner(request, {"id": "0", "_local_dev": True}))
 
 
 if __name__ == "__main__":
