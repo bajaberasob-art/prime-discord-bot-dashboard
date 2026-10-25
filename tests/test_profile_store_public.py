@@ -65,7 +65,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             await profile_store_public._purchase_item(self.session, item_id)
         self.assertEqual(caught.exception.code, "already_owned")
 
-        async with database.connect() as db:
+        async with database.connect(aiosqlite.Row) as db:
             async with db.execute(
                 "SELECT balance FROM users WHERE guild_id = 99 AND user_id = 1234"
             ) as cursor:
@@ -104,7 +104,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
 
         result = await profile_store_public._purchase_item(self.session, item_id)
         self.assertEqual(result["balance"], 25)
-        async with database.connect() as db:
+        async with database.connect(aiosqlite.Row) as db:
             async with db.execute(
                 "SELECT balance FROM user_profile_gem_wallets WHERE guild_id = 99 AND user_id = 1234"
             ) as cursor:
