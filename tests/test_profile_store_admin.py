@@ -3,9 +3,7 @@ import os
 import struct
 import tempfile
 import unittest
-import unittest
 import zlib
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,14 +11,11 @@ from unittest.mock import patch
 import aiosqlite
 from aiohttp import FormData, web
 from aiohttp.test_utils import TestClient, TestServer
+from PIL import Image
 
 import database
 import profile_store_admin
 import profile_store_db
-from types import SimpleNamespace
-from unittest.mock import patch
-
-from PIL import Image
 
 from profile_store_admin import (
     MAX_PROFILE_UPLOAD_BYTES,
@@ -271,7 +266,7 @@ class ProfileStoreAdminUploadRouteTests(unittest.IsolatedAsyncioTestCase):
             original_preview = await self.client.get(
                 f"/api/guild/99/profile-store/items/{item_id}/asset"
             )
-            self.assertEqual(original_preview.status, 200, await original_preview.text())
+            self.assertEqual(original_preview.status, 200)
             with Image.open(io.BytesIO(await original_preview.read())) as existing_image:
                 self.assertEqual(existing_image.format, "PNG")
 
@@ -290,7 +285,7 @@ class ProfileStoreAdminUploadRouteTests(unittest.IsolatedAsyncioTestCase):
             image = await self.client.get(
                 f"/api/guild/99/profile-store/items/{item_id}/asset"
             )
-            self.assertEqual(image.status, 200, await image.text())
+            self.assertEqual(image.status, 200)
             self.assertEqual(image.headers.get("Content-Type"), "image/png")
             with Image.open(io.BytesIO(await image.read())) as decoded:
                 self.assertEqual(decoded.size, (96, 64))
