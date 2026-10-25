@@ -528,3 +528,32 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 }
 .live-profile-card[data-has-template="true"] .live-template-art { opacity: .42; }
 .live-profile-card[data-has-template="true"] .live-card-glow { opacity: .025; }
+
+
+.server-preview-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 13px;
+}
+.server-preview-actions .secondary-button { border-color: rgba(67,217,255,.22); color: #dcecff; }
+.server-preview-actions > span { color: #7789a3; font-size: 9px; }
+.server-preview-result {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(67,217,255,.17);
+  border-radius: 14px;
+  background: rgba(4,9,17,.64);
+}
+.server-preview-status { margin-bottom: 7px; color: #9eafc7; font-size: 10px; line-height: 1.7; }
+.server-preview-result img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 380px;
+  object-fit: contain;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  background: #070b14;
+}
