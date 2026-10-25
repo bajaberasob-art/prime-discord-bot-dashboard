@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080d18">
+  <meta name="description" content="متجر PRIME لتخصيص بطاقة البروفايل. اختر القالب والألوان والخلفيات والتفاصيل التي تعبّر عنك.">
+  <title>PRIME STORE — متجر البروفايل</title>
+  <link rel="stylesheet" href="/profile-store/app.css?v=prime-store-1">
+  <script src="/profile-store/app.js?v=prime-store-1" defer></script>
+</head>
+<body>
+  <main class="prime-store" id="primeStore">
+    <header class="store-header">
+      <a class="brand-lockup" href="/profile-store" aria-label="متجر PRIME">
+        <span class="brand-emblem" aria-hidden="true">
+          <svg viewBox="0 0 48 48" role="img" focusable="false">
+            <path d="M24 3.5 29.4 16l13.1 1.2-9.8 8.8 2.9 12.9L24 32.1 12.4 39l2.9-12.9-9.8-8.8L18.6 16 24 3.5Z" fill="currentColor"/>
+            <path d="M19 17.5h7.5a5.5 5.5 0 0 1 0 11H19v-11Zm0 0v14" stroke="#07111f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+        </span>
+        <span class="brand-type"><strong>PRIME</strong><small>PROFILE LAB</small></span>
+      </a>
+      <div class="header-account">
+        <div class="wallet-chip wallet-chip--coins" title="عملات PRIME">
+          <span class="currency-mark currency-mark--prime" aria-hidden="true">P</span>
+          <strong id="coinBalance">—</strong>
+        </div>
+        <div class="wallet-chip wallet-chip--gems" title="بلورات PRIME">
+          <span class="currency-mark currency-mark--gem" aria-hidden="true">◆</span>
+          <strong id="gemBalance">—</strong>
+        </div>
+        <div class="account-pill">
+          <img id="userAvatar" class="account-avatar" alt="" src="https://cdn.discordapp.com/embed/avatars/0.png">
+          <span class="account-copy"><strong id="userName">عضو PRIME</strong><small id="guildName">مساحة التخصيص</small></span>
+        </div>
+      </div>
+    </header>
+
+    <section class="store-hero" aria-labelledby="storeTitle">
+      <div class="hero-copy">
+        <span class="eyebrow"><i></i> PRIME COSMETICS</span>
+        <h1 id="storeTitle">خلّ هويتك <span>تتكلم.</span></h1>
+        <p>قوالب، ألوان، خلفيات، وتفاصيل صغيرة تصنع بطاقة تشبهك — وكل شيء يتجهّز على بروفايلك داخل PRIME.</p>
+        <div class="hero-meta">
+          <span><b id="catalogTotal">—</b> عنصر قابل للتخصيص</span>
+          <span class="meta-divider"></span>
+          <span><i class="secure-dot"></i> مرتبط برصيدك ومقتنياتك</span>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="orbit orbit-one"></div>
+        <div class="orbit orbit-two"></div>
+        <div class="hero-prime-card">
+          <div class="hero-card-top"><span class="mini-brand">P</span><span class="live-dot"></span></div>
+          <div class="hero-card-symbol">P<span>+</span></div>
+          <div class="hero-card-bottom"><span>PRIME ID</span><b>YOUR STYLE. YOUR RULES.</b></div>
+        </div>
+        <span class="floating-token token-cyan">P</span>
+        <span class="floating-token token-violet">◆</span>
+        <span class="floating-star star-one">✦</span>
+        <span class="floating-star star-two">✧</span>
+      </div>
+    </section>
+
+    <nav class="catalog-tabs" id="categoryTabs" aria-label="أقسام المتجر" role="tablist"></nav>
+
+    <section class="catalog-controls" aria-label="البحث والفرز">
+      <label class="search-box">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg>
+        <input id="storeSearch" type="search" placeholder="ابحث عن عنصر بالاسم..." autocomplete="off" aria-label="ابحث في المتجر">
+        <kbd>⌕</kbd>
+      </label>
+      <div class="control-row">
+        <div class="filter-group" id="ownershipFilters" role="group" aria-label="فلترة العناصر">
+          <button type="button" class="filter-chip is-active" data-filter="all">الكل</button>
+          <button type="button" class="filter-chip" data-filter="owned">مقتنياتي</button>
+          <button type="button" class="filter-chip" data-filter="affordable">أقدر عليه</button>
+        </div>
+        <label class="sort-control">
+          <span>الترتيب</span>
+          <select id="storeSort" aria-label="ترتيب العناصر">
+            <option value="recommended">الموصى بها</option>
+            <option value="price-asc">الأقل سعراً</option>
+            <option value="price-desc">الأعلى سعراً</option>
+            <option value="name">الاسم</option>
+          </select>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"></path></svg>
+        </label>
+      </div>
+    </section>
+
+    <div class="subcategories" id="subcategoryTabs" role="group" aria-label="فلاتر إضافية"></div>
+
+    <section class="catalog-section" aria-label="عناصر المتجر">
+      <div class="catalog-heading">
+        <div><span class="section-kicker">CATALOG / PRIME</span><h2 id="catalogHeading">اكتشف العناصر</h2></div>
+        <span class="result-count" id="resultCount">—</span>
+      </div>
+      <div class="notice" id="storeNotice" role="status" hidden></div>
+      <div class="product-grid" id="productGrid" aria-live="polite"></div>
+      <div class="empty-state" id="emptyState" hidden>
+        <span class="empty-glyph">⌕</span>
+        <h3>ما لقينا هذا العنصر</h3>
+        <p>جرّب كلمة ثانية أو غيّر الفلتر. بنعرض العناصر المتاحة فقط.</p>
+        <button type="button" class="secondary-button" id="clearFilters">عرض كل العناصر</button>
+      </div>
+    </section>
+
+    <footer class="store-footer">
+      <span class="footer-brand"><span class="footer-mark">P</span> PRIME</span>
+      <span>مقتنياتك مرتبطة بحسابك وسيرفرك داخل PRIME.</span>
+      <button type="button" id="storeLogout" class="quiet-button">إنهاء الجلسة</button>
+    </footer>
+  </main>
+
+  <div class="sheet-scrim" id="sheetScrim" hidden></div>
+  <aside class="detail-sheet" id="detailSheet" aria-labelledby="detailTitle" aria-hidden="true">
+    <div class="sheet-handle" aria-hidden="true"></div>
+    <button type="button" class="sheet-close" id="closeSheet" aria-label="إغلاق التفاصيل">×</button>
+    <div class="sheet-content">
+      <div class="detail-art" id="detailArt"></div>
+      <div class="detail-copy">
+        <div class="detail-labels"><span id="detailRarity" class="rarity-pill">عادي</span><span id="detailType" class="detail-type">قالب PRIME</span></div>
+        <h2 id="detailTitle">اختر عنصراً</h2>
+        <p id="detailDescription"></p>
+        <div class="detail-price-row" id="detailPriceRow"></div>
+        <div class="detail-actions">
+          <button type="button" id="primaryAction" class="primary-button">اختر عنصراً</button>
+          <button type="button" id="secondaryAction" class="secondary-button" hidden>إزالة التجهيز</button>
+        </div>
+        <p class="detail-footnote"><span class="secure-dot"></span> التغييرات تُحفظ على بروفايلك مباشرة.</p>
+      </div>
+    </div>
+  </aside>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
