@@ -921,26 +921,41 @@ def _find_best_level_box(
     return best[1]
 
 
-def _default_stat_boxes(width: int, height: int) -> list[dict]:
-    """Create readable default stat rows for custom templates lacking curated metadata."""
+def _default_stat_boxes(
+    width: int, height: int, avatar: dict | None = None,
+) -> list[dict]:
+    """Create stat boxes below the avatar when a custom template has no stat metadata."""
     fields = (
         ("balance", "الرصيد"), ("messages", "الرسائل"),
         ("rank", "الترتيب"), ("voice", "الصوت"),
     )
     result = []
+    avatar = avatar if isinstance(avatar, dict) else {}
+    avatar_bottom = int(avatar.get("y", height * 0.62)) + int(
+        avatar.get("size", min(width, height) * 0.18)
+    )
+    margin = max(8, int(min(width, height) * 0.018))
     if width >= height * 1.18:
         top, cell_h, cell_w = int(height * 0.82), max(28, int(height * 0.105)), int(width * 0.205)
         xs = [int(width * ratio) for ratio in (0.035, 0.275, 0.515, 0.755)]
+        if avatar_bottom + margin > top and avatar_bottom + cell_h + margin < height:
+            top = max(top, avatar_bottom + margin)
+        top = min(top, height - cell_h - margin)
         for (key, label), x in zip(fields, xs):
             result.append({"key": key, "label": label, "x": x, "y": top,
                            "w": min(cell_w, width - x), "h": min(cell_h, height - top)})
     else:
         cell_w, cell_h = int(width * 0.41), max(26, int(height * 0.065))
-        for (key, label), x, y in zip(
+        first_top = max(int(height * 0.77), avatar_bottom + margin)
+        second_top = max(int(height * 0.87), first_top + cell_h + margin)
+        if second_top + cell_h > height - margin:
+            second_top = height - cell_h - margin
+            first_top = min(first_top, second_top - cell_h - margin)
+        for (key, label), x, top in zip(
             fields, (0.06, 0.535, 0.06, 0.535),
-            (0.77, 0.77, 0.87, 0.87),
+            (first_top, first_top, second_top, second_top),
         ):
-            left, top = int(width * x), int(height * y)
+            left = int(width * x)
             result.append({"key": key, "label": label, "x": left, "y": top,
                            "w": min(cell_w, width - left), "h": min(cell_h, height - top)})
     return result
@@ -1051,7 +1066,7 @@ def _apply_smart_template_layout(
 
     stats = result.get("stats") if isinstance(result.get("stats"), list) else []
     if not stats:
-        stats = _default_stat_boxes(width, height)
+        stats = _default_stat_boxes(width, height, result.get("avatar"))
         result["stats"] = stats
 
     margin = max(12, int(min(width, height) * 0.018))
