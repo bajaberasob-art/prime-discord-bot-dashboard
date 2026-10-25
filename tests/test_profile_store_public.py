@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from aiohttp import web
+from aiohttp import CookieJar, web
+from aiohttp.test_utils import TestClient, TestServer
 
 import aiosqlite
 import database
@@ -15,6 +16,7 @@ import profile_store_public
 class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.original_db_name = database.DB_NAME
+        self.original_routes_registered = profile_store_public._registered
         self.temp_dir = tempfile.TemporaryDirectory(prefix="prime_profile_public_store_")
         database.DB_NAME = os.path.join(self.temp_dir.name, "store.db")
         await database.init_db()
@@ -22,6 +24,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         self.session = {"guild_id": 99, "user_id": 1234}
 
     async def asyncTearDown(self):
+        profile_store_public._registered = self.original_routes_registered
         database.DB_NAME = self.original_db_name
         self.temp_dir.cleanup()
 
@@ -42,6 +45,71 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             )
             await db.commit()
             return int(cursor.lastrowid)
+
+    async def test_http_store_session_csrf_and_free_purchase_flow(self):
+        profile_store_public._registered = False
+        routes = web.RouteTableDef()
+        profile_store_public.register_profile_store_public_routes(routes)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True))
+        try:
+            await client.start_server()
+
+            anonymous = await client.get("/api/profile-store/state")
+            self.assertEqual(anonymous.status, 401)
+            self.assertEqual((await anonymous.json())["error"], "store_session_expired")
+
+            token, _expires_at = await profile_store_db.create_profile_store_session(99, 1234)
+            exchange = await client.get(
+                "/profile-store", params={"token": token}, allow_redirects=False,
+            )
+            self.assertEqual(exchange.status, 302)
+            self.assertEqual(exchange.headers.get("Location"), "/profile-store")
+            self.assertIn("prime_profile_store", exchange.headers.getall("Set-Cookie")[0])
+
+            state_response = await client.get("/api/profile-store/state")
+            self.assertEqual(state_response.status, 200)
+            data = await state_response.json()
+            self.assertEqual(data["user"]["id"], "1234")
+            self.assertGreaterEqual(data["wallet"]["coins"], 0)
+
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT item_id FROM profile_store_items WHERE slug = 'profile-neon-wide' AND is_active = 1"
+                ) as cursor:
+                    item = await cursor.fetchone()
+            self.assertIsNotNone(item)
+            item_id = int(item["item_id"])
+
+            rejected = await client.post(
+                "/api/profile-store/purchase", json={"item_id": item_id},
+            )
+            self.assertEqual(rejected.status, 403)
+            self.assertEqual((await rejected.json())["error"], "csrf")
+
+            csrf_cookie = client.session.cookie_jar.filter_cookies(client.make_url("/"))["prime_profile_csrf"].value
+            origin = str(client.make_url("/")).rstrip("/")
+            purchased = await client.post(
+                "/api/profile-store/purchase",
+                json={"item_id": item_id},
+                headers={"Origin": origin, "X-CSRF-Token": csrf_cookie},
+            )
+            self.assertEqual(purchased.status, 200, await purchased.text())
+            payload = await purchased.json()
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["purchase"]["item_id"], item_id)
+
+            duplicate = await client.post(
+                "/api/profile-store/purchase",
+                json={"item_id": item_id},
+                headers={"Origin": origin, "X-CSRF-Token": csrf_cookie},
+            )
+            self.assertEqual(duplicate.status, 409)
+            self.assertEqual((await duplicate.json())["error"], "already_owned")
+        finally:
+            await client.close()
 
     async def test_store_state_reads_existing_prime_wallet_and_owned_catalog(self):
         await self._add_item("test-store-background", asset_path="assets/profile_templates/01_portrait_neon_pink.png")
