@@ -218,8 +218,7 @@ DEFAULT_PROFILE_TEMPLATES = (
                 {"key": "voice", "label": "الصوت", "x": 644, "y": 496, "w": 178, "h": 76},
             ],
         },
-    },,
-
+    },
     {
         "slug": "profile-rose-wide", "name": "وردي مزهر",
         "description": "قالب أفقي وردي بزخارف ناعمة وحواف مضيئة.",
