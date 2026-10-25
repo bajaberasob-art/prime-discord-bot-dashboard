@@ -16,6 +16,7 @@ from profile_store_admin import (
     profile_asset_root,
     validate_catalog_item_payload,
     validate_static_image,
+    validate_store_category_payload,
 )
 
 
@@ -155,6 +156,29 @@ class ProfileCatalogPayloadTests(unittest.TestCase):
 
 
 
+
+
+    def test_accepts_custom_category_and_validates_slug_and_order(self):
+        category = validate_store_category_payload({
+            "slug": "seasonal-banners",
+            "name": "بانرات موسمية",
+            "description": "محتوى موسمي",
+            "icon": "▤",
+            "sort_order": 42,
+            "is_active": True,
+        })
+        self.assertEqual(category["slug"], "seasonal-banners")
+        self.assertEqual(category["name"], "بانرات موسمية")
+        self.assertEqual(category["sort_order"], 42)
+        self.assertEqual(category["is_active"], 1)
+        with self.assertRaisesRegex(ValueError, "invalid_category_slug"):
+            validate_store_category_payload({
+                "slug": "../bad", "name": "قسم سيئ",
+            })
+        with self.assertRaisesRegex(ValueError, "invalid_category_sort_order"):
+            validate_store_category_payload({
+                "slug": "bad-order", "name": "ترتيب سيئ", "sort_order": -1,
+            })
 
     def test_asset_root_rejects_public_dashboard_directory(self):
         public_root = Path(__file__).resolve().parents[1] / "dashboard"
