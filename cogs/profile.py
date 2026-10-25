@@ -159,7 +159,7 @@ class ProfileCommands(commands.Cog):
             attachment.close()
             image.close()
 
-    @app_commands.command(name="profile_card", description="عرض بطاقة البروفايل المستقلة عن بطاقة اللفل")
+    @app_commands.command(name="profile", description="عرض بطاقة البروفايل المستقلة عن بطاقة اللفل")
     @app_commands.guild_only()
     @app_commands.describe(member="العضو المطلوب، أو اتركه فارغاً لعرض بطاقتك")
     async def profile_slash(
@@ -244,25 +244,25 @@ async def setup(bot: commands.Bot):
 
 
 async def publish_profile_command(bot, guild=None) -> bool:
-    """Upsert only /profile_card without replacing unrelated Discord commands."""
+    """Upsert only /profile without replacing unrelated Discord commands."""
     try:
-        command = bot.tree.get_command("profile_card")
+        command = bot.tree.get_command("profile")
         if command is None:
-            raise RuntimeError("local /profile_card command is missing")
+            raise RuntimeError("local /profile command is missing")
         fields = ("name", "description", "type", "options",
                   "default_member_permissions", "dm_permission")
         payload = command.to_dict(bot.tree)
         remote = await bot.tree.fetch_commands(guild=guild)
         existing = {item.name: item for item in remote}
-        previous = existing.get("profile_card")
+        previous = existing.get("profile")
         if previous and all(payload.get(key) == previous.to_dict().get(key) for key in fields):
             return True
         if guild is None:
             await bot.http.upsert_global_command(bot.application_id, payload)
         else:
             await bot.http.upsert_guild_command(bot.application_id, int(guild.id), payload)
-        logger.info("PRIME /profile_card command registered")
+        logger.info("PRIME /profile command registered")
         return True
     except Exception:
-        logger.exception("Could not register /profile_card; unrelated commands were left untouched")
+        logger.exception("Could not register /profile; unrelated commands were left untouched")
         return False
