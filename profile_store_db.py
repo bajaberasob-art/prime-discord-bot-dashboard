@@ -526,6 +526,23 @@ async def ensure_profile_store_schema() -> None:
                 WHERE trim(category) = '' OR lower(trim(category)) = 'all'
                 """
             )
+            await db.execute(
+                """
+                UPDATE profile_store_items
+                SET category = CASE lower(trim(category))
+                    WHEN 'background' THEN 'backgrounds'
+                    WHEN 'card_template' THEN 'templates'
+                    WHEN 'card_color' THEN 'colors'
+                    WHEN 'flag' THEN 'flags'
+                    WHEN 'badge' THEN 'stickers'
+                    WHEN 'shape' THEN 'shapes'
+                    WHEN 'club_logo' THEN 'club-logos'
+                    ELSE category
+                END
+                WHERE lower(trim(category)) IN
+                    ('background', 'card_template', 'card_color', 'flag', 'badge', 'shape', 'club_logo')
+                """
+            )
             default_categories = (
                 ("backgrounds", "الخلفيات", "خلفيات وصور بانر للبطاقة", "▧", 10),
                 ("templates", "قوالب البروفايل", "قوالب تصميم البطاقة", "▣", 20),
