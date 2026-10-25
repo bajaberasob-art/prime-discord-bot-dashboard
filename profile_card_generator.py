@@ -348,7 +348,7 @@ def _display_text(value: Any) -> str:
 def _contains_arabic(value: Any) -> bool:
     """Return whether text contains Arabic-script characters, including Arabic supplements."""
     text = str(value if value is not None else "")
-    return any("\\u0600" <= char <= "\\u08FF" or "\\uFB50" <= char <= "\\uFEFF" for char in text)
+    return any(0x0600 <= ord(char) <= 0x08FF or 0xFB50 <= ord(char) <= 0xFEFF for char in text)
 
 
 def _draw_display_text(
