@@ -1,7 +1,7 @@
 {
   "title": "PRIME Approved Profile Card Raster Templates",
-  "status": "approved-source-assets-verified-not-yet-committed",
-  "description": "Inventory of the eight independent user-approved raster assets. Preserve original bytes, aspect ratios, and alpha. Do not use sprite-sheet previews or recreate these assets as SVG.",
+  "status": "seven-assets-integrated; one-approved-source-asset-not-present",
+  "description": "Inventory of the eight independent user-approved raster assets. Seven PNG templates are wired to the profile store; celestial_blue_portrait.png is not present in the branch. Preserve original bytes, aspect ratios, and alpha. Do not use sprite-sheet previews or recreate these assets as SVG.",
   "assets": [
     {
       "filename": "celestial_blue_portrait.png",
