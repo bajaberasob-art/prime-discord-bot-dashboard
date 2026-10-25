@@ -74,7 +74,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 versions = [row[0] for row in await cursor.fetchall()]
 
         self.assertEqual(settings_count, 1)
-        self.assertEqual(versions, [profile_store_db.PROFILE_STORE_SCHEMA_VERSION])
+        self.assertEqual(versions, [1, profile_store_db.PROFILE_STORE_SCHEMA_VERSION])
 
     async def test_catalog_accepts_free_and_paid_items_but_rejects_invalid_values(self):
         async with database.connect() as db:
@@ -113,7 +113,11 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             await db.commit()
 
             async with db.execute(
-                "SELECT slug, price, currency FROM profile_store_items ORDER BY item_id"
+                """
+                SELECT slug, price, currency FROM profile_store_items
+                WHERE slug IN ('default-pink', 'gold-frame')
+                ORDER BY slug
+                """
             ) as cursor:
                 rows = [tuple(row) for row in await cursor.fetchall()]
 
@@ -121,6 +125,28 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             ("default-pink", 0, "moon"),
             ("gold-frame", 200, "gem"),
         ])
+
+    async def test_default_templates_are_independent_catalog_items_with_varied_dimensions(self):
+        import json
+        async with database.connect() as db:
+            async with db.execute(
+                """
+                SELECT slug, asset_path, price, metadata_json
+                FROM profile_store_items
+                WHERE item_type = 'card_template' AND slug LIKE 'profile-%'
+                ORDER BY slug
+                """
+            ) as cursor:
+                rows = [dict(row) for row in await cursor.fetchall()]
+
+        self.assertGreaterEqual(len(rows), 8)
+        self.assertEqual(len({row["slug"] for row in rows}), len(rows))
+        self.assertTrue(all(row["asset_path"] for row in rows))
+        dimensions = set()
+        for row in rows:
+            metadata = json.loads(row["metadata_json"])
+            dimensions.add((metadata["width"], metadata["height"]))
+        self.assertGreaterEqual(len(dimensions), 4)
 
     async def test_card_settings_and_equipped_items_require_owned_inventory(self):
         async with database.connect() as db:
@@ -192,6 +218,36 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(selected, item_id)
         self.assertEqual(slots, ["badge_1"])
+
+
+    async def test_profile_session_is_issued_for_member_with_15_minute_expiry(self):
+        from datetime import datetime
+        token, expires_at = await profile_store_db.create_profile_store_session(99, 1234)
+        digest = profile_store_db.hash_session_token(token)
+        self.assertTrue(token)
+        self.assertEqual(len(digest), 64)
+        async with database.connect() as db:
+            async with db.execute(
+                """
+                SELECT guild_id, user_id, token_hash, created_at, expires_at
+                FROM profile_store_sessions WHERE token_hash = ?
+                """,
+                (digest,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        self.assertEqual((row[0], row[1], row[2]), (99, 1234, digest))
+        self.assertEqual(row[4], expires_at)
+        created = datetime.fromisoformat(row[3].replace("Z", "+00:00"))
+        expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        self.assertEqual((expires - created).total_seconds(),
+                         profile_store_db.DEFAULT_SESSION_TTL_SECONDS)
+
+    async def test_disabled_store_rejects_new_temporary_sessions(self):
+        async with database.connect() as db:
+            await db.execute("UPDATE profile_store_settings SET enabled = 0 WHERE settings_id = 1")
+            await db.commit()
+        with self.assertRaises(profile_store_db.ProfileStoreDisabled):
+            await profile_store_db.create_profile_store_session(99, 1234)
 
     async def test_session_token_helper_returns_digest_and_rejects_empty_input(self):
         digest = profile_store_db.hash_session_token("secret-token")
