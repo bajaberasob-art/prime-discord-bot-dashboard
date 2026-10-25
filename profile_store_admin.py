@@ -275,7 +275,7 @@ def _configured_profile_store_admin_ids() -> set[int]:
     result: set[int] = set()
     for key in ("PROFILE_STORE_ADMIN_IDS", "BOT_OWNER_IDS", "BOT_OWNER_ID"):
         raw = (os.environ.get(key) or "").strip()
-        for value in re.split(r"[,\\s]+", raw):
+        for value in raw.replace(",", " ").split():
             if value.isdigit():
                 result.add(int(value))
     return result
@@ -468,9 +468,7 @@ def register_profile_store_admin_routes(routes, authorize) -> None:
 
     @routes.get("/api/guild/{guild_id}/profile-store")
     async def profile_store_admin_get(request):
-        _session, guild = await authorize(
-            request, management_tier="admin",
-        )
+        _session, guild = await store_authorize(request)
         async with database.connect(aiosqlite.Row) as db:
             async with db.execute(
                 "SELECT * FROM profile_store_settings WHERE settings_id = 1"
@@ -503,9 +501,7 @@ def register_profile_store_admin_routes(routes, authorize) -> None:
 
     @routes.post("/api/guild/{guild_id}/profile-store/settings")
     async def profile_store_admin_settings_save(request):
-        _session, guild = await authorize(
-            request, write=True, management_tier="admin",
-        )
+        _session, guild = await store_authorize(request, write=True)
         try:
             body = await _read_item_payload(request)
             if not body:
@@ -583,9 +579,7 @@ def register_profile_store_admin_routes(routes, authorize) -> None:
 
     @routes.post("/api/guild/{guild_id}/profile-store/items")
     async def profile_store_item_create(request):
-        session, guild = await authorize(
-            request, write=True, management_tier="admin",
-        )
+        session, guild = await store_authorize(request, write=True)
         try:
             body = await _read_item_payload(request)
             item = validate_catalog_item_payload(body)
@@ -619,9 +613,7 @@ def register_profile_store_admin_routes(routes, authorize) -> None:
 
     @routes.put("/api/guild/{guild_id}/profile-store/items/{item_id}")
     async def profile_store_item_update(request):
-        _session, _guild = await authorize(
-            request, write=True, management_tier="admin",
-        )
+        _session, _guild = await store_authorize(request, write=True)
         raw_id = str(request.match_info.get("item_id", ""))
         if not raw_id.isdigit() or int(raw_id) <= 0:
             return _json_error(404, "item_not_found")
