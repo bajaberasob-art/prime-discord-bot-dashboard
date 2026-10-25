@@ -383,6 +383,98 @@ def _resolve_asset_path(raw_path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _apply_preview_item(configuration: dict, item: dict) -> dict:
+    """Apply a cosmetic to a copy of the current card configuration without saving it."""
+    result = dict(configuration or {})
+    item_type = str(item.get("item_type") or "")
+    if item_type == "card_template":
+        result["template"] = item
+    elif item_type == "background":
+        result["background"] = item
+    elif item_type == "card_color":
+        result["color_style"] = dict(item.get("style") or {})
+    elif item_type == "flag":
+        result["flag"] = item
+    elif item_type in {"badge", "shape", "club_logo"}:
+        equipped = list(result.get("badges") or [])
+        equipped = [existing for existing in equipped if int(existing.get("item_id") or 0) != int(item.get("item_id") or 0)]
+        result["badges"] = (equipped[:4] + [item]) if len(equipped) >= 5 else equipped + [item]
+    else:
+        raise StoreActionError(400, "unsupported_item_type", "هذا العنصر لا يدعم معاينة بطاقة البروفايل.")
+
+    result["preview_item_id"] = int(item.get("item_id") or 0)
+    return result
+
+
+async def _render_profile_preview(request, session, item_id: int) -> bytes:
+    """Render the selected cosmetic through PRIME's real profile-card renderer without persisting it."""
+    bot = request.app.get("bot") if hasattr(request, "app") else None
+    if bot is None:
+        raise StoreActionError(503, "bot_unavailable", "البوت غير متصل حالياً؛ جرّب المعاينة لاحقاً.")
+
+    guild_id, user_id = int(session["guild_id"]), int(session["user_id"])
+    guild = bot.get_guild(guild_id)
+    if guild is None:
+        raise StoreActionError(503, "guild_unavailable", "تعذر الوصول إلى السيرفر من البوت. تأكد أن البوت متصل.")
+
+    member = guild.get_member(user_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception as error:
+            logger.info("Profile store preview could not fetch guild member: %s", type(error).__name__)
+            raise StoreActionError(404, "member_unavailable", "تعذر العثور على حسابك داخل السيرفر.") from error
+    if getattr(member, "bot", False):
+        raise StoreActionError(400, "member_unavailable", "معاينة البروفايل غير متاحة لحسابات البوتات.")
+
+    async with database.connect(aiosqlite.Row) as db:
+        async with db.execute(
+            """
+            SELECT * FROM profile_store_items
+            WHERE item_id = ? AND is_active = 1 AND deleted_at IS NULL
+            """,
+            (item_id,),
+        ) as cursor:
+            item_row = await cursor.fetchone()
+    if not item_row:
+        raise StoreActionError(404, "item_not_found", "العنصر لم يعد متاحاً في المتجر.")
+
+    item = dict(item_row)
+    item["style"] = _json_object(item.pop("style_json", "{}"))
+    item["metadata"] = _json_object(item.pop("metadata_json", "{}"))
+
+    configuration = await profile_store_db.get_profile_card_configuration(guild_id, user_id)
+    configuration = _apply_preview_item(configuration, item)
+
+    humans = [int(user.id) for user in guild.members if not getattr(user, "bot", False)]
+    if user_id not in humans:
+        humans.append(user_id)
+    snapshot = await database.get_command_rank_snapshot(guild_id, user_id, humans, mode="text")
+    from level_progression import text_progress
+
+    progress = text_progress(int(snapshot.get("text_xp") or 0))
+    wallet = await profile_store_db.get_profile_wallet(guild_id, user_id)
+    profile = {
+        "display_name": str(getattr(member, "display_name", None) or member.name),
+        "username": str(getattr(member, "name", "member")),
+        "level": int(snapshot.get("text_level") or progress["level"]),
+        "xp": int(progress["progress_xp"]),
+        "required_xp": max(1, int(progress["xp_required"])),
+        "balance": int(wallet.get("balance") or 0),
+        "messages": int(snapshot.get("total_messages") or 0),
+        "rank": snapshot.get("rank"),
+        "voice_seconds": int(snapshot.get("total_voice_seconds") or 0),
+    }
+
+    from profile_card_generator import generate_profile_card
+
+    image = await generate_profile_card(member, profile, configuration)
+    try:
+        return image.getvalue()
+    finally:
+        image.close()
+
+
 def _valid_item_id(value) -> int | None:
     if isinstance(value, bool):
         return None
