@@ -110,10 +110,12 @@ def validate_static_image(
                     clean = ImageOps.exif_transpose(image).convert("RGB")
                 elif actual_format == "PNG":
                     clean = ImageOps.exif_transpose(image)
-                    clean = clean.convert("RGBA" if "A" in clean.getbands() else "RGB")
+                    has_alpha = "A" in clean.getbands() or "transparency" in clean.info
+                    clean = clean.convert("RGBA" if has_alpha else "RGB")
                 else:
                     clean = ImageOps.exif_transpose(image)
-                    clean = clean.convert("RGBA" if "A" in clean.getbands() else "RGB")
+                    has_alpha = "A" in clean.getbands() or "transparency" in clean.info
+                    clean = clean.convert("RGBA" if has_alpha else "RGB")
 
                 output = io.BytesIO()
                 save_options: dict[str, Any] = {}
@@ -422,9 +424,13 @@ async def _write_item_asset(request, *, authorize):
         return _json_error(400, "invalid_asset_path")
 
     try:
-        await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(root.mkdir, parents=True, exist_ok=True, mode=0o700)
+        await asyncio.to_thread(os.chmod, root, 0o700)
+        await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True, mode=0o700)
+        await asyncio.to_thread(os.chmod, destination.parent, 0o700)
         temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
         await asyncio.to_thread(temporary.write_bytes, normalized["data"])
+        await asyncio.to_thread(os.chmod, temporary, 0o600)
         await asyncio.to_thread(os.replace, temporary, destination)
         async with database.connect() as db:
             await db.execute(
