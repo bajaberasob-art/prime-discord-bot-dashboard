@@ -218,7 +218,7 @@ class Economy(commands.Cog):
         self.cooldowns[key] = now
         return 0
 
-    @app_commands.command(name="profile", description="عرض الملف المالي والشخصي")
+    @app_commands.command(name="wallet", description="عرض المحفظة والبنك والإجمالي المالي")
     async def profile(
         self,
         itx: discord.Interaction,
