@@ -19,6 +19,7 @@ from database import (
     record_analytics_voice_session,
     wal_checkpoint_loop,
 )
+from profile_store_db import ensure_profile_store_schema
 from cogs.utilities import dynamic_prefix
 import prime_ai_intelligence
 import prime_ai_persistence
@@ -325,6 +326,7 @@ class EnterpriseBot(commands.Bot):
 
         try:
             await init_db()
+            await ensure_profile_store_schema()
             from prime_games.engine import ensure_game_schema
             await ensure_game_schema()
             await prime_ai_intelligence.ensure_schema()
