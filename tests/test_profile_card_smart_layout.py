@@ -111,25 +111,41 @@ class ProfileCardSmartLayoutTests(unittest.TestCase):
         encoded = io.BytesIO()
         image.save(encoded, format="PNG")
 
-        # Simulate old database metadata pointing to an avatar position that no longer
-        # matches the template artwork after an admin replaces the image.
+        # Simulate stale avatar coordinates in a template that already has hand-authored
+        # text, XP-track, and stats anchors. Only the avatar should move.
         metadata = {
             "width": width, "height": height, "layout": "portrait",
             "avatar": {"x": 12, "y": 16, "size": 48},
             "name": {"x": 150, "y": 40, "max_width": 100, "anchor": "ra"},
-            "handle": {}, "level": {}, "xp_bar": {}, "stats": [],
+            "handle": {"x": 150, "y": 60, "max_width": 100, "anchor": "ra"},
+            "level": {"x": 20, "y": 200, "max_width": 120, "anchor": "la"},
+            "xp_bar": {"x": 20, "y": 235, "width": 190, "height": 8},
+            "stats": [{"key": "balance", "label": "الرصيد", "x": 20, "y": 290, "w": 100, "h": 35}],
         }
         resolved = generator._apply_smart_template_layout(metadata, encoded.getvalue())
         avatar = resolved["avatar"]
         actual_center_x = avatar["x"] + avatar["size"] / 2
         actual_center_y = avatar["y"] + avatar["size"] / 2
+
         self.assertEqual(
             resolved["avatar_detection"]["method"], "circular-contour-override"
         )
-        # The lightweight contour scan works on a 320px thumbnail and samples a coarse grid;
-        # allow its documented approximate localization tolerance while still rejecting stale anchors.
+        # The coarse local contour scan is approximate but must beat the stale saved slot.
         self.assertLess(abs(actual_center_x - center[0]), 36)
         self.assertLess(abs(actual_center_y - center[1]), 36)
+        for key in ("name", "handle", "level", "xp_bar", "stats"):
+            self.assertEqual(resolved[key], metadata[key], f"{key} anchor changed with avatar")
+
+    def test_arabic_draw_uses_directional_text_without_double_reordering(self):
+        image = Image.new("RGBA", (420, 100), (8, 12, 22, 255))
+        draw = ImageDraw.Draw(image)
+        font = generator._load_font(32, bold=True, font_family="modern")
+        self.assertTrue(generator._contains_arabic("المستوى 117"))
+        generator._draw_display_text(
+            draw, (400, 12), "المستوى 117",
+            font=font, fill="#FFFFFF", anchor="ra",
+        )
+        self.assertGreater(len(set(image.convert("RGB").getdata())), 1)
 
     def test_admin_allows_profile_template_artwork_upload(self):
         self.assertIn("card_template", profile_store_admin._ASSET_ITEM_TYPES)

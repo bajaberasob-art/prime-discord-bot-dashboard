@@ -255,9 +255,12 @@ def _fit_font(
     shown = _display_text(text)
     width = max(1, int(max_width))
     size = max(minimum_size, int(preferred_size))
+    # Use bundled DejaVu Sans Arabic glyphs for consistent readability while retaining
+    # each template's selected family for Latin names and values.
+    resolved_family = "modern" if _contains_arabic(text) else font_family
     probe = ImageDraw.Draw(Image.new("L", (1, 1)))
     while True:
-        font = _load_font(size, bold=bold, font_family=font_family)
+        font = _load_font(size, bold=bold, font_family=resolved_family)
         bounds = probe.textbbox((0, 0), shown, font=font, stroke_width=0)
         measured = max(0, bounds[2] - bounds[0])
         if measured <= width or size <= minimum_size:
@@ -342,21 +345,34 @@ def _display_text(value: Any) -> str:
         return text
 
 
+def _contains_arabic(value: Any) -> bool:
+    """Return whether text contains Arabic-script characters, including Arabic supplements."""
+    text = str(value if value is not None else "")
+    return any(0x0600 <= ord(char) <= 0x08FF or 0xFB50 <= ord(char) <= 0xFEFF for char in text)
+
+
 def _draw_display_text(
     draw: ImageDraw.ImageDraw,
     xy: tuple[int, int],
     value: Any,
     **kwargs: Any,
 ) -> None:
-    """Draw pre-shaped Arabic in visual order without applying a second RTL reorder."""
-    shown = _display_text(value)
-    try:
-        # _display_text already performs Arabic shaping and bidi ordering. Explicit LTR
-        # prevents RAQM-enabled Pillow builds from reordering the visual string again.
-        draw.text(xy, shown, direction="ltr", **kwargs)
-    except (TypeError, ValueError):
-        # Compatibility with Pillow builds compiled without libraqm.
-        draw.text(xy, shown, **kwargs)
+    """Draw Arabic with Pillow's bidi/shaping engine; use reshaping only as a fallback."""
+    raw_text = str(value if value is not None else "")
+    if _contains_arabic(raw_text):
+        try:
+            # RAQM handles mixed Arabic, digits and Latin tokens as a single bidi paragraph.
+            draw.text(xy, raw_text, direction="rtl", language="ar", **kwargs)
+            return
+        except (TypeError, ValueError, KeyError):
+            pass
+        shown = _display_text(raw_text)
+        try:
+            draw.text(xy, shown, direction="ltr", **kwargs)
+        except (TypeError, ValueError, KeyError):
+            draw.text(xy, shown, **kwargs)
+        return
+    draw.text(xy, raw_text, **kwargs)
 
 
 def _number(value: Any, default: int = 0) -> int:
@@ -552,30 +568,43 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
 
 
 def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dict:
-    """Use image analysis to validate curated anchors and infer missing template layout."""
+    """Correct avatar coordinates without replacing a template's curated text/stat layout."""
     result = dict(metadata or {})
     avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
     has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
     detected = _detect_template_avatar_slot(raw_frame)
 
-    # Stored coordinates can become stale when an administrator replaces a template image.
-    # Keep curated anchors when they match the artwork, but prefer a high-confidence ring
-    # detected in the actual pixels when it clearly disagrees with those old coordinates.
-    if has_curated_avatar and detected:
-        current_x = int(avatar.get("x", 0)) + int(avatar.get("size", 0)) / 2
-        current_y = int(avatar.get("y", 0)) + int(avatar.get("size", 0)) / 2
-        detected_x = int(detected.get("x", 0)) + int(detected.get("size", 0)) / 2
-        detected_y = int(detected.get("y", 0)) + int(detected.get("size", 0)) / 2
-        disagreement = math.hypot(current_x - detected_x, current_y - detected_y)
-        if detected.get("confidence", 0) < 0.28 or disagreement < max(24, int(avatar.get("size", 0) * 0.30)):
-            return result
-        # A real high-contrast circular slot is a stronger anchor than old database metadata.
-        result["avatar_detection"] = {
-            "method": "circular-contour-override",
-            "confidence": detected["confidence"],
-        }
-    elif has_curated_avatar:
+    if has_curated_avatar:
+        # Approved templates contain art-directed name, level, progress-track and stat
+        # anchors. Re-generating those positions relative to the avatar caused collisions.
+        # Only correct the avatar when high-confidence image analysis finds a different ring.
+        if detected and detected.get("confidence", 0) >= 0.28:
+            current_x = int(avatar["x"]) + int(avatar["size"]) / 2
+            current_y = int(avatar["y"]) + int(avatar["size"]) / 2
+            detected_x = int(detected.get("x", 0)) + int(detected.get("size", 0)) / 2
+            detected_y = int(detected.get("y", 0)) + int(detected.get("size", 0)) / 2
+            disagreement = math.hypot(current_x - detected_x, current_y - detected_y)
+            if disagreement >= max(24, int(avatar["size"] * 0.30)):
+                width = _clamp(result.get("width"), 320, 2048, 1280)
+                height = _clamp(result.get("height"), 320, 2048, 720)
+                source_width = max(1, int(detected.get("frame_width") or width))
+                source_height = max(1, int(detected.get("frame_height") or height))
+                scale_x, scale_y = width / source_width, height / source_height
+                target_size = max(48, int(detected["size"] * min(scale_x, scale_y)))
+                center_x = (detected["x"] + detected["size"] / 2) * scale_x
+                center_y = (detected["y"] + detected["size"] / 2) * scale_y
+                result["avatar"] = {
+                    "x": max(0, min(width - target_size, int(center_x - target_size / 2))),
+                    "y": max(0, min(height - target_size, int(center_y - target_size / 2))),
+                    "size": min(target_size, width, height),
+                }
+                result["avatar_detection"] = {
+                    "method": "circular-contour-override",
+                    "confidence": detected["confidence"],
+                }
+        # Preserve the remaining curated positions exactly, even if the avatar moved.
         return result
+
     width = _clamp(result.get("width"), 320, 2048, 1280)
     height = _clamp(result.get("height"), 320, 2048, 720)
     if detected:
@@ -796,13 +825,13 @@ def _draw_stat_text(
     center_x = x + width // 2
     label = str(stat.get("label", ""))
     label_font = _fit_font(
-        label, available_width, max(13, min(40, int(height * .24))),
-        minimum_size=9, font_family=font_family,
+        label, available_width, max(28, min(64, int(height * .36))),
+        minimum_size=15, font_family=font_family,
     )
     value_text = str(value)
     value_font = _fit_font(
-        value_text, available_width, max(14, min(46, int(height * .31))),
-        minimum_size=8, bold=True, font_family=font_family,
+        value_text, available_width, max(32, min(72, int(height * .43))),
+        minimum_size=14, bold=True, font_family=font_family,
     )
     can_sample = image is not None and auto_contrast
     label_color = (
@@ -813,13 +842,13 @@ def _draw_stat_text(
         _contrast_text_color(image, stat, text_color, dark_text, stat_cell=True)
         if can_sample else text_color
     )
-    _draw_display_text(draw, (center_x, y + int(height * .31)), label,
+    _draw_display_text(draw, (center_x, y + int(height * .27)), label,
                        font=label_font, fill=label_color, anchor="mm",
-                       stroke_width=1, stroke_fill=(0, 0, 0, 120))
+                       stroke_width=2, stroke_fill=(0, 0, 0, 175))
     # Never replace a wallet/message/rank value with an ellipsis: fit the font instead.
-    _draw_display_text(draw, (center_x, y + int(height * .70)), value_text,
+    _draw_display_text(draw, (center_x, y + int(height * .74)), value_text,
                        font=value_font, fill=value_color, anchor="mm",
-                       stroke_width=1, stroke_fill=(0, 0, 0, 145))
+                       stroke_width=2, stroke_fill=(0, 0, 0, 190))
 
 
 def render_profile_card(
@@ -953,14 +982,14 @@ def render_profile_card(
     handle = "@" + str(profile.get("username") or "member").strip()[:42].lstrip("@")
     name_available = _clamp(name_box.get("max_width"), 120, width, int(width * .42))
     name_font = _fit_font(
-        name, name_available, max(21, min(52, int(min(width, height) * .047))),
-        minimum_size=15, bold=True, font_family=font_family,
+        name, name_available, max(28, min(64, int(min(width, height) * .056))),
+        minimum_size=18, bold=True, font_family=font_family,
     )
     handle_text = handle
     handle_available = _clamp(handle_box.get("max_width"), 100, width, name_available)
     handle_font = _fit_font(
-        handle_text, handle_available, max(13, min(29, int(min(width, height) * .026))),
-        minimum_size=10, font_family=font_family,
+        handle_text, handle_available, max(20, min(36, int(min(width, height) * .034))),
+        minimum_size=13, font_family=font_family,
     )
     name_color = (
         light_text if not auto_contrast else _contrast_text_color(
@@ -986,54 +1015,27 @@ def render_profile_card(
     level_x = _scale_position(level_box, "x", inset * 3, width)
     level_y = _scale_position(level_box, "y", int(height * .48), height)
     level = _number(profile.get("level"), 0)
-    xp = _number(profile.get("xp"), 0)
-    required = max(1, _number(profile.get("required_xp"), 1))
     level_text = f"المستوى {level}"
     level_available = _clamp(level_box.get("max_width"), 100, width, int(width * .44))
     progress_font = _fit_font(
-        level_text, level_available, max(18, min(36, int(min(width, height) * .034))),
-        minimum_size=12, bold=True, font_family=font_family,
+        level_text, level_available, max(30, min(60, int(min(width, height) * .052))),
+        minimum_size=18, bold=True, font_family=font_family,
     )
     level_color = (
         light_text if not auto_contrast else _contrast_text_color(
             canvas, level_box, light_text, dark_text,
-            line_height=max(18, int(min(width, height) * .05)),
+            line_height=max(22, int(min(width, height) * .065)),
         )
     )
-    _draw_display_text(draw, (level_x, level_y), level_text,
-                        font=progress_font, fill=level_color,
-                        anchor=str(level_box.get("anchor") or "ra"), stroke_width=1,
-                        stroke_fill=(0, 0, 0, 145))
-    xp_box = metadata.get("xp_bar") or {}
-    bar_x = _scale_position(xp_box, "x", level_x, width-20)
-    bar_y = _scale_position(xp_box, "y", level_y + int(36*scale), height-10)
-    bar_w = _clamp(xp_box.get("width"), 80, width, max(100, width - bar_x - 50))
-    bar_h = _clamp(xp_box.get("height"), 6, 28, max(8, int(12*scale)))
-    bar_w = min(bar_w, width - bar_x - 12)
-    draw.rounded_rectangle((bar_x, bar_y, bar_x+bar_w, bar_y+bar_h),
-                           radius=bar_h//2, fill=(5, 7, 14, 220),
-                           outline=(*ImageColor.getrgb(xp_color), 180), width=1)
-    fill_w = int(bar_w * min(1.0, xp / required))
-    if fill_w > 0:
-        draw.rounded_rectangle((bar_x, bar_y, bar_x+max(bar_h, fill_w), bar_y+bar_h),
-                               radius=bar_h//2, fill=xp_color)
-    xp_label = f"{xp:,} / {required:,} XP"
-    xp_font = _fit_font(
-        xp_label, max(80, bar_w), max(12, min(24, int(bar_h * 1.8))),
-        minimum_size=8, font_family=font_family,
+    _draw_display_text(
+        draw, (level_x, level_y), level_text,
+        font=progress_font, fill=level_color,
+        anchor=str(level_box.get("anchor") or "ra"), stroke_width=2,
+        stroke_fill=(0, 0, 0, 190),
     )
-    xp_label_y = min(height - 2, bar_y + bar_h + max(12, int(bar_h * 1.45)))
-    xp_label_box = {"x": bar_x, "y": xp_label_y, "max_width": bar_w, "anchor": "la"}
-    xp_color_text = (
-        muted_light if not auto_contrast else _contrast_text_color(
-            canvas, xp_label_box, muted_light, dark_text,
-            line_height=max(10, int(bar_h * 2)),
-        )
-    )
-    _draw_display_text(draw, (bar_x, xp_label_y), xp_label,
-                        font=xp_font, fill=xp_color_text, anchor="la",
-                        stroke_width=1, stroke_fill=(0, 0, 0, 100))
 
+    # The XP track is part of the template artwork. Do not draw a second progress bar
+    # or caption over it; that duplicated the line and collided with the level/stat labels.
     stat_values = {
         "balance": f"{_number(profile.get('balance')):,}",
         "messages": f"{_number(profile.get('messages')):,}",
