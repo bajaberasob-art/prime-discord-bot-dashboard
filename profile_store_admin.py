@@ -693,6 +693,9 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
     @routes.post("/api/guild/{guild_id}/profile-store/users/{user_id}/gems")
     async def profile_store_gem_adjust(request):
         _session, guild = await store_authorize(request, write=True)
+        raw_guild_id = str(request.match_info.get("guild_id", ""))
+        if not raw_guild_id.isdigit() or int(raw_guild_id) != int(guild.id):
+            return _json_error(403, "guild_scope_mismatch")
         raw_user_id = str(request.match_info.get("user_id", ""))
         if not raw_user_id.isdigit() or int(raw_user_id) <= 0:
             return _json_error(400, "invalid_user_id")
@@ -738,6 +741,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     """,
                     (updated, int(guild.id), user_id),
                 )
+                action = "gem_grant" if delta > 0 else "gem_adjustment"
                 await db.execute(
                     """
                     INSERT INTO profile_store_transactions
@@ -745,10 +749,22 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                          delta, balance_after, reason)
                     VALUES (?, ?, NULL, ?, 'gem', ?, ?, ?)
                     """,
+                    (int(guild.id), user_id, action, delta, updated, reason[:200]),
+                )
+                try:
+                    actor_value = int(_session.get("id", 0) or 0)
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    actor_value = 0
+                await db.execute(
+                    """
+                    INSERT INTO profile_store_admin_audit
+                        (guild_id, actor_user_id, target_user_id, action,
+                         delta, balance_after, reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
                     (
-                        int(guild.id), user_id,
-                        "gem_grant" if delta > 0 else "gem_adjustment",
-                        delta, updated, reason[:200],
+                        int(guild.id), actor_value if actor_value > 0 else None,
+                        user_id, action, delta, updated, reason[:200],
                     ),
                 )
                 await db.commit()
