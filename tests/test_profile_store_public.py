@@ -29,6 +29,17 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         database.DB_NAME = self.original_db_name
         self.temp_dir.cleanup()
 
+    async def _seed_coin_wallet(self, balance=100):
+        async with database.connect() as db:
+            await db.execute(
+                """
+                INSERT INTO users (user_id, guild_id, balance, bank)
+                VALUES (?, ?, ?, 0)
+                """,
+                (self.session["user_id"], self.session["guild_id"], int(balance)),
+            )
+            await db.commit()
+
     async def _add_item(
         self, slug, *, item_type="background", price=20, currency="moon",
         name="Test item", asset_path=None, category="test", subcategory="demo",
@@ -142,7 +153,12 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(state_response.status, 200)
             data = await state_response.json()
             self.assertEqual(data["user"]["id"], "1234")
-            self.assertGreaterEqual(data["wallet"]["coins"], 0)
+            self.assertEqual(data["wallet"]["coins"], 0)
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT 1 FROM users WHERE user_id = 1234 AND guild_id = 99"
+                ) as cursor:
+                    self.assertIsNone(await cursor.fetchone())
 
             async with database.connect(aiosqlite.Row) as db:
                 async with db.execute(
@@ -204,7 +220,26 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.close()
 
+    async def test_opening_store_does_not_mint_default_coins_for_missing_wallet(self):
+        item_id = await self._add_item("free-item-no-wallet", price=0, currency="moon")
+        state = await profile_store_public._store_state(SimpleNamespace(app={}), self.session)
+        self.assertEqual(state["wallet"]["coins"], 0)
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                "SELECT 1 FROM users WHERE user_id = 1234 AND guild_id = 99"
+            ) as cursor:
+                self.assertIsNone(await cursor.fetchone())
+
+        purchase = await profile_store_public._purchase_item(self.session, item_id)
+        self.assertEqual(purchase["balance"], 0)
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                "SELECT 1 FROM users WHERE user_id = 1234 AND guild_id = 99"
+            ) as cursor:
+                self.assertIsNone(await cursor.fetchone())
+
     async def test_store_state_reads_existing_prime_wallet_and_owned_catalog(self):
+        await self._seed_coin_wallet(100)
         await self._add_item("test-store-background", asset_path="assets/profile_templates/01_portrait_neon_pink.png")
         request = SimpleNamespace(app={})
         data = await profile_store_public._store_state(request, self.session)
@@ -219,6 +254,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(item["currency"] in {"moon", "gem"} for item in data["items"]))
 
     async def test_coin_purchase_is_atomic_and_duplicate_purchase_does_not_charge_twice(self):
+        await self._seed_coin_wallet(100)
         item_id = await self._add_item("prime-coins-item", price=35, currency="moon")
         result = await profile_store_public._purchase_item(self.session, item_id)
         self.assertEqual(result["balance"], 65)
