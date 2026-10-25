@@ -152,6 +152,10 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(item)
             item_id = int(item["item_id"])
 
+            preview_without_bot = await client.get(f"/api/profile-store/preview/{item_id}")
+            self.assertEqual(preview_without_bot.status, 503)
+            self.assertEqual((await preview_without_bot.json())["error"], "bot_unavailable")
+
             rejected = await client.post(
                 "/api/profile-store/purchase", json={"item_id": item_id},
             )
@@ -167,6 +171,18 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(wrong_origin.status, 403)
             self.assertEqual((await wrong_origin.json())["error"], "csrf")
+
+            oversized = await client.post(
+                "/api/profile-store/purchase",
+                data="x" * (profile_store_public.MAX_REQUEST_BODY + 1),
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": origin,
+                    "X-CSRF-Token": csrf_cookie,
+                },
+            )
+            self.assertEqual(oversized.status, 400)
+            self.assertEqual((await oversized.json())["error"], "request_too_large")
 
             purchased = await client.post(
                 "/api/profile-store/purchase",
