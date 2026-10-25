@@ -69,6 +69,18 @@ class ProfileCardTemplateTests(unittest.TestCase):
                 self.assertEqual(card.mode, "RGBA")
                 self.assertEqual(card.format, "PNG")
 
+    def test_approved_ultrawide_template_dimensions_are_preserved(self):
+        metadata = _safe_metadata({
+            "metadata": {
+                "layout": "wide",
+                "width": 1860,
+                "height": 845,
+                "avatar": {"x": 1500, "y": 80, "size": 180},
+            }
+        })
+        self.assertEqual((metadata["width"], metadata["height"]), (1860, 845))
+        self.assertEqual(metadata["layout"], "wide")
+
     def test_untrusted_template_dimensions_are_clamped(self):
         metadata = _safe_metadata({
             "metadata": {
@@ -79,7 +91,7 @@ class ProfileCardTemplateTests(unittest.TestCase):
             }
         })
         self.assertLessEqual(metadata["width"] * metadata["height"], 2_500_000)
-        self.assertLessEqual(metadata["width"], 1600)
+        self.assertLessEqual(metadata["width"], 2048)
         self.assertLessEqual(metadata["height"], 1600)
         self.assertEqual(metadata["layout"], "wide")
 
