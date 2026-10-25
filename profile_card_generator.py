@@ -811,13 +811,13 @@ def _draw_stat_text(
         _contrast_text_color(image, stat, text_color, dark_text, stat_cell=True)
         if can_sample else text_color
     )
-    draw.text((center_x, y + int(height * .31)), _display_text(label),
-              font=label_font, fill=label_color, anchor="mm",
-              stroke_width=1, stroke_fill=(0, 0, 0, 120))
+    _draw_display_text(draw, (center_x, y + int(height * .31)), label,
+                       font=label_font, fill=label_color, anchor="mm",
+                       stroke_width=1, stroke_fill=(0, 0, 0, 120))
     # Never replace a wallet/message/rank value with an ellipsis: fit the font instead.
-    draw.text((center_x, y + int(height * .70)), _display_text(value_text),
-              font=value_font, fill=value_color, anchor="mm",
-              stroke_width=1, stroke_fill=(0, 0, 0, 145))
+    _draw_display_text(draw, (center_x, y + int(height * .70)), value_text,
+                       font=value_font, fill=value_color, anchor="mm",
+                       stroke_width=1, stroke_fill=(0, 0, 0, 145))
 
 
 def render_profile_card(
@@ -973,12 +973,12 @@ def render_profile_card(
         )
     )
     name_stroke = (0, 0, 0, 175) if name_color == light_text else (255, 255, 255, 125)
-    draw.text((name_x, name_y), _display_text(name), font=name_font, fill=name_color,
-              anchor=str(name_box.get("anchor") or "ra"), stroke_width=2,
-              stroke_fill=name_stroke)
-    draw.text((handle_x, handle_y), _display_text(handle_text), font=handle_font, fill=handle_color,
-              anchor=str(handle_box.get("anchor") or "ra"), stroke_width=1,
-              stroke_fill=(0, 0, 0, 135))
+    _draw_display_text(draw, (name_x, name_y), name, font=name_font, fill=name_color,
+                        anchor=str(name_box.get("anchor") or "ra"), stroke_width=2,
+                        stroke_fill=name_stroke)
+    _draw_display_text(draw, (handle_x, handle_y), handle_text, font=handle_font, fill=handle_color,
+                        anchor=str(handle_box.get("anchor") or "ra"), stroke_width=1,
+                        stroke_fill=(0, 0, 0, 135))
 
     level_box = metadata.get("level") or {}
     level_x = _scale_position(level_box, "x", inset * 3, width)
@@ -998,10 +998,10 @@ def render_profile_card(
             line_height=max(18, int(min(width, height) * .05)),
         )
     )
-    draw.text((level_x, level_y), _display_text(level_text),
-              font=progress_font, fill=level_color,
-              anchor=str(level_box.get("anchor") or "ra"), stroke_width=1,
-              stroke_fill=(0, 0, 0, 145))
+    _draw_display_text(draw, (level_x, level_y), level_text,
+                        font=progress_font, fill=level_color,
+                        anchor=str(level_box.get("anchor") or "ra"), stroke_width=1,
+                        stroke_fill=(0, 0, 0, 145))
     xp_box = metadata.get("xp_bar") or {}
     bar_x = _scale_position(xp_box, "x", level_x, width-20)
     bar_y = _scale_position(xp_box, "y", level_y + int(36*scale), height-10)
@@ -1028,9 +1028,9 @@ def render_profile_card(
             line_height=max(10, int(bar_h * 2)),
         )
     )
-    draw.text((bar_x, xp_label_y), _display_text(xp_label),
-              font=xp_font, fill=xp_color_text, anchor="la",
-              stroke_width=1, stroke_fill=(0, 0, 0, 100))
+    _draw_display_text(draw, (bar_x, xp_label_y), xp_label,
+                        font=xp_font, fill=xp_color_text, anchor="la",
+                        stroke_width=1, stroke_fill=(0, 0, 0, 100))
 
     stat_values = {
         "balance": f"{_number(profile.get('balance')):,}",
