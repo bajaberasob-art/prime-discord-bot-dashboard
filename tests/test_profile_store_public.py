@@ -57,6 +57,12 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         try:
             await client.start_server()
 
+            page = await client.get("/profile-store")
+            self.assertEqual(page.status, 200)
+            self.assertIn("PRIME", await page.text())
+            self.assertEqual(page.headers.get("Referrer-Policy"), "no-referrer")
+            self.assertEqual(page.headers.get("X-Frame-Options"), "DENY")
+
             anonymous = await client.get("/api/profile-store/state")
             self.assertEqual(anonymous.status, 401)
             self.assertEqual((await anonymous.json())["error"], "store_session_expired")
@@ -91,6 +97,14 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
 
             csrf_cookie = client.session.cookie_jar.filter_cookies(client.make_url("/"))["prime_profile_csrf"].value
             origin = str(client.make_url("/")).rstrip("/")
+            wrong_origin = await client.post(
+                "/api/profile-store/purchase",
+                json={"item_id": item_id},
+                headers={"Origin": "https://attacker.example", "X-CSRF-Token": csrf_cookie},
+            )
+            self.assertEqual(wrong_origin.status, 403)
+            self.assertEqual((await wrong_origin.json())["error"], "csrf")
+
             purchased = await client.post(
                 "/api/profile-store/purchase",
                 json={"item_id": item_id},
