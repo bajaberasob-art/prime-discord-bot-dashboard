@@ -40,7 +40,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب أفقي عريض بإطار نيون بنفسجي وتوزيع إحصائيات سفلي.",
         "asset_path": "assets/profile_templates/neon_wide_violet.svg",
         "price": 0, "currency": "moon", "rarity": "common",
-        "style": {"visualStyle": "cyberpunk", "accent": "#B34CFF", "deep": "#090611", "glow": "#D66BFF"},
+        "style": {"visualStyle": "cyberpunk", "accent": "#B34CFF", "accent2": "#F06DFF", "deep": "#090611", "glow": "#D66BFF"},
         "metadata": {
             "layout": "wide", "width": 1280, "height": 460, "orientation": "landscape",
             "avatar": {"x": 1048, "y": 56, "size": 170},
@@ -63,7 +63,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب أفقي أحمر بتفاصيل حادة وإضاءة قتالية.",
         "asset_path": "assets/profile_templates/inferno_wide_red.svg",
         "price": 18000, "currency": "moon", "rarity": "gold",
-        "style": {"visualStyle": "inferno", "accent": "#FF304B", "deep": "#15070B", "glow": "#FF5266"},
+        "style": {"visualStyle": "inferno", "accent": "#FF304B", "accent2": "#FF9AAB", "deep": "#15070B", "glow": "#FF5266"},
         "metadata": {
             "layout": "wide", "width": 1400, "height": 480, "orientation": "landscape",
             "avatar": {"x": 1152, "y": 56, "size": 178},
@@ -86,7 +86,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب أفقي بلون سماوي مع خطوط متدفقة.",
         "asset_path": "assets/profile_templates/ocean_wide_blue.svg",
         "price": 15000, "currency": "moon", "rarity": "silver",
-        "style": {"visualStyle": "ocean", "accent": "#17D9FF", "deep": "#04121F", "glow": "#55E8FF"},
+        "style": {"visualStyle": "ocean", "accent": "#17D9FF", "accent2": "#7DEEFF", "deep": "#04121F", "glow": "#55E8FF"},
         "metadata": {
             "layout": "wide", "width": 1280, "height": 460, "orientation": "landscape",
             "avatar": {"x": 1048, "y": 56, "size": 170},
@@ -109,7 +109,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب طولي بإطار وردي وتوزيع إحصائيات على عمودين.",
         "asset_path": "assets/profile_templates/rose_portrait.svg",
         "price": 12000, "currency": "moon", "rarity": "silver",
-        "style": {"visualStyle": "rose", "accent": "#FF78B7", "deep": "#170B17", "glow": "#FF9CCC"},
+        "style": {"visualStyle": "rose", "accent": "#FF78B7", "accent2": "#FFC7E0", "deep": "#170B17", "glow": "#FF9CCC"},
         "metadata": {
             "layout": "portrait", "width": 760, "height": 1120, "orientation": "portrait",
             "avatar": {"x": 526, "y": 382, "size": 154},
@@ -132,7 +132,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب طولي ذهبي بزخارف ملكية.",
         "asset_path": "assets/profile_templates/royal_portrait.svg",
         "price": 300, "currency": "gem", "rarity": "legendary",
-        "style": {"visualStyle": "royal", "accent": "#FFC75A", "deep": "#1C1205", "glow": "#FFE19A"},
+        "style": {"visualStyle": "royal", "accent": "#FFC75A", "accent2": "#FFF0B0", "deep": "#1C1205", "glow": "#FFE19A"},
         "metadata": {
             "layout": "portrait", "width": 780, "height": 1160, "orientation": "portrait",
             "avatar": {"x": 540, "y": 398, "size": 160},
@@ -155,7 +155,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب مربع بإضاءة خضراء وإحصائيات شبكية.",
         "asset_path": "assets/profile_templates/emerald_square.svg",
         "price": 9000, "currency": "moon", "rarity": "silver",
-        "style": {"visualStyle": "emerald", "accent": "#24F0A5", "deep": "#06170F", "glow": "#70FFC8"},
+        "style": {"visualStyle": "emerald", "accent": "#24F0A5", "accent2": "#A6FFD9", "deep": "#06170F", "glow": "#70FFC8"},
         "metadata": {
             "layout": "square", "width": 900, "height": 900, "orientation": "square",
             "avatar": {"x": 648, "y": 94, "size": 164},
@@ -178,7 +178,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب أفقي قصير للمعلومات المختصرة.",
         "asset_path": "assets/profile_templates/frost_compact.svg",
         "price": 10000, "currency": "moon", "rarity": "common",
-        "style": {"visualStyle": "frost", "accent": "#B8E8FF", "deep": "#081522", "glow": "#F0FBFF"},
+        "style": {"visualStyle": "frost", "accent": "#B8E8FF", "accent2": "#F0FBFF", "deep": "#081522", "glow": "#F0FBFF"},
         "metadata": {
             "layout": "compact", "width": 1320, "height": 360, "orientation": "landscape",
             "avatar": {"x": 1150, "y": 36, "size": 126},
@@ -201,7 +201,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب عرضي مقسوم بإطار بنفسجي عميق.",
         "asset_path": "assets/profile_templates/violet_split.svg",
         "price": 25000, "currency": "moon", "rarity": "gold",
-        "style": {"visualStyle": "violet", "accent": "#9C67FF", "deep": "#0C061C", "glow": "#CFADFF"},
+        "style": {"visualStyle": "violet", "accent": "#9C67FF", "accent2": "#CFADFF", "deep": "#0C061C", "glow": "#CFADFF"},
         "metadata": {
             "layout": "split", "width": 1200, "height": 600, "orientation": "landscape",
             "avatar": {"x": 925, "y": 74, "size": 178},
@@ -224,7 +224,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب أفقي وردي بزخارف ناعمة وحواف مضيئة.",
         "asset_path": "assets/profile_templates/rose_wide.svg",
         "price": 20000, "currency": "moon", "rarity": "gold",
-        "style": {"visualStyle": "rose", "accent": "#FF4DA6", "deep": "#190714", "glow": "#FFC4E2"},
+        "style": {"visualStyle": "rose", "accent": "#FF4DA6", "accent2": "#FFC4E2", "deep": "#190714", "glow": "#FFC4E2"},
         "metadata": {
             "layout": "wide", "width": 1280, "height": 460, "orientation": "landscape",
             "avatar": {"x": 1048, "y": 56, "size": 170},
