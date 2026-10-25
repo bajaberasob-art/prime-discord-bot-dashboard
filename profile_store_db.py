@@ -34,61 +34,96 @@ STORE_ITEM_TYPES = (
 )
 STORE_RARITIES = ("common", "silver", "gold", "legendary")
 
-def _profile_template_metadata(width: int, height: int, layout: str) -> dict:
-    """Build safe element coordinates for the approved raster template's native canvas."""
-    w, h = width, height
-    avatar_size = int(min(w, h) * (0.15 if layout == "portrait" else 0.17))
-    if layout == "portrait":
-        avatar = {"x": int(w * .66), "y": int(h * .10), "size": avatar_size}
-        name = {"x": int(w * .91), "y": int(h * .36), "anchor": "ra"}
-        handle = {"x": int(w * .91), "y": int(h * .395), "anchor": "ra"}
-        level = {"x": int(w * .07), "y": int(h * .47), "anchor": "la"}
-        xp_bar = {"x": int(w * .07), "y": int(h * .525), "width": int(w * .86), "height": max(10, int(h * .009))}
-        badges = {"x": int(w * .07), "y": int(h * .575), "size": max(28, int(h * .025)), "limit": 5}
-        stat_y1, stat_y2 = int(h * .67), int(h * .82)
-        stat_w, stat_h = int(w * .41), int(h * .105)
-        stats = [
-            {"key": "balance", "label": "الرصيد", "x": int(w * .06), "y": stat_y1, "w": stat_w, "h": stat_h},
-            {"key": "messages", "label": "الرسائل", "x": int(w * .53), "y": stat_y1, "w": stat_w, "h": stat_h},
-            {"key": "rank", "label": "الترتيب", "x": int(w * .06), "y": stat_y2, "w": stat_w, "h": stat_h},
-            {"key": "voice", "label": "الصوت", "x": int(w * .53), "y": stat_y2, "w": stat_w, "h": stat_h},
-        ]
-    elif layout == "square":
-        avatar = {"x": int(w * .68), "y": int(h * .07), "size": avatar_size}
-        name = {"x": int(w * .91), "y": int(h * .32), "anchor": "ra"}
-        handle = {"x": int(w * .91), "y": int(h * .355), "anchor": "ra"}
-        level = {"x": int(w * .07), "y": int(h * .39), "anchor": "la"}
-        xp_bar = {"x": int(w * .07), "y": int(h * .45), "width": int(w * .86), "height": max(10, int(h * .012))}
-        badges = {"x": int(w * .07), "y": int(h * .515), "size": max(26, int(h * .03)), "limit": 5}
-        stat_y1, stat_y2 = int(h * .63), int(h * .79)
-        stat_w, stat_h = int(w * .41), int(h * .12)
-        stats = [
-            {"key": "balance", "label": "الرصيد", "x": int(w * .06), "y": stat_y1, "w": stat_w, "h": stat_h},
-            {"key": "messages", "label": "الرسائل", "x": int(w * .53), "y": stat_y1, "w": stat_w, "h": stat_h},
-            {"key": "rank", "label": "الترتيب", "x": int(w * .06), "y": stat_y2, "w": stat_w, "h": stat_h},
-            {"key": "voice", "label": "الصوت", "x": int(w * .53), "y": stat_y2, "w": stat_w, "h": stat_h},
-        ]
-    else:
-        avatar = {"x": int(w * .78), "y": int(h * .08), "size": avatar_size}
-        name = {"x": int(w * .73), "y": int(h * .39), "anchor": "ra"}
-        handle = {"x": int(w * .73), "y": int(h * .43), "anchor": "ra"}
-        level = {"x": int(w * .055), "y": int(h * .43), "anchor": "la"}
-        xp_bar = {"x": int(w * .055), "y": int(h * .52), "width": int(w * .64), "height": max(9, int(h * .014))}
-        badges = {"x": int(w * .055), "y": int(h * .60), "size": max(24, int(h * .035)), "limit": 5}
-        stat_y1, stat_y2 = int(h * .76), int(h * .76)
-        stat_w, stat_h = int(w * .19), int(h * .15)
-        stats = [
-            {"key": "balance", "label": "الرصيد", "x": int(w * .04), "y": stat_y1, "w": stat_w, "h": stat_h},
-            {"key": "messages", "label": "الرسائل", "x": int(w * .27), "y": stat_y2, "w": stat_w, "h": stat_h},
-            {"key": "rank", "label": "الترتيب", "x": int(w * .50), "y": stat_y2, "w": stat_w, "h": stat_h},
-            {"key": "voice", "label": "الصوت", "x": int(w * .73), "y": stat_y2, "w": stat_w, "h": stat_h},
-        ]
+def _profile_template_metadata(width: int, height: int, layout: str, template_key: str) -> dict:
+    """Return individually art-directed text/image anchors for a specific approved PNG."""
+    w, h = int(width), int(height)
+    # Ratios are tailored to the actual canvas of each supplied frame, not just its aspect
+    # ratio. Values use the element's top-left coordinate except text anchors (right edge).
+    layouts = {
+        "icy_blue_wide": {
+            "avatar": (.805, .075, .145), "name": (.775, .355, .405, "ra"),
+            "handle": (.775, .402, .405, "ra"), "level": (.055, .475, .40, "la"),
+            "xp": (.055, .535, .675, .014), "badges": (.055, .595, .030),
+            "stats": [(0.035, .775, .210, .135), (.275, .775, .210, .135),
+                      (.515, .775, .210, .135), (.755, .775, .210, .135)],
+        },
+        "ruby_gold_ultrawide": {
+            "avatar": (.825, .065, .150), "name": (.785, .315, .385, "ra"),
+            "handle": (.785, .365, .385, "ra"), "level": (.055, .425, .405, "la"),
+            "xp": (.055, .500, .705, .016), "badges": (.055, .565, .032),
+            "stats": [(0.035, .775, .210, .140), (.275, .775, .210, .140),
+                      (.515, .775, .210, .140), (.755, .775, .210, .140)],
+        },
+        "emerald_landscape": {
+            "avatar": (.805, .080, .145), "name": (.755, .345, .390, "ra"),
+            "handle": (.755, .392, .390, "ra"), "level": (.055, .455, .390, "la"),
+            "xp": (.055, .530, .665, .015), "badges": (.055, .590, .030),
+            "stats": [(0.025, .775, .220, .135), (.265, .775, .220, .135),
+                      (.505, .775, .220, .135), (.745, .775, .220, .135)],
+        },
+        "neon_pink_portrait": {
+            "avatar": (.695, .085, .150), "name": (.925, .315, .405, "ra"),
+            "handle": (.925, .355, .405, "ra"), "level": (.070, .450, .420, "la"),
+            "xp": (.070, .505, .855, .010), "badges": (.070, .565, .028),
+            "stats": [(0.060, .665, .405, .105), (.535, .665, .405, .105),
+                      (.060, .810, .405, .105), (.535, .810, .405, .105)],
+        },
+        "moonlit_blue_portrait": {
+            "avatar": (.675, .090, .145), "name": (.910, .335, .405, "ra"),
+            "handle": (.910, .377, .405, "ra"), "level": (.070, .465, .425, "la"),
+            "xp": (.070, .520, .855, .010), "badges": (.070, .580, .028),
+            "stats": [(0.060, .675, .405, .105), (.535, .675, .405, .105),
+                      (.060, .815, .405, .105), (.535, .815, .405, .105)],
+        },
+        "violet_crystal_square": {
+            "avatar": (.695, .065, .155), "name": (.920, .300, .405, "ra"),
+            "handle": (.920, .342, .405, "ra"), "level": (.070, .395, .420, "la"),
+            "xp": (.070, .455, .855, .012), "badges": (.070, .520, .029),
+            "stats": [(0.060, .645, .405, .115), (.535, .645, .405, .115),
+                      (.060, .805, .405, .115), (.535, .805, .405, .115)],
+        },
+        "amethyst_avatar_square": {
+            "avatar": (.675, .075, .150), "name": (.900, .315, .405, "ra"),
+            "handle": (.900, .355, .405, "ra"), "level": (.065, .410, .420, "la"),
+            "xp": (.065, .470, .865, .012), "badges": (.065, .535, .029),
+            "stats": [(0.055, .655, .410, .115), (.535, .655, .410, .115),
+                      (.055, .810, .410, .115), (.535, .810, .410, .115)],
+        },
+    }
+    spec = layouts[template_key]
+    avatar_x, avatar_y, avatar_ratio = spec["avatar"]
+    name_x, name_y, name_width, name_anchor = spec["name"]
+    handle_x, handle_y, handle_width, handle_anchor = spec["handle"]
+    level_x, level_y, level_width, level_anchor = spec["level"]
+    xp_x, xp_y, xp_width, xp_height = spec["xp"]
+    badge_x, badge_y, badge_size = spec["badges"]
+
+    stats = []
+    keys = (("balance", "الرصيد"), ("messages", "الرسائل"),
+            ("rank", "الترتيب"), ("voice", "الصوت"))
+    for (key, label), (x, y, cell_width, cell_height) in zip(keys, spec["stats"]):
+        stats.append({"key": key, "label": label, "x": int(w*x), "y": int(h*y),
+                      "w": int(w*cell_width), "h": int(h*cell_height)})
+
     return {
         "layout": layout, "width": w, "height": h,
-        "orientation": "portrait" if layout == "portrait" else ("square" if layout == "square" else "landscape"),
-        "avatar": avatar, "name": name, "handle": handle, "level": level,
-        "xp_bar": xp_bar, "badges": badges,
-        "flag": {"x": int(w * .045), "y": int(h * .035), "width": max(42, int(w * .055)), "height": max(28, int(h * .035))},
+        "orientation": "portrait" if layout == "portrait" else (
+            "square" if layout == "square" else "landscape"
+        ),
+        "avatar": {"x": int(w*avatar_x), "y": int(h*avatar_y),
+                   "size": int(min(w, h)*avatar_ratio)},
+        "name": {"x": int(w*name_x), "y": int(h*name_y),
+                 "max_width": int(w*name_width), "anchor": name_anchor},
+        "handle": {"x": int(w*handle_x), "y": int(h*handle_y),
+                   "max_width": int(w*handle_width), "anchor": handle_anchor},
+        "level": {"x": int(w*level_x), "y": int(h*level_y),
+                  "max_width": int(w*level_width), "anchor": level_anchor},
+        "xp_bar": {"x": int(w*xp_x), "y": int(h*xp_y), "width": int(w*xp_width),
+                   "height": max(8, int(h*xp_height))},
+        "badges": {"x": int(w*badge_x), "y": int(h*badge_y),
+                   "size": max(24, int(h*badge_size)), "limit": 5},
+        "flag": {"x": int(w*.045), "y": int(h*.035),
+                 "width": max(42, int(w*.055)), "height": max(28, int(h*.035))},
         "stats": stats,
     }
 
@@ -100,7 +135,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "asset_path": "assets/profile_templates/02_wide_icy_blue.png",
         "price": 0, "currency": "moon", "rarity": "common",
         "style": {"visualStyle": "icy-blue", "accent": "#6CDFFF", "accent2": "#D9F8FF", "deep": "#071725", "glow": "#8AEAFF"},
-        "metadata": _profile_template_metadata(1672, 941, "wide"),
+        "metadata": _profile_template_metadata(1672, 941, "wide", "icy_blue_wide"),
     },
     {
         "slug": "profile-inferno-wide", "name": "ياقوت وذهب",
@@ -108,7 +143,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "asset_path": "assets/profile_templates/05_ultrawide_ruby_gold.png",
         "price": 18000, "currency": "moon", "rarity": "gold",
         "style": {"visualStyle": "ruby-gold", "accent": "#FF4A61", "accent2": "#FFD27A", "deep": "#17070C", "glow": "#FFB45C"},
-        "metadata": _profile_template_metadata(1860, 845, "wide"),
+        "metadata": _profile_template_metadata(1860, 845, "wide", "ruby_gold_ultrawide"),
     },
     {
         "slug": "profile-ocean-wide", "name": "زمرد أخضر",
@@ -116,7 +151,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "asset_path": "assets/profile_templates/04_landscape_emerald.png",
         "price": 15000, "currency": "moon", "rarity": "silver",
         "style": {"visualStyle": "emerald", "accent": "#24F0A5", "accent2": "#A6FFD9", "deep": "#06170F", "glow": "#70FFC8"},
-        "metadata": _profile_template_metadata(1536, 1024, "wide"),
+        "metadata": _profile_template_metadata(1536, 1024, "wide", "emerald_landscape"),
     },
     {
         "slug": "profile-rose-portrait", "name": "نيون وردي طولي",
@@ -124,7 +159,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "asset_path": "assets/profile_templates/01_portrait_neon_pink.png",
         "price": 12000, "currency": "moon", "rarity": "silver",
         "style": {"visualStyle": "rose-neon", "accent": "#FF78B7", "accent2": "#FFC7E0", "deep": "#170B17", "glow": "#FF9CCC"},
-        "metadata": _profile_template_metadata(1024, 1536, "portrait"),
+        "metadata": _profile_template_metadata(1024, 1536, "portrait", "neon_pink_portrait"),
     },
     {
         "slug": "profile-royal-portrait", "name": "أزرق قمري طولي",
@@ -132,7 +167,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "asset_path": "assets/profile_templates/file_00000000ecd0820ab92f03cf4eae4acd.png",
         "price": 300, "currency": "gem", "rarity": "legendary",
         "style": {"visualStyle": "moonlit-blue", "accent": "#6DAEFF", "accent2": "#D6E8FF", "deep": "#071226", "glow": "#8AC7FF"},
-        "metadata": _profile_template_metadata(1024, 1536, "portrait"),
+        "metadata": _profile_template_metadata(1024, 1536, "portrait", "moonlit_blue_portrait"),
     },
     {
         "slug": "profile-emerald-square", "name": "بلور بنفسجي مربع",
@@ -140,7 +175,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "asset_path": "assets/profile_templates/03_square_violet_crystal.png",
         "price": 9000, "currency": "moon", "rarity": "silver",
         "style": {"visualStyle": "violet-crystal", "accent": "#9C67FF", "accent2": "#CFADFF", "deep": "#0C061C", "glow": "#CFADFF"},
-        "metadata": _profile_template_metadata(1254, 1254, "square"),
+        "metadata": _profile_template_metadata(1254, 1254, "square", "violet_crystal_square"),
     },
     {
         "slug": "profile-frost-compact", "name": "أماثيست مربع",
@@ -148,7 +183,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "asset_path": "assets/profile_templates/file_00000000c03481f4963ba7074882a700.png",
         "price": 10000, "currency": "moon", "rarity": "common",
         "style": {"visualStyle": "amethyst", "accent": "#B68AFF", "accent2": "#E6D4FF", "deep": "#120A22", "glow": "#D0A9FF"},
-        "metadata": _profile_template_metadata(1254, 1254, "square"),
+        "metadata": _profile_template_metadata(1254, 1254, "square", "amethyst_avatar_square"),
     },
 )
 
