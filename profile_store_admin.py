@@ -270,6 +270,61 @@ def _public_item(row) -> dict:
     return item
 
 
+def _configured_profile_store_admin_ids() -> set[int]:
+    """Read explicit bot-wide store administrators; never infer them from a guild role."""
+    result: set[int] = set()
+    for key in ("PROFILE_STORE_ADMIN_IDS", "BOT_OWNER_IDS", "BOT_OWNER_ID"):
+        raw = (os.environ.get(key) or "").strip()
+        for value in re.split(r"[,\\s]+", raw):
+            if value.isdigit():
+                result.add(int(value))
+    return result
+
+
+def is_profile_store_owner(request, session: dict) -> bool:
+    """Gate the bot-wide catalog to the bot owner or explicitly configured store admins."""
+    if session.get("_local_dev"):
+        return True
+    try:
+        actor_id = int(session.get("id", 0))
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if actor_id <= 0:
+        return False
+
+    allowed_ids = _configured_profile_store_admin_ids()
+    bot = request.app.get("bot") if hasattr(request, "app") else None
+    for candidate in (
+        getattr(bot, "owner_id", None),
+        *(getattr(bot, "owner_ids", None) or ()),
+    ):
+        try:
+            if candidate is not None:
+                allowed_ids.add(int(candidate))
+        except (TypeError, ValueError, OverflowError):
+            continue
+
+    application = getattr(bot, "application", None)
+    owner = getattr(application, "owner", None)
+    for candidate in (
+        getattr(owner, "id", None),
+        getattr(owner, "owner_id", None),
+    ):
+        try:
+            if candidate is not None:
+                allowed_ids.add(int(candidate))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    # A Team owner may expose only its owner's user object.
+    team_owner = getattr(owner, "owner", None)
+    try:
+        if getattr(team_owner, "id", None) is not None:
+            allowed_ids.add(int(team_owner.id))
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return actor_id in allowed_ids
+
+
 def _json_error(status: int, code: str, message: str | None = None) -> web.Response:
     data: dict[str, Any] = {"error": code}
     if message:
@@ -300,9 +355,7 @@ async def _catalog_item_exists(db, item_id: int):
 
 
 async def _write_item_asset(request, *, authorize):
-    session, guild = await authorize(
-        request, write=True, management_tier="admin",
-    )
+    session, guild = await authorize(request, write=True)
     raw_id = str(request.match_info.get("item_id", ""))
     if not raw_id.isdigit() or int(raw_id) <= 0:
         return _json_error(404, "item_not_found")
@@ -401,6 +454,17 @@ def register_profile_store_admin_routes(routes, authorize) -> None:
     global _registered
     if _registered:
         return
+
+    async def store_authorize(request, *, write=False):
+        session, guild = await authorize(
+            request, write=write, management_tier="admin",
+        )
+        if not is_profile_store_owner(request, session):
+            raise web.HTTPForbidden(
+                text=json.dumps({"error": "profile_store_owner_required"}),
+                content_type="application/json",
+            )
+        return session, guild
 
     @routes.get("/api/guild/{guild_id}/profile-store")
     async def profile_store_admin_get(request):
@@ -626,6 +690,6 @@ def register_profile_store_admin_routes(routes, authorize) -> None:
 
     @routes.post("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
     async def profile_store_item_upload(request):
-        return await _write_item_asset(request, authorize=authorize)
+        return await _write_item_asset(request, authorize=store_authorize)
 
     _registered = True
