@@ -179,6 +179,10 @@
     $("#itemForm").reset(); $("#itemId").value = ""; $("#itemPrice").value = "100";
     $("#itemSlug").dataset.touched = "";
     $("#itemActive").checked = true; $("#itemFeatured").checked = false;
+    $("#itemAccent").value = "#6CDFFF"; $("#itemAccent2").value = "#D9F8FF";
+    $("#itemDivider").value = "#D9F8FF"; $("#itemXp").value = "#6CDFFF";
+    $("#itemDeep").value = "#071725"; $("#itemGlow").value = "#8AEAFF";
+    $("#itemStyleJson").value = "{}"; $("#itemMetadataJson").value = "{}";
     $("#itemFormTitle").textContent = "إضافة منتج جديد"; $("#itemIdLabel").textContent = "منتج جديد";
     $("#deleteItemButton").hidden = true; $("#itemFile").value = ""; $("#assetInfo").textContent = "لم يتم إرفاق صورة بعد.";
     renderCategorySelect(typeCategory($("#itemType").value));
@@ -194,6 +198,15 @@
     renderCategorySelect(item.category || typeCategory(item.item_type));
     $("#itemSubcategory").value = item.subcategory || "";
     $("#itemRarity").value = item.rarity || "common";
+    const style = item.style && typeof item.style === "object" ? item.style : {};
+    $("#itemAccent").value = /^#[0-9a-f]{6}$/i.test(style.accent || "") ? style.accent : "#6CDFFF";
+    $("#itemAccent2").value = /^#[0-9a-f]{6}$/i.test(style.accent2 || "") ? style.accent2 : "#D9F8FF";
+    $("#itemDivider").value = /^#[0-9a-f]{6}$/i.test(style.divider || "") ? style.divider : $("#itemAccent2").value;
+    $("#itemXp").value = /^#[0-9a-f]{6}$/i.test(style.xp || "") ? style.xp : $("#itemAccent").value;
+    $("#itemDeep").value = /^#[0-9a-f]{6}$/i.test(style.deep || "") ? style.deep : "#071725";
+    $("#itemGlow").value = /^#[0-9a-f]{6}$/i.test(style.glow || "") ? style.glow : $("#itemAccent2").value;
+    $("#itemStyleJson").value = JSON.stringify(style, null, 2);
+    $("#itemMetadataJson").value = JSON.stringify(item.metadata && typeof item.metadata === "object" ? item.metadata : {}, null, 2);
     const price = Number(item.price || 0);
     $("#priceMode").value = price === 0 ? "free" : "paid";
     $("#itemPrice").value = price === 0 ? "100" : String(price);
@@ -217,6 +230,21 @@
     if (priceMode === "paid" && (!Number.isSafeInteger(price) || price < 1 || price > 1000000000)) {
       throw new Error("أدخل سعرًا صحيحًا أكبر من صفر أو اختر «مجاني».");
     }
+    let style, metadata;
+    try {
+      style = JSON.parse($("#itemStyleJson").value || "{}");
+      metadata = JSON.parse($("#itemMetadataJson").value || "{}");
+    } catch (_) {
+      throw new Error("صيغة JSON غير صحيحة في إعدادات الستايل أو تخطيط القالب.");
+    }
+    if (!style || typeof style !== "object" || Array.isArray(style)) throw new Error("بيانات الستايل يجب أن تكون JSON من نوع كائن.");
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("بيانات التخطيط يجب أن تكون JSON من نوع كائن.");
+    style = { ...style };
+    Object.assign(style, {
+      accent: $("#itemAccent").value, accent2: $("#itemAccent2").value,
+      divider: $("#itemDivider").value, xp: $("#itemXp").value,
+      deep: $("#itemDeep").value, glow: $("#itemGlow").value
+    });
     const payload = {
       slug: $("#itemSlug").value.trim().toLowerCase(),
       name: $("#itemName").value.trim(),
@@ -227,7 +255,7 @@
       rarity: $("#itemRarity").value,
       price,
       currency: $("#itemCurrency").value,
-      style: {}, metadata: {},
+      style, metadata,
       is_active: $("#itemActive").checked,
       is_featured: $("#itemFeatured").checked
     };
