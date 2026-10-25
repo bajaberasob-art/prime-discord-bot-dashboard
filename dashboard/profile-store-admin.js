@@ -354,25 +354,19 @@
   }
   async function loadSettings() {
     $("#settingEnabled").checked = Boolean(Number(state.settings.enabled ?? 1));
-    $("#settingCustomUpload").checked = Boolean(Number(state.settings.custom_upload_enabled || 0));
-    $("#settingUploadPrice").value = String(state.settings.custom_upload_price ?? 0);
-    $("#settingUploadCurrency").value = state.settings.custom_upload_currency || "moon";
     $("#settingMaxBytes").value = String(state.settings.max_custom_upload_bytes ?? 5242880);
     $("#settingTtl").value = String(state.settings.session_ttl_seconds ?? 900);
   }
   async function saveSettings(event) {
     event.preventDefault(); if (state.busy) return;
-    const price = Number($("#settingUploadPrice").value);
     const maxBytes = Number($("#settingMaxBytes").value);
     const ttl = Number($("#settingTtl").value);
-    if (!Number.isSafeInteger(price) || price < 0 || price > 1000000000) { toast("سعر الرفع غير صالح.","error"); return; }
     if (!Number.isInteger(maxBytes) || maxBytes < 1024 || maxBytes > 5242880) { toast("حجم الملف يجب أن يكون بين 1024 و5242880 بايت.","error"); return; }
     if (!Number.isInteger(ttl) || ttl < 60 || ttl > 900) { toast("مدة الجلسة يجب أن تكون بين 60 و900 ثانية.","error"); return; }
     setBusy(true);
     try {
       await api(base + "/settings",{method:"POST",body:{
-        enabled:$("#settingEnabled").checked,custom_upload_enabled:$("#settingCustomUpload").checked,
-        custom_upload_price:price,custom_upload_currency:$("#settingUploadCurrency").value,
+        enabled:$("#settingEnabled").checked,
         max_custom_upload_bytes:maxBytes,session_ttl_seconds:ttl
       }});
       await loadData(false); toast("تم حفظ إعدادات المتجر.");
@@ -434,7 +428,10 @@
       state.selectedFile = file; state.clearAsset = false;
       if (!file) { $("#assetInfo").textContent = "لم يتم اختيار ملف جديد."; return; }
       $("#assetInfo").textContent = file.name + " · " + (file.size/1024/1024).toFixed(2) + " MB";
-      if (!["image/png","image/jpeg","image/webp"].includes(file.type) || file.size > 5*1024*1024) {
+      const extension = String(file.name || "").toLowerCase().split(".").pop();
+      const acceptedMime = ["image/png","image/jpeg","image/webp"].includes(file.type);
+      const acceptedExtension = ["png","jpg","jpeg","webp"].includes(extension);
+      if ((!acceptedMime && !acceptedExtension) || file.size > 5*1024*1024) {
         state.selectedFile = null; $error("itemFormError","اختر PNG أو JPG أو WebP ثابتة بحجم أقل من 5 ميجابايت."); return;
       }
       const url = URL.createObjectURL(file); setAssetPreview(url);
