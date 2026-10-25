@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 import database
 
-PROFILE_STORE_SCHEMA_VERSION = 2
+PROFILE_STORE_SCHEMA_VERSION = 4
 DEFAULT_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -289,6 +289,72 @@ _SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS profile_store_web_sessions (
+        session_hash TEXT PRIMARY KEY
+            CHECK (length(session_hash) = 64 AND session_hash NOT GLOB '*[^0-9a-f]*'),
+        csrf_hash TEXT NOT NULL
+            CHECK (length(csrf_hash) = 64 AND csrf_hash NOT GLOB '*[^0-9a-f]*'),
+        guild_id INTEGER NOT NULL CHECK (guild_id > 0),
+        user_id INTEGER NOT NULL CHECK (user_id > 0),
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT,
+        CHECK (expires_at > created_at)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS user_profile_gem_wallets (
+        guild_id INTEGER NOT NULL CHECK (guild_id > 0),
+        user_id INTEGER NOT NULL CHECK (user_id > 0),
+        balance INTEGER NOT NULL DEFAULT 0 CHECK (balance >= 0),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (guild_id, user_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS profile_store_transactions (
+        transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id INTEGER NOT NULL CHECK (guild_id > 0),
+        user_id INTEGER NOT NULL CHECK (user_id > 0),
+        item_id INTEGER,
+        transaction_type TEXT NOT NULL CHECK (
+            transaction_type IN ('purchase', 'gem_grant', 'gem_adjustment')
+        ),
+        currency TEXT NOT NULL CHECK (currency IN ('moon', 'gem')),
+        delta INTEGER NOT NULL,
+        balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (item_id) REFERENCES profile_store_items(item_id) ON DELETE RESTRICT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profile_store_web_sessions_expiry
+        ON profile_store_web_sessions(expires_at)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profile_store_transactions_owner
+        ON profile_store_transactions(guild_id, user_id, created_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS profile_store_admin_audit (
+        audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id INTEGER NOT NULL CHECK (guild_id > 0),
+        actor_user_id INTEGER CHECK (actor_user_id IS NULL OR actor_user_id > 0),
+        target_user_id INTEGER NOT NULL CHECK (target_user_id > 0),
+        action TEXT NOT NULL CHECK (action IN ('gem_grant', 'gem_adjustment')),
+        delta INTEGER NOT NULL CHECK (delta != 0),
+        balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profile_store_admin_audit_target
+        ON profile_store_admin_audit(guild_id, target_user_id, created_at DESC)
+    """,
+    """
     CREATE INDEX IF NOT EXISTS idx_profile_store_items_catalog
         ON profile_store_items(item_type, category, is_active, rarity, price)
     """,
@@ -400,7 +466,7 @@ async def ensure_profile_store_schema() -> None:
                 INSERT OR IGNORE INTO profile_store_migrations (version, description)
                 VALUES (?, ?)
                 """,
-                (PROFILE_STORE_SCHEMA_VERSION, "Seed multiple independent profile card layouts"),
+                (PROFILE_STORE_SCHEMA_VERSION, "Add audited admin gem adjustments to the PRIME storefront"),
             )
             await db.commit()
         except BaseException:
