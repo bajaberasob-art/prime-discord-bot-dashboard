@@ -1362,12 +1362,19 @@ def _animate_png_frames(png_frames, design, durations=None, loop=0):
     width, height = bases[0].size
     intensity = number(design.get("animationIntensity"), 62)
     if design.get("animationEnabled") is False or intensity == 0:
-        frames = [
-            base.convert("RGB").convert(
-                "P", palette=Image.Palette.ADAPTIVE, colors=128,
+        # Derive one palette from the first frame and reuse it for every frame.
+        # Per-frame adaptive palettes cause visible color flicker and repeat expensive
+        # quantization work on every frame.
+        palette_source = bases[0].convert("RGB").convert(
+            "P", palette=Image.Palette.ADAPTIVE, colors=128,
+        )
+        frames = [palette_source]
+        frames.extend(
+            base.convert("RGB").quantize(
+                palette=palette_source, dither=Image.Dither.NONE,
             )
-            for base in bases
-        ]
+            for base in bases[1:]
+        )
         output = io.BytesIO()
         frame_durations = durations or [85] * len(frames)
         duration_arg = frame_durations if len(frames) > 1 else frame_durations[0]
@@ -1445,7 +1452,17 @@ def _animate_png_frames(png_frames, design, durations=None, loop=0):
         glow = glow.filter(ImageFilter.GaussianBlur(max(8, int(radius * .7))))
         frame = Image.alpha_composite(base, glow)
         frame = Image.alpha_composite(frame, layer).convert("RGB")
-        frames.append(frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128))
+        if not frames:
+            # A shared palette prevents frame-to-frame palette shifts (color flicker)
+            # and avoids rebuilding an adaptive palette for every animation frame.
+            palette_source = frame.convert(
+                "P", palette=Image.Palette.ADAPTIVE, colors=128,
+            )
+            frames.append(palette_source)
+        else:
+            frames.append(frame.quantize(
+                palette=palette_source, dither=Image.Dither.NONE,
+            ))
     output = io.BytesIO()
     frame_durations = durations or [85] * frame_count
     if len(frame_durations) != frame_count:
