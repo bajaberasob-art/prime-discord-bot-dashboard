@@ -1,8 +1,9 @@
 """Render customizable PRIME profile cards in independent, variable-size layouts.
 
 Unlike rank cards, profile cards use a store-selected template asset, canvas size,
-background, flag, and equipped badges. Template overlays are separate transparent
-SVG files; the checkerboard of a sprite-sheet preview is never used as an asset.
+background, flag, and equipped badges. Templates may be repository-owned raster PNG
+artwork or legacy SVG overlays. Raster artwork must be composited in RGBA without
+flattening its alpha channel; a checkerboard preview must never be used as an asset.
 """
 from __future__ import annotations
 
@@ -62,7 +63,7 @@ def _parse_object(value: Any) -> dict:
 
 def _safe_metadata(template: dict) -> dict:
     metadata = _parse_object(template.get("metadata") or template.get("metadata_json"))
-    width = _clamp(metadata.get("width"), 640, 1600, 1280)
+    width = _clamp(metadata.get("width"), 640, 2048, 1280)
     height = _clamp(metadata.get("height"), 320, 1600, 460)
     if width * height > MAX_CANVAS_PIXELS:
         ratio = (MAX_CANVAS_PIXELS / float(width * height)) ** 0.5
@@ -214,6 +215,67 @@ def _scale_position(box: dict, key: str, default: int, upper: int) -> int:
     return _clamp(box.get(key), 0, upper, default)
 
 
+def _metadata_for_native_frame(metadata: dict, raw_frame: bytes | None) -> dict:
+    """Use the PNG's real canvas size and scale element coordinates without distorting artwork."""
+    if not raw_frame:
+        return metadata
+    try:
+        with Image.open(io.BytesIO(raw_frame)) as frame:
+            native_width, native_height = frame.size
+    except Exception:
+        return metadata
+    if (
+        native_width <= 0 or native_height <= 0
+        or native_width * native_height > MAX_CANVAS_PIXELS
+        or (native_width, native_height) == (metadata["width"], metadata["height"])
+    ):
+        return metadata
+
+    old_width, old_height = metadata["width"], metadata["height"]
+    sx, sy = native_width / old_width, native_height / old_height
+    scaled = dict(metadata)
+    scaled["width"], scaled["height"] = native_width, native_height
+    scaled["orientation"] = (
+        "portrait" if native_height > native_width
+        else ("square" if native_width == native_height else "landscape")
+    )
+    if scaled.get("layout") not in {"compact", "split"}:
+        scaled["layout"] = (
+            "portrait" if native_height > native_width
+            else ("square" if native_width == native_height else "wide")
+        )
+
+    for key in ("avatar", "name", "handle", "level", "xp_bar", "badges", "flag"):
+        box = scaled.get(key)
+        if not isinstance(box, dict):
+            continue
+        box = dict(box)
+        for coordinate in ("x", "width"):
+            if coordinate in box:
+                box[coordinate] = int(box[coordinate] * sx)
+        for coordinate in ("y", "height"):
+            if coordinate in box:
+                box[coordinate] = int(box[coordinate] * sy)
+        if "size" in box:
+            box["size"] = int(box["size"] * min(sx, sy))
+        scaled[key] = box
+
+    stats = []
+    for stat in scaled.get("stats") or []:
+        if not isinstance(stat, dict):
+            continue
+        item = dict(stat)
+        for key in ("x", "w"):
+            if key in item:
+                item[key] = int(item[key] * sx)
+        for key in ("y", "h"):
+            if key in item:
+                item[key] = int(item[key] * sy)
+        stats.append(item)
+    scaled["stats"] = stats
+    return scaled
+
+
 def _draw_gradient(width: int, height: int, base: str, accent: str) -> Image.Image:
     """Build a smooth dark gradient in O(height), then add a blurred accent glow."""
     base_rgb = ImageColor.getrgb(base)
@@ -335,7 +397,9 @@ def render_profile_card(
     """Render one PNG using the selected template's own dimensions and layout."""
     profile = dict(profile or {})
     template = dict(template or {})
-    metadata = _safe_metadata(template)
+    metadata = _metadata_for_native_frame(
+        _safe_metadata(template), template_bytes
+    )
     style = _parse_object(template.get("style") or template.get("style_json"))
     color_style = _parse_object(profile.get("color_style"))
     style.update(color_style)

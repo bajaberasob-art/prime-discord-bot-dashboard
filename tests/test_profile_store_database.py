@@ -134,14 +134,15 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 SELECT slug, asset_path, price, metadata_json
                 FROM profile_store_items
                 WHERE item_type = 'card_template' AND slug LIKE 'profile-%'
+                  AND is_active = 1 AND deleted_at IS NULL
                 ORDER BY slug
                 """
             ) as cursor:
                 rows = [tuple(row) for row in await cursor.fetchall()]
 
-        self.assertGreaterEqual(len(rows), 8)
-        self.assertEqual(len({row[0] for row in rows}), len(rows))
-        self.assertTrue(all(row[1] for row in rows))
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(len({row[0] for row in rows}), 7)
+        self.assertTrue(all(row[1] and row[1].endswith(".png") for row in rows))
         dimensions = set()
         for row in rows:
             metadata = json.loads(row[3])

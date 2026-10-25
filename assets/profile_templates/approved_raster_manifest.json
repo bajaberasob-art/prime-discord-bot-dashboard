@@ -1,0 +1,108 @@
+{
+  "title": "PRIME Approved Profile Card Raster Templates",
+  "status": "seven-assets-integrated; one-approved-source-asset-not-present",
+  "description": "Inventory of the eight independent user-approved raster assets. Seven PNG templates are wired to the profile store; celestial_blue_portrait.png is not present in the branch. Preserve original bytes, aspect ratios, and alpha. Do not use sprite-sheet previews or recreate these assets as SVG.",
+  "assets": [
+    {
+      "filename": "celestial_blue_portrait.png",
+      "width": 1024,
+      "height": 1536,
+      "layout": "portrait",
+      "mode": "RGBA",
+      "alphaExtrema": [
+        7,
+        252
+      ],
+      "fullyTransparentPixels": 0,
+      "notes": "Alpha channel exists but there are no fully transparent pixels; artwork is effectively opaque."
+    },
+    {
+      "filename": "moonlit_blue_portrait.png",
+      "width": 1024,
+      "height": 1536,
+      "layout": "portrait",
+      "mode": "RGB",
+      "alphaExtrema": null,
+      "fullyTransparentPixels": 0,
+      "notes": "Opaque RGB artwork."
+    },
+    {
+      "filename": "rose_neon_portrait.png",
+      "width": 1024,
+      "height": 1536,
+      "layout": "portrait",
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        254
+      ],
+      "fullyTransparentPixels": 926794,
+      "notes": "Preserve transparency."
+    },
+    {
+      "filename": "emerald_green_landscape.png",
+      "width": 1536,
+      "height": 1024,
+      "layout": "landscape",
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        254
+      ],
+      "fullyTransparentPixels": 833012,
+      "notes": "Preserve transparency."
+    },
+    {
+      "filename": "ruby_gold_ultrawide.png",
+      "width": 1860,
+      "height": 845,
+      "layout": "landscape",
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 849391,
+      "notes": "Preserve transparency; ultrawide dimensions must not be clamped to 1600 pixels."
+    },
+    {
+      "filename": "icy_blue_wide.png",
+      "width": 1672,
+      "height": 941,
+      "layout": "landscape",
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 831814,
+      "notes": "Preserve transparency."
+    },
+    {
+      "filename": "violet_square_frame.png",
+      "width": 1254,
+      "height": 1254,
+      "layout": "square",
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 763074,
+      "notes": "Preserve transparency."
+    },
+    {
+      "filename": "amethyst_avatar_square.png",
+      "width": 1254,
+      "height": 1254,
+      "layout": "square",
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 494127,
+      "notes": "Preserve transparency."
+    }
+  ]
+}
