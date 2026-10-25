@@ -46,9 +46,10 @@ MIME_TO_FORMAT = {
     "image/webp": "WEBP",
 }
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$")
+CATEGORY_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,38}[a-z0-9])?$")
 COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 _CATEGORY_RE = re.compile(r"^[\w -]{1,80}$", re.UNICODE)
-_ASSET_ITEM_TYPES = {"background", "flag", "badge", "shape", "club_logo"}
+_ASSET_ITEM_TYPES = {"background", "card_template", "flag", "badge", "shape", "club_logo"}
 _registered = False
 
 
@@ -276,6 +277,72 @@ def _public_item(row) -> dict:
     item["asset_name"] = Path(path).name if path else None
     item.pop("created_by", None)
     return item
+
+
+def validate_store_category_payload(payload: dict) -> dict:
+    """Validate an owner-managed storefront section without trusting its display name as a path."""
+    if not isinstance(payload, dict):
+        raise ValueError("category_must_be_object")
+    slug = _payload_text(payload, "slug", "", 40, required=True).lower()
+    if not CATEGORY_SLUG_RE.fullmatch(slug) or slug == "all":
+        raise ValueError("invalid_category_slug")
+    name = _payload_text(payload, "name", "", 100, required=True)
+    description = _payload_text(payload, "description", "", 500)
+    icon = _payload_text(payload, "icon", "▦", 16) or "▦"
+    sort_order = payload.get("sort_order", 100)
+    if isinstance(sort_order, bool) or not isinstance(sort_order, int) or not -10000 <= sort_order <= 10000:
+        raise ValueError("invalid_category_sort_order")
+    is_active = payload.get("is_active", True)
+    if not isinstance(is_active, bool):
+        raise ValueError("category_is_active_must_be_boolean")
+    return {
+        "slug": slug, "name": name, "description": description, "icon": icon,
+        "sort_order": sort_order, "is_active": int(is_active),
+    }
+
+
+def _public_category(row) -> dict:
+    category = dict(row)
+    category["category_id"] = int(category["category_id"])
+    category["sort_order"] = int(category.get("sort_order") or 0)
+    category["is_active"] = bool(category.get("is_active"))
+    return category
+
+
+async def _ensure_item_category(db, slug: str) -> None:
+    """Keep older/API-created categories browsable without requiring an admin migration."""
+    slug = str(slug or "all").strip()
+    if not slug or slug == "all":
+        return
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO profile_store_categories
+            (slug, name, description, icon, sort_order, is_active)
+        VALUES (?, ?, '', '▦', 100, 1)
+        """,
+        (slug, slug),
+    )
+
+
+def _resolve_admin_asset_path(raw_path: str | None) -> Path | None:
+    """Resolve a product image only inside approved repository/store asset roots."""
+    if not isinstance(raw_path, str) or not raw_path.strip() or len(raw_path) > 1024:
+        return None
+    value = raw_path.strip().replace("\\", "/")
+    repository_root = Path(__file__).resolve().parent
+    if value.startswith("assets/profile_templates/"):
+        candidate = (repository_root / value).resolve()
+        if repository_root not in candidate.parents:
+            return None
+        return candidate if candidate.is_file() else None
+    try:
+        root = profile_asset_root().resolve()
+    except (OSError, ValueError):
+        return None
+    candidate = (root / value).resolve()
+    if root not in candidate.parents or candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 def _configured_profile_store_admin_ids() -> set[int]:
@@ -509,7 +576,21 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             "session_ttl_seconds": profile_store_db.DEFAULT_SESSION_TTL_SECONDS,
         }
         items = [_public_item(row) for row in rows]
-        return web.json_response({"guild_id": str(guild.id), "settings": settings, "items": items})
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                """
+                SELECT category_id, slug, name, description, icon, sort_order,
+                       is_active, created_at, updated_at
+                FROM profile_store_categories
+                ORDER BY sort_order ASC, name COLLATE NOCASE ASC, category_id ASC
+                """
+            ) as cursor:
+                category_rows = await cursor.fetchall()
+        categories = [_public_category(row) for row in category_rows]
+        return web.json_response({
+            "guild_id": str(guild.id), "settings": settings,
+            "items": items, "categories": categories,
+        })
 
     @routes.post("/api/guild/{guild_id}/profile-store/settings")
     async def profile_store_admin_settings_save(request):
@@ -596,6 +677,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             body = await _read_item_payload(request)
             item = validate_catalog_item_payload(body)
             async with database.connect(aiosqlite.Row) as db:
+                await _ensure_item_category(db, item["category"])
                 cursor = await db.execute(
                     """
                     INSERT INTO profile_store_items
@@ -641,6 +723,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     exists = await cursor.fetchone()
                 if not exists:
                     return _json_error(404, "item_not_found")
+                await _ensure_item_category(db, item["category"])
                 await db.execute(
                     """
                     UPDATE profile_store_items SET
@@ -689,6 +772,132 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
         if cursor.rowcount <= 0:
             return _json_error(404, "item_not_found")
         return web.json_response({"item_id": item_id, "deleted": True})
+
+    @routes.post("/api/guild/{guild_id}/profile-store/categories")
+    async def profile_store_category_create(request):
+        _session, guild = await store_authorize(request, write=True)
+        try:
+            payload = validate_store_category_payload(await _read_item_payload(request, read_json_body))
+            async with database.connect(aiosqlite.Row) as db:
+                cursor = await db.execute(
+                    """
+                    INSERT INTO profile_store_categories
+                        (slug, name, description, icon, sort_order, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (payload["slug"], payload["name"], payload["description"], payload["icon"],
+                     payload["sort_order"], payload["is_active"]),
+                )
+                category_id = int(cursor.lastrowid)
+                await db.commit()
+                async with db.execute(
+                    "SELECT * FROM profile_store_categories WHERE category_id = ?", (category_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+            return web.json_response({"category": _public_category(row)}, status=201)
+        except ValueError as error:
+            return _validation_response(error)
+        except aiosqlite.IntegrityError:
+            return _json_error(409, "duplicate_category_slug")
+
+    @routes.put("/api/guild/{guild_id}/profile-store/categories/{category_id}")
+    async def profile_store_category_update(request):
+        _session, _guild = await store_authorize(request, write=True)
+        raw_id = str(request.match_info.get("category_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "category_not_found")
+        category_id = int(raw_id)
+        try:
+            payload = validate_store_category_payload(await _read_item_payload(request, read_json_body))
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                async with db.execute(
+                    "SELECT slug FROM profile_store_categories WHERE category_id = ?", (category_id,)
+                ) as cursor:
+                    existing = await cursor.fetchone()
+                if not existing:
+                    await db.rollback()
+                    return _json_error(404, "category_not_found")
+                old_slug = str(existing["slug"])
+                if old_slug != payload["slug"]:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, updated_at = CURRENT_TIMESTAMP WHERE category = ?",
+                        (payload["slug"], old_slug),
+                    )
+                await db.execute(
+                    """
+                    UPDATE profile_store_categories
+                    SET slug = ?, name = ?, description = ?, icon = ?, sort_order = ?,
+                        is_active = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE category_id = ?
+                    """,
+                    (payload["slug"], payload["name"], payload["description"], payload["icon"],
+                     payload["sort_order"], payload["is_active"], category_id),
+                )
+                await db.commit()
+                async with db.execute(
+                    "SELECT * FROM profile_store_categories WHERE category_id = ?", (category_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+            return web.json_response({"category": _public_category(row)})
+        except ValueError as error:
+            return _validation_response(error)
+        except aiosqlite.IntegrityError:
+            return _json_error(409, "duplicate_category_slug")
+
+    @routes.delete("/api/guild/{guild_id}/profile-store/categories/{category_id}")
+    async def profile_store_category_delete(request):
+        _session, _guild = await store_authorize(request, write=True)
+        raw_id = str(request.match_info.get("category_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "category_not_found")
+        category_id = int(raw_id)
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                "SELECT slug FROM profile_store_categories WHERE category_id = ?", (category_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                return _json_error(404, "category_not_found")
+            async with db.execute(
+                "SELECT COUNT(*) AS total FROM profile_store_items WHERE category = ? AND deleted_at IS NULL",
+                (str(row["slug"]),),
+            ) as cursor:
+                count_row = await cursor.fetchone()
+            if int(count_row["total"] if count_row else 0) > 0:
+                return _json_error(409, "category_in_use", "انقل المنتجات إلى قسم آخر قبل حذف القسم.")
+            await db.execute("DELETE FROM profile_store_categories WHERE category_id = ?", (category_id,))
+            await db.commit()
+        return web.json_response({"category_id": category_id, "deleted": True})
+
+    @routes.get("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
+    async def profile_store_item_asset_preview(request):
+        _session, _guild = await store_authorize(request)
+        raw_id = str(request.match_info.get("item_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "item_not_found")
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                "SELECT asset_path, asset_url, is_active, deleted_at FROM profile_store_items WHERE item_id = ?",
+                (int(raw_id),),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row or row["deleted_at"] or not row["is_active"]:
+            return _json_error(404, "item_not_found")
+        candidate = _resolve_admin_asset_path(row["asset_path"])
+        if candidate:
+            mime = "image/png" if candidate.suffix.lower() == ".png" else (
+                "image/webp" if candidate.suffix.lower() == ".webp" else "image/jpeg"
+            )
+            return web.FileResponse(candidate, headers={
+                "Cache-Control": "no-store, private",
+                "Content-Type": mime,
+                "X-Content-Type-Options": "nosniff",
+            })
+        asset_url = str(row["asset_url"] or "")
+        if asset_url.startswith("https://") and len(asset_url) <= 2048:
+            raise web.HTTPFound(asset_url)
+        return _json_error(404, "asset_not_found")
 
     @routes.post("/api/guild/{guild_id}/profile-store/users/{user_id}/gems")
     async def profile_store_gem_adjust(request):
