@@ -501,8 +501,20 @@ def _draw_fallback_frame(image: Image.Image, style: dict, metadata: dict) -> Non
                                fill=(5, 7, 14, 190), outline=(*accent_rgb, 210), width=2)
 
 
-def _draw_stat_text(draw: ImageDraw.ImageDraw, stat: dict, value: str, scale: float, text_color: str, muted: str) -> None:
-    """Draw complete stat labels/values with per-cell adaptive typography."""
+def _draw_stat_text(
+    draw: ImageDraw.ImageDraw,
+    image: Image.Image,
+    stat: dict,
+    value: str,
+    scale: float,
+    light_text: str,
+    muted_light: str,
+    dark_text: str,
+    *,
+    font_family: str = "modern",
+    auto_contrast: bool = True,
+) -> None:
+    """Draw stat values inside the template's defined cells with per-cell contrast."""
     try:
         x, y, width, height = (int(stat[k]) for k in ("x", "y", "w", "h"))
     except (KeyError, TypeError, ValueError):
@@ -515,18 +527,28 @@ def _draw_stat_text(draw: ImageDraw.ImageDraw, stat: dict, value: str, scale: fl
     label = str(stat.get("label", ""))
     label_font = _fit_font(
         label, available_width, max(13, min(40, int(height * .24))),
-        minimum_size=9,
+        minimum_size=9, font_family=font_family,
     )
     value_text = str(value)
     value_font = _fit_font(
         value_text, available_width, max(14, min(46, int(height * .31))),
-        minimum_size=8, bold=True,
+        minimum_size=8, bold=True, font_family=font_family,
+    )
+    label_color = (
+        _contrast_text_color(image, stat, muted_light, dark_text, stat_cell=True)
+        if auto_contrast else muted_light
+    )
+    value_color = (
+        _contrast_text_color(image, stat, light_text, dark_text, stat_cell=True)
+        if auto_contrast else light_text
     )
     draw.text((center_x, y + int(height * .31)), _display_text(label),
-              font=label_font, fill=muted, anchor="mm", stroke_width=0)
+              font=label_font, fill=label_color, anchor="mm",
+              stroke_width=1, stroke_fill=(0, 0, 0, 120))
     # Never replace a wallet/message/rank value with an ellipsis: fit the font instead.
     draw.text((center_x, y + int(height * .70)), _display_text(value_text),
-              font=value_font, fill=text_color, anchor="mm", stroke_width=0)
+              font=value_font, fill=value_color, anchor="mm",
+              stroke_width=1, stroke_fill=(0, 0, 0, 145))
 
 
 def render_profile_card(
@@ -575,8 +597,16 @@ def render_profile_card(
     width, height = metadata["width"], metadata["height"]
     scale = max(.55, min(1.25, width / 1000))
     deep = _safe_color(style.get("deep"), "#090B15")
-    text_color = _safe_color(profile.get("font_color"), "#F9F7FF")
-    muted = "#B8B6C7"
+    accent2 = _safe_color(style.get("accent2") or style.get("glow") or accent, "#F9F7FF")
+    explicit_text_color = bool(profile.get("font_color") or style.get("text_color"))
+    light_text = _safe_color(
+        profile.get("font_color") or style.get("text_color"),
+        _mix_hex(accent2, "#FFFFFF", 0.34),
+    )
+    muted_light = _mix_hex(style.get("muted") or accent2, "#DCE5F3", 0.42)
+    dark_text = _safe_color(style.get("deep"), "#101522")
+    font_family = _normalise_font_family(style.get("font_family") or "modern")
+    auto_contrast = not explicit_text_color
 
     bg = _image_from_bytes(background_bytes)
     if bg is None:
@@ -645,18 +675,35 @@ def render_profile_card(
     name = str(profile.get("display_name") or profile.get("name") or "Member").strip()[:48]
     handle = "@" + str(profile.get("username") or "member").strip()[:42].lstrip("@")
     name_available = _clamp(name_box.get("max_width"), 120, width, int(width * .42))
-    name_font = _fit_font(name, name_available, max(21, min(52, int(min(width, height) * .047))),
-                          minimum_size=15, bold=True)
+    name_font = _fit_font(
+        name, name_available, max(21, min(52, int(min(width, height) * .047))),
+        minimum_size=15, bold=True, font_family=font_family,
+    )
     handle_text = handle
     handle_available = _clamp(handle_box.get("max_width"), 100, width, name_available)
-    handle_font = _fit_font(handle_text, handle_available,
-                             max(13, min(29, int(min(width, height) * .026))),
-                             minimum_size=10)
-    draw.text((name_x, name_y), _display_text(name), font=name_font, fill=text_color,
-              anchor=str(name_box.get("anchor") or "ra"), stroke_width=1,
-              stroke_fill=(0, 0, 0, 100))
-    draw.text((handle_x, handle_y), _display_text(handle_text), font=handle_font, fill=muted,
-              anchor=str(handle_box.get("anchor") or "ra"))
+    handle_font = _fit_font(
+        handle_text, handle_available, max(13, min(29, int(min(width, height) * .026))),
+        minimum_size=10, font_family=font_family,
+    )
+    name_color = (
+        light_text if not auto_contrast else _contrast_text_color(
+            canvas, name_box, light_text, dark_text,
+            line_height=max(18, int(min(width, height) * .065)),
+        )
+    )
+    handle_color = (
+        muted_light if not auto_contrast else _contrast_text_color(
+            canvas, handle_box, muted_light, dark_text,
+            line_height=max(14, int(min(width, height) * .045)),
+        )
+    )
+    name_stroke = (0, 0, 0, 175) if name_color == light_text else (255, 255, 255, 125)
+    draw.text((name_x, name_y), _display_text(name), font=name_font, fill=name_color,
+              anchor=str(name_box.get("anchor") or "ra"), stroke_width=2,
+              stroke_fill=name_stroke)
+    draw.text((handle_x, handle_y), _display_text(handle_text), font=handle_font, fill=handle_color,
+              anchor=str(handle_box.get("anchor") or "ra"), stroke_width=1,
+              stroke_fill=(0, 0, 0, 135))
 
     level_box = metadata.get("level") or {}
     level_x = _scale_position(level_box, "x", inset * 3, width)
@@ -666,12 +713,20 @@ def render_profile_card(
     required = max(1, _number(profile.get("required_xp"), 1))
     level_text = f"المستوى {level}"
     level_available = _clamp(level_box.get("max_width"), 100, width, int(width * .44))
-    progress_font = _fit_font(level_text, level_available,
-                              max(18, min(36, int(min(width, height) * .034))),
-                              minimum_size=12, bold=True)
+    progress_font = _fit_font(
+        level_text, level_available, max(18, min(36, int(min(width, height) * .034))),
+        minimum_size=12, bold=True, font_family=font_family,
+    )
+    level_color = (
+        light_text if not auto_contrast else _contrast_text_color(
+            canvas, level_box, light_text, dark_text,
+            line_height=max(18, int(min(width, height) * .05)),
+        )
+    )
     draw.text((level_x, level_y), _display_text(level_text),
-              font=progress_font, fill=text_color,
-              anchor=str(level_box.get("anchor") or "la"))
+              font=progress_font, fill=level_color,
+              anchor=str(level_box.get("anchor") or "ra"), stroke_width=1,
+              stroke_fill=(0, 0, 0, 145))
     xp_box = metadata.get("xp_bar") or {}
     bar_x = _scale_position(xp_box, "x", level_x, width-20)
     bar_y = _scale_position(xp_box, "y", level_y + int(36*scale), height-10)
@@ -686,11 +741,21 @@ def render_profile_card(
         draw.rounded_rectangle((bar_x, bar_y, bar_x+max(bar_h, fill_w), bar_y+bar_h),
                                radius=bar_h//2, fill=xp_color)
     xp_label = f"{xp:,} / {required:,} XP"
-    xp_font = _fit_font(xp_label, max(80, bar_w), max(12, min(24, int(bar_h * 1.8))),
-                        minimum_size=8)
+    xp_font = _fit_font(
+        xp_label, max(80, bar_w), max(12, min(24, int(bar_h * 1.8))),
+        minimum_size=8, font_family=font_family,
+    )
     xp_label_y = min(height - 2, bar_y + bar_h + max(12, int(bar_h * 1.45)))
+    xp_label_box = {"x": bar_x, "y": xp_label_y, "max_width": bar_w, "anchor": "la"}
+    xp_color_text = (
+        muted_light if not auto_contrast else _contrast_text_color(
+            canvas, xp_label_box, muted_light, dark_text,
+            line_height=max(10, int(bar_h * 2)),
+        )
+    )
     draw.text((bar_x, xp_label_y), _display_text(xp_label),
-              font=xp_font, fill=muted, anchor="la")
+              font=xp_font, fill=xp_color_text, anchor="la",
+              stroke_width=1, stroke_fill=(0, 0, 0, 100))
 
     stat_values = {
         "balance": f"{_number(profile.get('balance')):,}",
@@ -703,7 +768,11 @@ def render_profile_card(
             continue
         key = str(stat.get("key") or "")
         if key in stat_values:
-            _draw_stat_text(draw, stat, stat_values[key], scale, text_color, muted)
+            _draw_stat_text(
+                draw, canvas, stat, stat_values[key], scale,
+                light_text, muted_light, dark_text,
+                font_family=font_family, auto_contrast=auto_contrast,
+            )
 
     # Badges are separate image files/records and are composited individually.
     badges = badge_bytes or []
