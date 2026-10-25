@@ -154,6 +154,8 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             data = await state_response.json()
             self.assertEqual(data["user"]["id"], "1234")
             self.assertEqual(data["wallet"]["coins"], 0)
+            self.assertIn("categories", data)
+            self.assertTrue(any(category["slug"] == "templates" for category in data["categories"]))
             async with database.connect(aiosqlite.Row) as db:
                 async with db.execute(
                     "SELECT 1 FROM users WHERE user_id = 1234 AND guild_id = 99"
