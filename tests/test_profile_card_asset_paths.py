@@ -23,7 +23,7 @@ class ProfileCardAssetPathTests(unittest.TestCase):
 
         raw = generator._read_local_asset(template_path, template_asset=True)
         self.assertIsNotNone(raw, "The approved frame must load instead of using fallback art.")
-        self.assertTrue(raw.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertTrue(raw.startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_arabic_capable_repository_fonts_are_loaded(self):
         regular = generator._FONT_ROOT / "DejaVuSans.ttf"
