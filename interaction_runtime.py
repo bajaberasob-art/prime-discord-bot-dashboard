@@ -120,7 +120,20 @@ class _ResponseProxy:
         return await self._interaction.response.send_modal(modal)
 
     async def edit_message(self, *args: Any, **kwargs: Any) -> Any:
-        return await self._interaction.followup.edit_message(*args, **kwargs)
+        """Edit the component's source message after a deferred component ACK.
+
+        Webhook.followup.edit_message requires an explicit message_id and is
+        not the counterpart of InteractionResponse.edit_message. For a
+        component interaction, edit the source message directly; use the
+        original-response endpoint only if Discord did not include message.
+        """
+        if not self._deferred:
+            return await self._interaction.response.edit_message(*args, **kwargs)
+
+        message = getattr(self._interaction, "message", None)
+        if message is not None:
+            return await message.edit(*args, **kwargs)
+        return await self._interaction.edit_original_response(*args, **kwargs)
 
 
 class InteractionProxy:

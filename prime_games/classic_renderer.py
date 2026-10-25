@@ -1,6 +1,7 @@
 """Premium Pillow cards for PRIME's original /game mini-games."""
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from PIL import Image, ImageDraw
@@ -24,8 +25,37 @@ def _player_name(guild: Any, user_id: int) -> str:
     return str(getattr(member, "display_name", f"Player {user_id}"))[:22]
 
 
-async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Image.Image:
-    """Render a state snapshot; never mutate the durable game session."""
+async def render_classic_game(
+    session: dict[str, Any],
+    guild: Any = None,
+    *,
+    avatar_session: Any = None,
+    avatar_timeout: float = 2.0,
+) -> Image.Image:
+    """Fetch player avatars concurrently and offload Pillow drawing from the event loop."""
+    key = str(session.get("game_key") or "xo")
+    players = [int(value) for value in session.get("players") or []][:2]
+    names = [_player_name(guild, user_id) for user_id in players]
+
+    async def load_avatar(user_id: int) -> Image.Image:
+        member = guild.get_member(user_id) if guild is not None else None
+        return await get_circular_avatar(
+            member,
+            72,
+            session=avatar_session,
+            timeout=avatar_timeout,
+        )
+
+    avatars = await asyncio.gather(*(load_avatar(user_id) for user_id in players))
+    return await asyncio.to_thread(_render_classic_game_sync, session, names, avatars)
+
+
+def _render_classic_game_sync(
+    session: dict[str, Any],
+    names: list[str],
+    avatars: list[Image.Image],
+) -> Image.Image:
+    """CPU-bound Pillow drawing for classic game boards; runs outside asyncio."""
     key = str(session.get("game_key") or "xo")
     state = session.get("state") or {}
     players = [int(value) for value in session.get("players") or []][:2]
@@ -41,10 +71,8 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
                                  accent=accent)
     draw = ImageDraw.Draw(image)
     draw_glow_panel(image, (48, 150, 1152, 704), outline=accent, glow=accent)
-    names = [_player_name(guild, p) for p in players]
     for i, user_id in enumerate(players):
-        member = guild.get_member(user_id) if guild is not None else None
-        avatar = await get_circular_avatar(member, 72) if member is not None else await get_circular_avatar(None, 72)
+        avatar = avatars[i] if i < len(avatars) else Image.new("RGBA", (72, 72), "#29324a")
         draw_status_avatar(image, avatar, (82 + i * 900, 174), 72,
                            status="winner" if session.get("winner_id") == user_id else "alive")
         _text(draw, (170 + i * 900, 210), names[i], 23, WHITE, anchor="lm", bold=True)
@@ -155,6 +183,17 @@ async def render_classic_game(session: dict[str, Any], guild: Any = None) -> Ima
             draw.ellipse((x, y, x + 42, y + 42), fill=color, outline=accent, width=2)
     status = str(session.get("status") or "active").upper()
     winner = session.get("winner_id")
-    footer = "DRAW • REMATCH?" if status == "FINISHED" and winner is None else f"WINNER • {_player_name(guild, int(winner))}" if winner else f"TURN • {_player_name(guild, int(session.get('current_player_id') or players[0]))}" if players else status
+    if status == "FINISHED" and winner is None:
+        footer = "DRAW • REMATCH?"
+    elif winner is not None:
+        winner_id = int(winner)
+        winner_name = names[players.index(winner_id)] if winner_id in players else "WINNER"
+        footer = f"WINNER • {winner_name}"
+    elif players:
+        current_id = int(session.get("current_player_id") or players[0])
+        current_name = names[players.index(current_id)] if current_id in players else "PLAYER"
+        footer = f"TURN • {current_name}"
+    else:
+        footer = status
     _text(draw, (600, 670), footer, 21, GREEN if winner else MUTED, anchor="mm", bold=True)
     return image
