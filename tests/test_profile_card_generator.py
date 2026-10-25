@@ -1,12 +1,13 @@
 import io
 import json
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
 from profile_store_db import DEFAULT_PROFILE_TEMPLATES
-from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text, _fit_font, _display_text
+from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text, _fit_font, _display_text, _asset_roots
 
 
 class ProfileCardTemplateTests(unittest.TestCase):
@@ -75,6 +76,13 @@ class ProfileCardTemplateTests(unittest.TestCase):
                     self.assertEqual(card.getpixel((0, 0))[3], original_rgba.getpixel((0, 0))[3],
                                      f"Outer-corner alpha changed for {template['slug']}")
                 self.assertIsNotNone(card.getbbox(), f"Rendered content is empty for {template['slug']}")
+
+
+    def test_profile_renderer_asset_root_matches_uploader_when_db_path_is_set(self):
+        custom_db = Path("/tmp/prime-profile-store-tests/bot.db")
+        with patch.dict("os.environ", {"PROFILE_STORE_ASSET_DIR": "", "DB_PATH": str(custom_db)}):
+            _template_root, store_root = _asset_roots()
+        self.assertEqual(store_root, (custom_db.parent / "profile_store_assets").resolve())
 
     def test_approved_ultrawide_template_dimensions_are_preserved(self):
         metadata = _safe_metadata({
