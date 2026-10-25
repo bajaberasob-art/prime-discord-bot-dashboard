@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
@@ -49,6 +50,28 @@ class CardArtworkLibraryTests(unittest.TestCase):
         self.assertEqual(small.size, (160, 90))
         self.assertEqual(large.size, (320, 180))
         self.assertEqual(card_artwork._rasterize_artwork.cache_info().misses, 2)
+
+    def test_changed_asset_mtime_invalidates_cached_raster(self):
+        filename = _LAYOUT_ART["showcase"]
+        with patch.object(
+            card_artwork.cairosvg,
+            "svg2png",
+            wraps=card_artwork.cairosvg.svg2png,
+        ) as rasterize:
+            first = card_artwork._rasterize_artwork(filename, 160, 90, 100)
+            second = card_artwork._rasterize_artwork(filename, 160, 90, 200)
+
+        self.assertEqual(rasterize.call_count, 2)
+        self.assertEqual(first, second)
+        self.assertEqual(card_artwork._rasterize_artwork.cache_info().misses, 2)
+
+    def test_missing_artwork_asset_returns_none_without_rasterizing(self):
+        with patch.object(card_artwork, "_ART", Path("/nonexistent-prime-card-artwork")):
+            with patch.object(card_artwork.cairosvg, "svg2png") as rasterize:
+                self.assertIsNone(render_card_artwork("showcase", (160, 90)))
+
+        rasterize.assert_not_called()
+        self.assertEqual(card_artwork._rasterize_artwork.cache_info().misses, 0)
 
     def test_unknown_layout_returns_none(self):
         self.assertIsNone(render_card_artwork("not-a-layout", (100, 100)))
