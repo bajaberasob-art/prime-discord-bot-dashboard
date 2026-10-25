@@ -714,6 +714,7 @@
     settings: { label: "الإعدادات", icon: "⚙", hint: "Configuration" },
     backup: { label: "النسخ الاحتياطي", icon: "⤓", hint: "Guild Backup & Restore" },
     system: { label: "النظام", icon: "⌁", hint: "Runtime" },
+    storeAdmin: { label: "متجر البروفايل", icon: "▧", hint: "Profile Store Studio" },
   };
   function closeMobileMoreMenus() {
     document.querySelectorAll(".mobile-more-menu").forEach((menu) => {
@@ -873,11 +874,12 @@
       navButton("settings"),
       navButton("backup"),
       navButton("system"),
+      navButton("storeAdmin"),
     );
     const moreButton = el(
       "button",
       {
-         class: `nav-item ${["onboarding", "gaming", "subscriptions", "clan", "security", "moderation", "analytics", "leveling", "economy", "community", "ai", "talk", "appearance", "settings", "backup", "system", "tempVoice", "interactiveInfo"].includes(state.activeView) ? "active" : ""}`,
+         class: `nav-item ${["onboarding", "gaming", "subscriptions", "clan", "security", "moderation", "analytics", "leveling", "economy", "community", "ai", "talk", "appearance", "settings", "backup", "system", "tempVoice", "interactiveInfo", "storeAdmin"].includes(state.activeView) ? "active" : ""}`,
         type: "button",
         "aria-expanded": "false",
         onClick: () => {
@@ -10904,6 +10906,19 @@
             text: "تعذر تحميل وحدة PRIME AI. أعد تحميل لوحة التحكم.",
           }),
         );
+      }
+    }
+    else if (view === "storeAdmin") {
+      const host = el("section", { id: "view-profile-store-admin" });
+      main.append(host);
+      if (!window.PrimeProfileStoreAdmin?.mount) {
+        host.append(el("div", { class: "notice", role: "alert", text: "تعذر تحميل إدارة متجر PRIME." }));
+      } else {
+        window.PrimeProfileStoreAdmin.mount(host, {
+          guildId: String(state.guild?.id || ""),
+          api, writeApi, readJson, toast, getCsrf: () => state.session?.csrf || "",
+          refreshSession,
+        });
       }
     }
     else if (view === "appearance") main.append(appearanceView());
