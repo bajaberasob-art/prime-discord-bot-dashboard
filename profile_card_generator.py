@@ -567,43 +567,103 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
     }
 
 
+def _prefix_sum_grid(values: list[float], width: int, height: int) -> list[list[float]]:
+    """Build an integral image so thousands of candidate rectangles score in O(1)."""
+    prefix = [[0.0] * (width + 1) for _ in range(height + 1)]
+    for y in range(1, height + 1):
+        row_total = 0.0
+        offset = (y - 1) * width
+        prev = prefix[y - 1]
+        current = prefix[y]
+        for x in range(1, width + 1):
+            row_total += values[offset + x - 1]
+            current[x] = prev[x] + row_total
+    return prefix
+
+
+def _sum_integral(
+    prefix: list[list[float]], x0: int, y0: int, x1: int, y1: int,
+) -> float:
+    return prefix[y1][x1] - prefix[y0][x1] - prefix[y1][x0] + prefix[y0][x0]
+
+
+def _build_template_analysis(raw_frame: bytes | Image.Image | None) -> dict | None:
+    """Create a small alpha-aware visual feature map for fast candidate-region scoring."""
+    frame = raw_frame.copy() if isinstance(raw_frame, Image.Image) else _image_from_bytes(raw_frame)
+    if frame is None:
+        return None
+    source_width, source_height = frame.size
+    if source_width < 80 or source_height < 80:
+        return None
+
+    frame.thumbnail((192, 192), Image.Resampling.LANCZOS)
+    # Transparent pixels frequently contain arbitrary hidden RGB values. Composite on the
+    # same kind of dark surface used by the renderer before analysing edges or texture.
+    backdrop = Image.new("RGBA", frame.size, (13, 17, 29, 255))
+    backdrop.alpha_composite(frame.convert("RGBA"))
+    gray = backdrop.convert("L")
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+    width, height = gray.size
+    gray_values = [value / 255.0 for value in gray.getdata()]
+    edge_values = [value / 255.0 for value in edges.getdata()]
+    gray_squared = [value * value for value in gray_values]
+    return {
+        "source_width": source_width,
+        "source_height": source_height,
+        "width": width,
+        "height": height,
+        "gray": _prefix_sum_grid(gray_values, width, height),
+        "gray_squared": _prefix_sum_grid(gray_squared, width, height),
+        "edges": _prefix_sum_grid(edge_values, width, height),
+    }
+
+
+def _score_analyzed_region(
+    analysis: dict | None,
+    rect: tuple[int, int, int, int],
+) -> float:
+    """Lower is better: favour visually calm areas, including truly transparent space."""
+    if not analysis:
+        return 1.0
+    left, top, right, bottom = rect
+    if right <= left or bottom <= top:
+        return 1.0
+    thumb_w, thumb_h = analysis["width"], analysis["height"]
+    source_w, source_h = analysis["source_width"], analysis["source_height"]
+    x0 = max(0, min(thumb_w - 1, int(left * thumb_w / source_w)))
+    y0 = max(0, min(thumb_h - 1, int(top * thumb_h / source_h)))
+    x1 = max(x0 + 1, min(thumb_w, int(math.ceil(right * thumb_w / source_w))))
+    y1 = max(y0 + 1, min(thumb_h, int(math.ceil(bottom * thumb_h / source_h))))
+    area = max(1, (x1 - x0) * (y1 - y0))
+    mean_edge = _sum_integral(analysis["edges"], x0, y0, x1, y1) / area
+    mean_gray = _sum_integral(analysis["gray"], x0, y0, x1, y1) / area
+    mean_square = _sum_integral(analysis["gray_squared"], x0, y0, x1, y1) / area
+    variance = max(0.0, mean_square - mean_gray * mean_gray)
+    contrast_variation = min(1.0, math.sqrt(variance) / 0.376)
+    return min(1.0, mean_edge * 0.74 + contrast_variation * 0.26)
+
+
 def _template_region_score(
     raw_frame: bytes | Image.Image | None,
     rect: tuple[int, int, int, int],
 ) -> float:
-    """Score a text region from image texture, contrast variation, and edge density."""
-    frame = raw_frame if isinstance(raw_frame, Image.Image) else _image_from_bytes(raw_frame)
-    if frame is None:
-        return 1.0
-    left, top, right, bottom = rect
-    left, right = max(0, left), min(frame.width, right)
-    top, bottom = max(0, top), min(frame.height, bottom)
-    if right - left < 8 or bottom - top < 8:
-        return 1.0
-    try:
-        crop = frame.convert("RGB").crop((left, top, right, bottom))
-        crop.thumbnail((48, 24), Image.Resampling.BILINEAR)
-        gray = crop.convert("L")
-        edges = gray.filter(ImageFilter.FIND_EDGES)
-        edge_values = list(edges.getdata())
-        gray_values = list(gray.getdata())
-        if not gray_values:
-            return 1.0
-        edge_density = sum(edge_values) / (255.0 * len(edge_values))
-        mean = sum(gray_values) / len(gray_values)
-        variance = sum((value - mean) ** 2 for value in gray_values) / len(gray_values)
-        contrast_variation = min(1.0, math.sqrt(variance) / 96.0)
-        # Uniform dark or light regions both work: foreground contrast is chosen later.
-        # Busy details and sharp ornamental lines are the main causes of unreadable text.
-        return min(1.0, edge_density * 0.72 + contrast_variation * 0.28)
-    except Exception:
-        return 1.0
+    """Compatibility wrapper around the alpha-aware template analysis."""
+    return _score_analyzed_region(_build_template_analysis(raw_frame), rect)
 
 
 def _rect_overlaps(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> bool:
     return not (
         left[2] <= right[0] or right[2] <= left[0]
         or left[3] <= right[1] or right[3] <= left[1]
+    )
+
+
+def _inflate_rect(
+    rect: tuple[int, int, int, int], padding: int, width: int, height: int,
+) -> tuple[int, int, int, int]:
+    return (
+        max(0, rect[0] - padding), max(0, rect[1] - padding),
+        min(width, rect[2] + padding), min(height, rect[3] + padding),
     )
 
 
@@ -618,68 +678,315 @@ def _choose_template_text_box(
     y_range: tuple[float, float],
     x_centers: tuple[float, ...] = (0.28, 0.42, 0.58, 0.72),
 ) -> dict | None:
-    """Find a low-detail region for text while avoiding the avatar, stats, and prior text."""
-    if not raw_frame:
-        return None
-    analysis_frame = _image_from_bytes(raw_frame)
-    if analysis_frame is None:
+    """Compatibility helper for fixed-size boxes; uses a precomputed visual feature map."""
+    analysis = _build_template_analysis(raw_frame)
+    if analysis is None:
         return None
     best: tuple[float, dict] | None = None
-    max_x = max(0, width - box_width)
-    y_start = max(0, int(height * y_range[0]))
-    y_end = min(height - box_height, int(height * y_range[1]))
-    y_step = max(8, int(height * 0.035))
-    x_positions = sorted({
-        max(0, min(max_x, int(width * center - box_width / 2)))
-        for center in x_centers
-    })
+    margin = max(8, int(min(width, height) * 0.018))
+    max_x = max(margin, width - box_width - margin)
+    y_start = max(margin, int(height * y_range[0]))
+    y_end = min(height - box_height - margin, int(height * y_range[1]))
+    y_step = max(8, int(height * 0.025))
+    x_step = max(10, int(width * 0.025))
+    x_positions = range(margin, max_x + 1, x_step)
     for y in range(y_start, max(y_start + 1, y_end + 1), y_step):
         for x in x_positions:
             rect = (x, y, x + box_width, y + box_height)
             if any(_rect_overlaps(rect, item) for item in reserved):
                 continue
-            texture = _template_region_score(analysis_frame, rect)
-            # A tiny top/side margin preference avoids putting text directly on frame rails.
-            margin_penalty = (
-                0.12 if x < width * 0.055 or x + box_width > width * 0.945 else 0.0
-            )
-            score = texture + margin_penalty
+            texture = _score_analyzed_region(analysis, rect)
+            prior_x = width * 0.5
+            if x_centers:
+                prior_x = min(x_centers, key=lambda center: abs((x + box_width / 2) / width - center)) * width
+            prior_penalty = abs(x + box_width / 2 - prior_x) / max(1, width) * 0.025
+            score = texture + prior_penalty
             if best is None or score < best[0]:
                 best = (score, {"x": x + box_width // 2, "y": y + box_height // 2,
                                 "max_width": box_width, "anchor": "mm",
                                 "_rect": rect, "_score": round(score, 4)})
-    if best is None or best[0] > 0.34:
+    if best is None or best[0] > 0.45:
         return None
     return best[1]
 
 
-def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dict:
-    """Analyze each template's visual negative space and place text without collisions.
+def _font_height(font: ImageFont.ImageFont, text: str) -> int:
+    try:
+        bounds = font.getbbox(_display_text(text))
+        return max(int(getattr(font, "size", 16)), int(bounds[3] - bounds[1]))
+    except Exception:
+        return max(16, int(getattr(font, "size", 16)))
 
-    This is a deterministic, local vision/layout pass: it scores real image regions rather
-    than assuming every template has the same geometry. Existing stat-cell anchors remain
-    template-owned; avatar and text placement are optimized around them.
-    """
+
+def _text_width(font: ImageFont.ImageFont, text: str) -> int:
+    try:
+        return max(1, int(math.ceil(font.getlength(_display_text(text)))))
+    except Exception:
+        bounds = font.getbbox(_display_text(text))
+        return max(1, int(bounds[2] - bounds[0]))
+
+
+def _prior_box_center(
+    box: dict | None,
+    text: str,
+    font: ImageFont.ImageFont,
+    default_width: int,
+    default_height: int,
+) -> tuple[float, float] | None:
+    if not isinstance(box, dict) or "x" not in box or "y" not in box:
+        return None
+    try:
+        x, y = float(box["x"]), float(box["y"])
+        anchor = str(box.get("anchor") or "la").lower()
+        visible_width = min(
+            max(1, int(box.get("max_width") or default_width)),
+            _text_width(font, text),
+        )
+        if anchor.startswith("r"):
+            center_x = x - visible_width / 2
+        elif anchor.startswith("m"):
+            center_x = x
+        else:
+            center_x = x + visible_width / 2
+        # Existing y coordinates describe the upper text anchor, not the search rectangle.
+        center_y = y + default_height / 2
+        return center_x, center_y
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _find_best_identity_block(
+    analysis: dict | None,
+    *,
+    width: int,
+    height: int,
+    display_name: str,
+    handle: str,
+    name_metadata: dict | None,
+    handle_metadata: dict | None,
+    font_family: str,
+    reserved: list[tuple[int, int, int, int]],
+) -> dict | None:
+    """Place name and handle as one measured block; never optimise each line independently."""
+    display_name = (display_name or "Member").strip()[:48]
+    handle = (handle or "@member").strip()[:43]
+    minimum = min(width, height)
+    preferred_name_size = max(28, min(64, int(minimum * 0.056)))
+    preferred_handle_size = max(20, min(36, int(minimum * 0.034)))
+    gap = max(5, int(minimum * 0.008))
+    pad_y = max(5, int(minimum * 0.008))
+    margin = max(12, int(minimum * 0.018))
+    step_x = max(12, int(width * 0.025))
+    step_y = max(10, int(height * 0.025))
+    name_prior_font = _fit_font(display_name, max(140, int(width * 0.50)), preferred_name_size,
+                                minimum_size=18, bold=True, font_family=font_family)
+    handle_prior_font = _fit_font(handle, max(140, int(width * 0.50)), preferred_handle_size,
+                                  minimum_size=13, font_family=font_family)
+    name_prior = _prior_box_center(name_metadata, display_name, name_prior_font,
+                                   int(width * 0.42), _font_height(name_prior_font, display_name))
+    handle_prior = _prior_box_center(handle_metadata, handle, handle_prior_font,
+                                     int(width * 0.42), _font_height(handle_prior_font, handle))
+    prior_center = None
+    if name_prior and handle_prior:
+        prior_center = ((name_prior[0] + handle_prior[0]) / 2,
+                        (name_prior[1] + handle_prior[1]) / 2)
+    elif name_prior:
+        prior_center = name_prior
+
+    best: tuple[float, dict] | None = None
+    width_fractions = (0.28, 0.36, 0.44, 0.52, 0.60, 0.66)
+    top_min = max(margin, int(height * 0.10))
+    top_max = min(height - margin, int(height * 0.70))
+    for fraction in width_fractions:
+        box_width = min(width - margin * 2, max(140, int(width * fraction)))
+        text_width = max(120, box_width - max(12, int(box_width * 0.055)))
+        name_font = _fit_font(display_name, text_width, preferred_name_size,
+                              minimum_size=18, bold=True, font_family=font_family)
+        handle_font = _fit_font(handle, text_width, preferred_handle_size,
+                                minimum_size=13, font_family=font_family)
+        name_height = _font_height(name_font, display_name)
+        handle_height = _font_height(handle_font, handle)
+        block_height = pad_y * 2 + name_height + gap + handle_height
+        if top_max - top_min < block_height:
+            continue
+        x_max = width - box_width - margin
+        for top in range(top_min, max(top_min + 1, top_max - block_height + 1), step_y):
+            for left in range(margin, max(margin + 1, x_max + 1), step_x):
+                rect = (left, top, left + box_width, top + block_height)
+                if any(_rect_overlaps(rect, item) for item in reserved):
+                    continue
+                visual = _score_analyzed_region(analysis, rect)
+                prior_penalty = 0.0
+                if prior_center:
+                    center_x, center_y = left + box_width / 2, top + block_height / 2
+                    distance = math.hypot(
+                        (center_x - prior_center[0]) / max(1, width),
+                        (center_y - prior_center[1]) / max(1, height),
+                    )
+                    prior_penalty = min(0.10, distance * 0.12)
+                readability_penalty = (
+                    max(0, preferred_name_size - int(getattr(name_font, "size", preferred_name_size)))
+                    / max(1, preferred_name_size) * 0.025
+                    + max(0, preferred_handle_size - int(getattr(handle_font, "size", preferred_handle_size)))
+                    / max(1, preferred_handle_size) * 0.015
+                )
+                edge_penalty = 0.05 if (
+                    left < margin * 1.25 or left + box_width > width - margin * 1.25
+                ) else 0.0
+                score = visual + prior_penalty + readability_penalty + edge_penalty
+                if best is None or score < best[0]:
+                    name_y = top + pad_y + name_height // 2
+                    handle_y = top + pad_y + name_height + gap + handle_height // 2
+                    best = (score, {
+                        "rect": rect,
+                        "score": round(score, 4),
+                        "name": {"x": left + box_width // 2, "y": name_y,
+                                 "max_width": text_width, "anchor": "mm"},
+                        "handle": {"x": left + box_width // 2, "y": handle_y,
+                                   "max_width": text_width, "anchor": "mm"},
+                        "font_sizes": {
+                            "name": int(getattr(name_font, "size", preferred_name_size)),
+                            "handle": int(getattr(handle_font, "size", preferred_handle_size)),
+                        },
+                    })
+    if best is None or best[0] > 0.48:
+        return None
+    return best[1]
+
+
+def _find_best_level_box(
+    analysis: dict | None,
+    *,
+    width: int,
+    height: int,
+    text: str,
+    metadata_box: dict | None,
+    font_family: str,
+    reserved: list[tuple[int, int, int, int]],
+) -> dict | None:
+    """Find a visually calm line for the level, excluding identity, avatar, stats and XP."""
+    minimum = min(width, height)
+    preferred_size = max(30, min(60, int(minimum * 0.052)))
+    margin = max(12, int(minimum * 0.018))
+    step_x = max(12, int(width * 0.025))
+    step_y = max(10, int(height * 0.025))
+    best: tuple[float, dict] | None = None
+    prior_font = _fit_font(text, max(140, int(width * 0.40)), preferred_size,
+                           minimum_size=18, bold=True, font_family=font_family)
+    prior = _prior_box_center(metadata_box, text, prior_font,
+                              int(width * 0.40), _font_height(prior_font, text))
+    for fraction in (0.22, 0.28, 0.34, 0.40, 0.48, 0.56):
+        box_width = min(width - margin * 2, max(140, int(width * fraction)))
+        text_width = max(120, box_width - max(10, int(box_width * 0.05)))
+        font = _fit_font(text, text_width, preferred_size, minimum_size=18,
+                         bold=True, font_family=font_family)
+        text_height = _font_height(font, text)
+        pad = max(5, int(minimum * 0.01))
+        box_height = text_height + pad * 2
+        top_min = max(margin, int(height * 0.22))
+        top_max = min(height - box_height - margin, int(height * 0.77))
+        for top in range(top_min, max(top_min + 1, top_max + 1), step_y):
+            for left in range(margin, max(margin + 1, width - box_width - margin + 1), step_x):
+                rect = (left, top, left + box_width, top + box_height)
+                if any(_rect_overlaps(rect, item) for item in reserved):
+                    continue
+                visual = _score_analyzed_region(analysis, rect)
+                prior_penalty = 0.0
+                if prior:
+                    center_x, center_y = left + box_width / 2, top + box_height / 2
+                    distance = math.hypot(
+                        (center_x - prior[0]) / max(1, width),
+                        (center_y - prior[1]) / max(1, height),
+                    )
+                    prior_penalty = min(0.08, distance * 0.09)
+                readability_penalty = max(
+                    0, preferred_size - int(getattr(font, "size", preferred_size))
+                ) / max(1, preferred_size) * 0.025
+                score = visual + prior_penalty + readability_penalty
+                if best is None or score < best[0]:
+                    best = (score, {
+                        "x": left + box_width // 2,
+                        "y": top + pad + text_height // 2,
+                        "max_width": text_width,
+                        "anchor": "mm",
+                        "_rect": rect,
+                        "_score": round(score, 4),
+                        "_font_size": int(getattr(font, "size", preferred_size)),
+                    })
+    if best is None or best[0] > 0.48:
+        return None
+    return best[1]
+
+
+def _default_stat_boxes(width: int, height: int) -> list[dict]:
+    """Create readable default stat rows for custom templates lacking curated metadata."""
+    fields = (
+        ("balance", "الرصيد"), ("messages", "الرسائل"),
+        ("rank", "الترتيب"), ("voice", "الصوت"),
+    )
+    result = []
+    if width >= height * 1.18:
+        top, cell_h, cell_w = int(height * 0.82), max(28, int(height * 0.105)), int(width * 0.205)
+        xs = [int(width * ratio) for ratio in (0.035, 0.275, 0.515, 0.755)]
+        for (key, label), x in zip(fields, xs):
+            result.append({"key": key, "label": label, "x": x, "y": top,
+                           "w": min(cell_w, width - x), "h": min(cell_h, height - top)})
+    else:
+        cell_w, cell_h = int(width * 0.41), max(26, int(height * 0.065))
+        for (key, label), x, y in zip(
+            fields, (0.06, 0.535, 0.06, 0.535),
+            (0.77, 0.77, 0.87, 0.87),
+        ):
+            left, top = int(width * x), int(height * y)
+            result.append({"key": key, "label": label, "x": left, "y": top,
+                           "w": min(cell_w, width - left), "h": min(cell_h, height - top)})
+    return result
+
+
+def _apply_smart_template_layout(
+    metadata: dict,
+    raw_frame: bytes | None,
+    *,
+    profile: dict | None = None,
+    style: dict | None = None,
+) -> dict:
+    """Place profile text using the actual template pixels, text lengths, and collision bounds."""
     result = dict(metadata or {})
     width = _clamp(result.get("width"), 320, 2048, 1280)
     height = _clamp(result.get("height"), 320, 2048, 720)
     result["width"], result["height"] = width, height
+    profile = dict(profile or {})
+    style = dict(style or {})
+    font_family = _normalise_font_family(style.get("font_family") or "modern")
+    display_name = str(profile.get("display_name") or profile.get("name") or "Member").strip()[:48]
+    handle = "@" + str(profile.get("username") or "member").strip()[:42].lstrip("@")
+    level_text = f"المستوى {_number(profile.get('level'), 0)}"
+
+    analysis = _build_template_analysis(raw_frame)
+    if analysis is None:
+        result["layout_engine"] = "prime-vision-layout-v4"
+        result["layout_analysis"] = {
+            "method": "template-metadata-fallback",
+            "name_region_optimized": False,
+            "level_region_optimized": False,
+            "reason": "template image unavailable",
+        }
+        return result
+
     detected = _detect_template_avatar_slot(raw_frame)
     avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
     has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
-
-    if detected and (not has_curated_avatar or detected.get("confidence", 0) >= 0.34):
-        current_center = (
-            int(avatar.get("x", 0)) + int(avatar.get("size", 0)) / 2,
-            int(avatar.get("y", 0)) + int(avatar.get("size", 0)) / 2,
-        )
+    if detected and detected.get("confidence", 0) >= 0.28:
         detected_center = (
             int(detected["x"]) + int(detected["size"]) / 2,
             int(detected["y"]) + int(detected["size"]) / 2,
         )
+        current_center = (
+            int(avatar.get("x", 0)) + int(avatar.get("size", 0)) / 2,
+            int(avatar.get("y", 0)) + int(avatar.get("size", 0)) / 2,
+        )
         disagreement = math.hypot(
-            current_center[0] - detected_center[0],
-            current_center[1] - detected_center[1],
+            detected_center[0] - current_center[0], detected_center[1] - current_center[1]
         ) if has_curated_avatar else float("inf")
         if not has_curated_avatar or disagreement >= max(24, int(avatar.get("size", 0) * 0.30)):
             source_width = max(1, int(detected.get("frame_width") or width))
@@ -694,62 +1001,106 @@ def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dic
                 "size": min(target_size, width, height),
             }
             result["avatar_detection"] = {
-                "method": "circular-contour",
+                "method": "circular-contour-override" if has_curated_avatar else "circular-contour",
                 "confidence": detected["confidence"],
             }
+    elif not has_curated_avatar:
+        avatar_size = max(48, int(min(width, height) * 0.18))
+        result["avatar"] = {
+            "x": max(0, int(width * 0.78 - avatar_size / 2)),
+            "y": max(0, int(height * 0.63 - avatar_size / 2)),
+            "size": min(avatar_size, width, height),
+        }
+        result["avatar_detection"] = {"method": "lower-right-fallback", "confidence": 0.0}
 
     avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
-    avatar_size = _clamp(avatar.get("size"), 48, min(width, height) // 2, int(min(width, height) * 0.2))
-    avatar_x = _scale_position(avatar, "x", int(width * 0.76), width - avatar_size)
-    avatar_y = _scale_position(avatar, "y", int(height * 0.62), height - avatar_size)
-    result["avatar"] = {"x": avatar_x, "y": avatar_y, "size": avatar_size}
-
-    reserved: list[tuple[int, int, int, int]] = [
-        (max(0, avatar_x - 14), max(0, avatar_y - 14),
-         min(width, avatar_x + avatar_size + 14), min(height, avatar_y + avatar_size + 14))
-    ]
-    for stat in result.get("stats") or []:
-        if isinstance(stat, dict):
-            try:
-                sx, sy, sw, sh = (int(stat[k]) for k in ("x", "y", "w", "h"))
-                reserved.append((max(0, sx - 4), max(0, sy - 4),
-                                 min(width, sx + sw + 4), min(height, sy + sh + 4)))
-            except (KeyError, TypeError, ValueError):
-                pass
-
-    # Optimize the identity block first, then place the level label in a distinct region.
-    # Remove old positions only when the image itself supplies a clearly better empty area.
-    name_box = _choose_template_text_box(
-        raw_frame, width=width, height=height,
-        box_width=max(120, int(width * 0.43)), box_height=max(36, int(height * 0.095)),
-        reserved=reserved, y_range=(0.12, 0.66),
+    avatar_size = _clamp(avatar.get("size"), 48, min(width, height) // 2, int(min(width, height) * 0.18))
+    avatar_x = _scale_position(avatar, "x", int(width * 0.70), width - avatar_size)
+    avatar_y = _scale_position(avatar, "y", int(height * 0.60), height - avatar_size)
+    avatar_rect = _inflate_rect(
+        (avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size),
+        max(14, int(min(width, height) * 0.018)), width, height,
     )
-    if name_box:
-        reserved.append(name_box.pop("_rect"))
-        name_box.pop("_score", None)
-        result["name"] = dict(name_box)
-        handle_box = dict(name_box)
-        handle_box["y"] = min(height - 8, int(name_box["y"] + height * 0.045))
-        handle_box["max_width"] = max(100, int(name_box["max_width"] * 0.98))
-        result["handle"] = handle_box
 
-    level_box = _choose_template_text_box(
-        raw_frame, width=width, height=height,
-        box_width=max(110, int(width * 0.32)), box_height=max(28, int(height * 0.075)),
-        reserved=reserved, y_range=(0.38, 0.76),
-        x_centers=(0.20, 0.36, 0.52, 0.68, 0.80),
+    stats = result.get("stats") if isinstance(result.get("stats"), list) else []
+    if not stats:
+        stats = _default_stat_boxes(width, height)
+        result["stats"] = stats
+
+    margin = max(12, int(min(width, height) * 0.018))
+    reserved: list[tuple[int, int, int, int]] = [avatar_rect]
+    # Keep all known stat cells, badge/flag slots, and the illustrated XP track clear.
+    for stat in stats:
+        if not isinstance(stat, dict):
+            continue
+        try:
+            sx, sy, sw, sh = (int(stat[k]) for k in ("x", "y", "w", "h"))
+            reserved.append(_inflate_rect((sx, sy, sx + sw, sy + sh), margin // 2, width, height))
+        except (KeyError, TypeError, ValueError):
+            continue
+    for key in ("badges", "flag"):
+        box = result.get(key) if isinstance(result.get(key), dict) else {}
+        try:
+            bx = int(box.get("x", -1))
+            by = int(box.get("y", -1))
+            bw = int(box.get("width", box.get("size", 0)))
+            bh = int(box.get("height", box.get("size", 0)))
+            if bx >= 0 and by >= 0 and bw > 0 and bh > 0:
+                reserved.append(_inflate_rect((bx, by, bx + bw, by + bh), margin // 2, width, height))
+        except (TypeError, ValueError):
+            pass
+    xp_box = result.get("xp_bar") if isinstance(result.get("xp_bar"), dict) else {}
+    try:
+        xp_x, xp_y = int(xp_box.get("x", -1)), int(xp_box.get("y", -1))
+        xp_w, xp_h = int(xp_box.get("width", 0)), int(xp_box.get("height", 0))
+        if xp_x >= 0 and xp_y >= 0 and xp_w > 0 and xp_h > 0:
+            reserved.append(_inflate_rect((xp_x, xp_y, xp_x + xp_w, xp_y + xp_h),
+                                          max(8, margin // 2), width, height))
+    except (TypeError, ValueError):
+        pass
+    # Reserve the ornamental rails so text cannot sit directly over the card border.
+    rail = max(8, int(min(width, height) * 0.025))
+    reserved.extend([
+        (0, 0, width, rail), (0, height - rail, width, height),
+        (0, 0, rail, height), (width - rail, 0, width, height),
+    ])
+
+    identity = _find_best_identity_block(
+        analysis, width=width, height=height,
+        display_name=display_name, handle=handle,
+        name_metadata=result.get("name"), handle_metadata=result.get("handle"),
+        font_family=font_family, reserved=reserved,
+    )
+    if identity:
+        result["name"] = identity["name"]
+        result["handle"] = identity["handle"]
+        reserved.append(_inflate_rect(identity["rect"], max(6, margin // 2), width, height))
+
+    level_box = _find_best_level_box(
+        analysis, width=width, height=height, text=level_text,
+        metadata_box=result.get("level"), font_family=font_family,
+        reserved=reserved,
     )
     if level_box:
-        level_box.pop("_score", None)
-        level_box.pop("_rect", None)
-        result["level"] = dict(level_box)
+        level_score = level_box.pop("_score", None)
+        level_font_size = level_box.pop("_font_size", None)
+        level_rect = level_box.pop("_rect", None)
+        result["level"] = level_box
+        if level_rect:
+            reserved.append(_inflate_rect(level_rect, max(6, margin // 2), width, height))
 
-    result["layout_engine"] = "prime-vision-layout-v3"
+    result["layout_engine"] = "prime-vision-layout-v4"
     result["layout_analysis"] = {
+        "method": "alpha-aware-multiscale-region-scoring",
         "avatar_slot": result.get("avatar_detection", {}).get("method", "template-metadata"),
-        "name_region_optimized": bool(name_box),
+        "name_region_optimized": bool(identity),
         "level_region_optimized": bool(level_box),
-        "method": "local-image-texture-and-collision-scoring",
+        "identity_region_score": identity.get("score") if identity else None,
+        "level_region_score": level_score if level_box else None,
+        "identity_font_sizes": identity.get("font_sizes") if identity else None,
+        "level_font_size": level_font_size if level_box else None,
+        "reserved_region_count": len(reserved),
+        "uses_profile_text_lengths": True,
     }
     return result
 
