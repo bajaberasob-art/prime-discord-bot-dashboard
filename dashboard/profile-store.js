@@ -318,6 +318,10 @@
   }
   function updateLivePreview(item) {
     const card = $("#liveProfileCard");
+    const isTemplate = item.item_type === "card_template";
+    // A CSS mock cannot know the template's reserved image slots. For templates,
+    // show only the server renderer's true PNG so the user never compares two layouts.
+    card.hidden = isTemplate;
     const accent = safeColor(item.style && (item.style.accent || item.style.primary), "#43d9ff");
     const secondary = safeColor(item.style && (item.style.secondary || item.style.glow), "#8b72ff");
     const layout = String(item.metadata && (item.metadata.layout || item.metadata.orientation) || "wide").toLowerCase();
@@ -342,16 +346,19 @@
     $("#previewLevel").textContent = "PRIME";
     $("#previewBadge").textContent = String(item.name || "PRIME MEMBER").toLocaleUpperCase("en-US").slice(0, 22);
     $("#previewXp").textContent = item.item_type === "card_template" ? "TEMPLATE PREVIEW" : categoryName(item.item_type).toLocaleUpperCase("en-US");
-    $("#previewNote").textContent = isOwned(item)
-      ? (isEquipped(item) ? "هذا العنصر مجهّز حالياً. معاينة المظهر تستخدم إعداداته الحالية." : "هذا العنصر ضمن مقتنياتك. اضغط «تجهيز العنصر» لتطبيقه على بطاقة PRIME.")
-      : "معاينة تقريبية بألوان العنصر. جرّبه هنا قبل الشراء؛ لن يتغير بروفايلك حتى تقتنيه وتجهّزه.";
+    $("#previewNote").textContent = isTemplate
+      ? "تستخدم القوالب معاينة مولّد PRIME الفعلي حتى تُعرض الصورة الرمزية والخبرة والإحصائيات فوق القالب نفسه."
+      : (isOwned(item)
+        ? (isEquipped(item) ? "هذا العنصر مجهّز حالياً. معاينة المظهر تستخدم إعداداته الحالية." : "هذا العنصر ضمن مقتنياتك. اضغط «تجهيز العنصر» لتطبيقه على بطاقة PRIME.")
+        : "معاينة تقريبية بألوان العنصر. جرّبه هنا قبل الشراء؛ لن يتغير بروفايلك حتى تقتنيه وتجهّزه.");
   }
 
   function openSheet(itemId) {
     const item = findItem(itemId);
     if (!item) return;
     const nextId = Number(item.item_id);
-    if (state.selectedId !== nextId) {
+    const itemChanged = state.selectedId !== nextId;
+    if (itemChanged) {
       const previousImage = $("#serverPreviewImage");
       if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
       state.previewObjectUrl = null;
@@ -411,6 +418,11 @@
     $("#detailSheet").setAttribute("aria-hidden", "false");
     $("#sheetScrim").hidden = false;
     renderGrid();
+    // Generate the truthful server-side preview as soon as a template is selected.
+    // The normal "update preview" button remains available for a manual refresh.
+    if (item.item_type === "card_template" && itemChanged && !state.previewBusy) {
+      renderFullPreview();
+    }
   }
   function closeSheet() {
     $("#detailSheet").classList.remove("is-open");

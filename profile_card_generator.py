@@ -11,6 +11,7 @@ import asyncio
 import io
 import json
 import logging
+import math
 import os
 import re
 from pathlib import Path
@@ -189,27 +190,148 @@ async def _read_store_asset(
     return _read_local_asset(str(path), template_asset=template_asset)
 
 
-def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    filename = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+_FONT_FAMILY_FILES = {
+    # Try bundled fonts first, then common Linux fonts if the host provides them.
+    "modern": {
+        False: ("DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        True: ("DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    },
+    "tech": {
+        False: ("DejaVuSansCondensed.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+                "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf", "DejaVuSans.ttf"),
+        True: ("DejaVuSansCondensed-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+               "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf", "DejaVuSans-Bold.ttf"),
+    },
+    "elegant": {
+        False: ("DejaVuSerif.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+                "/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf", "DejaVuSans.ttf"),
+        True: ("DejaVuSerif-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+               "/usr/share/fonts/truetype/liberation2/LiberationSerif-Bold.ttf", "DejaVuSans-Bold.ttf"),
+    },
+    "soft": {
+        False: ("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf", "DejaVuSans.ttf"),
+        True: ("/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf", "DejaVuSans-Bold.ttf"),
+    },
+}
+
+
+def _normalise_font_family(value: Any) -> str:
+    family = str(value or "modern").strip().lower()
+    return family if family in _FONT_FAMILY_FILES else "modern"
+
+
+def _load_font(
+    size: int, bold: bool = False, font_family: str = "modern"
+) -> ImageFont.ImageFont:
+    """Load the requested template font, with portable fallbacks for minimal hosts."""
+    family = _normalise_font_family(font_family)
+    for candidate in _FONT_FAMILY_FILES[family][bool(bold)]:
+        path = Path(candidate)
+        if not path.is_absolute():
+            path = _FONT_ROOT / candidate
+        try:
+            if path.is_file():
+                return ImageFont.truetype(str(path), max(9, int(size)))
+        except OSError:
+            continue
+    # Modern/DejaVu is bundled, so this fallback should normally be available.
+    fallback = _FONT_ROOT / ("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf")
     try:
-        return ImageFont.truetype(str(_FONT_ROOT / filename), max(9, int(size)))
+        return ImageFont.truetype(str(fallback), max(9, int(size)))
     except OSError:
         return ImageFont.load_default()
 
 
-def _fit_font(text: Any, max_width: int, preferred_size: int, *, minimum_size: int = 8, bold: bool = False) -> ImageFont.ImageFont:
+def _fit_font(
+    text: Any,
+    max_width: int,
+    preferred_size: int,
+    *,
+    minimum_size: int = 8,
+    bold: bool = False,
+    font_family: str = "modern",
+) -> ImageFont.ImageFont:
     """Return the largest available font that fits the rendered text in its box."""
     shown = _display_text(text)
     width = max(1, int(max_width))
     size = max(minimum_size, int(preferred_size))
     probe = ImageDraw.Draw(Image.new("L", (1, 1)))
     while True:
-        font = _load_font(size, bold=bold)
+        font = _load_font(size, bold=bold, font_family=font_family)
         bounds = probe.textbbox((0, 0), shown, font=font, stroke_width=0)
         measured = max(0, bounds[2] - bounds[0])
         if measured <= width or size <= minimum_size:
             return font
         size -= 1
+
+
+def _mix_hex(left: Any, right: Any, right_weight: float = 0.5) -> str:
+    """Blend two colors without losing the selected template's palette."""
+    try:
+        left_rgb = ImageColor.getrgb(str(left))
+        right_rgb = ImageColor.getrgb(str(right))
+    except (TypeError, ValueError):
+        return "#F8FAFF"
+    weight = max(0.0, min(1.0, float(right_weight)))
+    rgb = tuple(round(a * (1 - weight) + b * weight) for a, b in zip(left_rgb[:3], right_rgb[:3]))
+    return "#{:02X}{:02X}{:02X}".format(*rgb)
+
+
+def _region_luminance(image: Image.Image, bounds: tuple[int, int, int, int]) -> float | None:
+    """Sample a small region behind an overlay to choose readable contrast automatically."""
+    left, top, right, bottom = bounds
+    left = max(0, min(image.width, int(left)))
+    right = max(left, min(image.width, int(right)))
+    top = max(0, min(image.height, int(top)))
+    bottom = max(top, min(image.height, int(bottom)))
+    if right <= left or bottom <= top:
+        return None
+    try:
+        crop = image.convert("RGB").crop((left, top, right, bottom))
+        crop.thumbnail((20, 20), Image.Resampling.BILINEAR)
+        pixels = list(crop.getdata())
+        if not pixels:
+            return None
+        return sum(0.2126 * r + 0.7152 * g + 0.0722 * b for r, g, b in pixels) / len(pixels)
+    except Exception:
+        return None
+
+
+def _contrast_text_color(
+    image: Image.Image,
+    box: dict,
+    light_color: str,
+    dark_color: str,
+    *,
+    stat_cell: bool = False,
+    line_height: int | None = None,
+) -> str:
+    """Choose a light or dark text color from the actual template pixels underneath it."""
+    try:
+        x, y = int(box.get("x", 0)), int(box.get("y", 0))
+        if stat_cell:
+            width = int(box.get("w", 0))
+            height = int(box.get("h", 0))
+            # Sample the center rather than the bright ornamental border of a stat cell.
+            inset_x, inset_y = int(width * 0.18), int(height * 0.12)
+            bounds = (x + inset_x, y + inset_y, x + width - inset_x, y + height - inset_y)
+        else:
+            width = int(box.get("max_width", box.get("width", image.width // 2)))
+            anchor = str(box.get("anchor") or "la")
+            if anchor.startswith("r"):
+                left = x - width
+            elif anchor.startswith("m"):
+                left = x - width // 2
+            else:
+                left = x
+            height = max(10, int(line_height or image.height * 0.04))
+            bounds = (left + int(width * 0.10), y - height, left + int(width * 0.90), y + max(2, height // 5))
+        luminance = _region_luminance(image, bounds)
+    except (TypeError, ValueError, OverflowError):
+        luminance = None
+    if luminance is None:
+        return light_color
+    return dark_color if luminance >= 155 else light_color
 
 
 def _display_text(value: Any) -> str:
@@ -290,6 +412,240 @@ def _metadata_for_native_frame(metadata: dict, raw_frame: bytes | None) -> dict:
         stats.append(item)
     scaled["stats"] = stats
     return scaled
+
+
+def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
+    """Infer a likely empty avatar ring from a custom template image.
+
+    This is a local image-analysis fallback for user-uploaded templates without explicit
+    layout metadata. The seven bundled PRIME templates use curated coordinates instead.
+    The detector looks for a high-contrast circular contour, favouring the lower-right
+    area where profile templates commonly reserve an avatar slot.
+    """
+    frame = _image_from_bytes(raw_frame)
+    if frame is None:
+        return None
+    native_width, native_height = frame.size
+    if native_width < 160 or native_height < 160:
+        return None
+
+    # Keep the detector bounded in both CPU and memory for uploaded assets.
+    analysis = frame.copy()
+    analysis.thumbnail((320, 320), Image.Resampling.LANCZOS)
+    width, height = analysis.size
+    scale_x, scale_y = native_width / width, native_height / height
+
+    # Transparent templates often reveal the avatar opening as a dark hole. Composite
+    # transparency on a neutral dark surface before measuring edges and ring contrast.
+    backdrop = Image.new("RGBA", analysis.size, (10, 13, 22, 255))
+    backdrop.alpha_composite(analysis)
+    grayscale = backdrop.convert("L")
+    edge_image = grayscale.filter(ImageFilter.FIND_EDGES)
+    gray_pixels = grayscale.load()
+    edge_pixels = edge_image.load()
+    min_dimension = min(width, height)
+    if min_dimension < 100:
+        return None
+
+    # A compact angular sample keeps the scan cheap enough for previews, even on mobile.
+    unit_circle = tuple(
+        (math.cos(2.0 * math.pi * index / 32), math.sin(2.0 * math.pi * index / 32))
+        for index in range(32)
+    )
+    radii = list(range(max(10, int(min_dimension * 0.075)),
+                       max(12, int(min_dimension * 0.235)), 2))
+    if not radii:
+        return None
+
+    def mean_ring(cx: int, cy: int, radius: int, pixels, radial_offset: int = 0) -> float:
+        values = []
+        r = radius + radial_offset
+        for unit_x, unit_y in unit_circle:
+            x = int(round(cx + r * unit_x))
+            y = int(round(cy + r * unit_y))
+            if 0 <= x < width and 0 <= y < height:
+                values.append(pixels[x, y])
+        return sum(values) / len(values) if values else 0.0
+
+    best_score = 0.0
+    best = None
+    min_radius = min(radii)
+    max_radius = max(radii)
+    step_x = max(3, width // 72)
+    step_y = max(3, height // 72)
+    # Search the canvas using the smallest radius, then validate each radius against the
+    # image bounds individually. Using max_radius for the scan bounds misses rings near
+    # the right/bottom edges, which are common avatar locations in profile templates.
+    for cy in range(min_radius + 4, height - min_radius - 3, step_y):
+        for cx in range(min_radius + 4, width - min_radius - 3, step_x):
+            for radius in radii:
+                if (
+                    cx - radius < 3 or cx + radius >= width - 3
+                    or cy - radius < 3 or cy + radius >= height - 3
+                ):
+                    continue
+                edge_score = mean_ring(cx, cy, radius, edge_pixels) / 255.0
+                if edge_score < 0.075:
+                    continue
+                on_ring = mean_ring(cx, cy, radius, gray_pixels)
+                inside_ring = mean_ring(cx, cy, radius, gray_pixels, -4)
+                outside_ring = mean_ring(cx, cy, radius, gray_pixels, 4)
+                contrast = (abs(on_ring - inside_ring) + abs(on_ring - outside_ring)) / 510.0
+                inner_mean = mean_ring(cx, cy, max(3, int(radius * 0.58)), gray_pixels)
+                outer_mean = mean_ring(cx, cy, radius + 8, gray_pixels)
+                hole_contrast = max(0.0, outer_mean - inner_mean) / 255.0
+                # Soft prior, never strong enough to override a clearly better circle elsewhere.
+                location_bonus = 0.0
+                nx, ny = cx / width, cy / height
+                if 0.52 <= nx <= 0.96 and 0.38 <= ny <= 0.94:
+                    location_bonus = 0.045
+                score = (
+                    0.57 * min(1.0, edge_score)
+                    + 0.25 * min(1.0, contrast)
+                    + 0.18 * min(1.0, hole_contrast)
+                    + location_bonus
+                )
+                if score > best_score:
+                    best_score = score
+                    best = (cx, cy, radius, edge_score, contrast)
+
+    if best is None:
+        return None
+    cx, cy, radius, edge_score, contrast = best
+    # Reject weak circles in highly ornamented art; don't turn a random curve into an avatar slot.
+    if edge_score < 0.13 or contrast < 0.075 or best_score < 0.22:
+        return None
+
+    # x/y are the top-left of the actual avatar image; _fit_avatar adds its own 9px ring pad.
+    slot_size = int(round(2 * radius * min(scale_x, scale_y)))
+    center_x = int(round(cx * scale_x))
+    center_y = int(round(cy * scale_y))
+    slot_size = max(72, min(slot_size, int(min(native_width, native_height) * 0.34)))
+    x = max(0, min(native_width - slot_size, center_x - slot_size // 2))
+    y = max(0, min(native_height - slot_size, center_y - slot_size // 2))
+    return {
+        "x": x, "y": y, "size": slot_size,
+        "confidence": round(best_score, 3),
+        "detected_center": [center_x, center_y],
+        "frame_width": native_width,
+        "frame_height": native_height,
+    }
+
+
+def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dict:
+    """Use explicit template metadata when present; otherwise infer a custom frame layout."""
+    result = dict(metadata or {})
+    avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
+    # Valid curated/manual anchor data always wins over heuristic image detection.
+    if all(key in avatar for key in ("x", "y", "size")):
+        return result
+
+    detected = _detect_template_avatar_slot(raw_frame)
+    width = _clamp(result.get("width"), 320, 2048, 1280)
+    height = _clamp(result.get("height"), 320, 2048, 720)
+    if detected:
+        source_width = max(1, int(detected.get("frame_width") or width))
+        source_height = max(1, int(detected.get("frame_height") or height))
+        scale_x, scale_y = width / source_width, height / source_height
+        target_size = max(48, int(detected["size"] * min(scale_x, scale_y)))
+        center_x = (detected["x"] + detected["size"] / 2) * scale_x
+        center_y = (detected["y"] + detected["size"] / 2) * scale_y
+        avatar = {
+            "x": max(0, min(width - target_size, int(center_x - target_size / 2))),
+            "y": max(0, min(height - target_size, int(center_y - target_size / 2))),
+            "size": min(target_size, width, height),
+        }
+        result["avatar"] = avatar
+        result["avatar_detection"] = {
+            "method": "circular-contour",
+            "confidence": detected["confidence"],
+        }
+    else:
+        # Safe, deterministic fallback if the uploaded template contains no convincing ring.
+        size = int(min(width, height) * 0.18)
+        avatar = {
+            "x": int(width * 0.79) - size // 2,
+            "y": int(height * 0.65) - size // 2,
+            "size": size,
+        }
+        result["avatar"] = avatar
+        result["avatar_detection"] = {"method": "lower-right-fallback", "confidence": 0.0}
+
+    # Keep textual fields away from the avatar ring. If the detected opening is right-sided,
+    # arrange identity to its upper-left and progress/statistics in separate lower bands.
+    center_x = avatar["x"] + avatar["size"] / 2
+    center_y = avatar["y"] + avatar["size"] / 2
+    radius = avatar["size"] / 2
+    margin = max(24, int(min(width, height) * 0.045))
+    right_side = center_x >= width * 0.5
+    if right_side:
+        name_x = max(margin + 10, int(center_x - radius * 0.12))
+        name_anchor = "ra"
+        name_width = max(120, name_x - margin)
+        level_x = margin
+        level_anchor = "la"
+        xp_x = margin
+        xp_width = max(100, min(int(width * 0.68), int(avatar["x"] - xp_x - margin * 0.45)))
+    else:
+        name_x = min(width - margin - 10, int(center_x + radius * 1.1))
+        name_anchor = "la"
+        name_width = max(120, width - name_x - margin)
+        level_x = max(margin, int(width * 0.52))
+        level_anchor = "la"
+        xp_x = max(margin, int(width * 0.06))
+        xp_width = max(100, min(int(width * 0.68), width - xp_x - margin))
+
+    name_y = max(margin, int(center_y - radius * 1.75))
+    handle_y = min(height - margin * 2, name_y + max(30, int(height * 0.045)))
+    level_y = min(height - margin * 3, int(center_y + radius * 0.15))
+    xp_y = min(height - margin * 2, int(center_y + radius * 0.78))
+    result["name"] = {
+        "x": name_x, "y": name_y, "max_width": name_width, "anchor": name_anchor,
+    }
+    result["handle"] = {
+        "x": name_x, "y": handle_y, "max_width": name_width, "anchor": name_anchor,
+    }
+    result["level"] = {
+        "x": level_x, "y": level_y, "max_width": max(120, width - level_x - margin),
+        "anchor": level_anchor,
+    }
+    result["xp_bar"] = {
+        "x": xp_x, "y": xp_y, "width": xp_width,
+        "height": max(7, int(min(width, height) * 0.012)),
+    }
+    result["badges"] = {
+        "x": margin, "y": min(height - margin, int(xp_y + height * 0.055)),
+        "size": max(20, int(min(width, height) * 0.025)), "limit": 5,
+    }
+    if width >= height * 1.18:
+        stat_y = int(height * 0.82)
+        stat_h = int(height * 0.12)
+        stat_w = int(width * 0.21)
+        stat_xs = [int(width * ratio) for ratio in (0.035, 0.275, 0.515, 0.755)]
+        stats = [
+            {"key": key, "label": label, "x": stat_xs[index], "y": stat_y,
+             "w": stat_w, "h": stat_h}
+            for index, (key, label) in enumerate((
+                ("balance", "الرصيد"), ("messages", "الرسائل"),
+                ("rank", "الترتيب"), ("voice", "الصوت"),
+            ))
+        ]
+    else:
+        stat_y1, stat_y2 = int(height * 0.78), int(height * 0.88)
+        stat_w, stat_h = int(width * 0.405), int(height * 0.075)
+        stats = [
+            {"key": key, "label": label, "x": int(width * x), "y": int(height * y),
+             "w": stat_w, "h": stat_h}
+            for (key, label, x, y) in (
+                ("balance", "الرصيد", 0.06, stat_y1 / height),
+                ("messages", "الرسائل", 0.535, stat_y1 / height),
+                ("rank", "الترتيب", 0.06, stat_y2 / height),
+                ("voice", "الصوت", 0.535, stat_y2 / height),
+            )
+        ]
+    result["stats"] = stats
+    result["layout_engine"] = "prime-smart-v2"
+    return result
 
 
 def _draw_gradient(width: int, height: int, base: str, accent: str) -> Image.Image:
@@ -380,8 +736,20 @@ def _draw_fallback_frame(image: Image.Image, style: dict, metadata: dict) -> Non
                                fill=(5, 7, 14, 190), outline=(*accent_rgb, 210), width=2)
 
 
-def _draw_stat_text(draw: ImageDraw.ImageDraw, stat: dict, value: str, scale: float, text_color: str, muted: str) -> None:
-    """Draw complete stat labels/values with per-cell adaptive typography."""
+def _draw_stat_text(
+    draw: ImageDraw.ImageDraw,
+    stat: dict,
+    value: str,
+    scale: float,
+    text_color: str,
+    muted: str,
+    *,
+    image: Image.Image | None = None,
+    dark_text: str = "#101522",
+    font_family: str = "modern",
+    auto_contrast: bool = True,
+) -> None:
+    """Draw stat values inside their cells; retain the legacy positional API."""
     try:
         x, y, width, height = (int(stat[k]) for k in ("x", "y", "w", "h"))
     except (KeyError, TypeError, ValueError):
@@ -394,18 +762,29 @@ def _draw_stat_text(draw: ImageDraw.ImageDraw, stat: dict, value: str, scale: fl
     label = str(stat.get("label", ""))
     label_font = _fit_font(
         label, available_width, max(13, min(40, int(height * .24))),
-        minimum_size=9,
+        minimum_size=9, font_family=font_family,
     )
     value_text = str(value)
     value_font = _fit_font(
         value_text, available_width, max(14, min(46, int(height * .31))),
-        minimum_size=8, bold=True,
+        minimum_size=8, bold=True, font_family=font_family,
+    )
+    can_sample = image is not None and auto_contrast
+    label_color = (
+        _contrast_text_color(image, stat, muted, dark_text, stat_cell=True)
+        if can_sample else muted
+    )
+    value_color = (
+        _contrast_text_color(image, stat, text_color, dark_text, stat_cell=True)
+        if can_sample else text_color
     )
     draw.text((center_x, y + int(height * .31)), _display_text(label),
-              font=label_font, fill=muted, anchor="mm", stroke_width=0)
+              font=label_font, fill=label_color, anchor="mm",
+              stroke_width=1, stroke_fill=(0, 0, 0, 120))
     # Never replace a wallet/message/rank value with an ellipsis: fit the font instead.
     draw.text((center_x, y + int(height * .70)), _display_text(value_text),
-              font=value_font, fill=text_color, anchor="mm", stroke_width=0)
+              font=value_font, fill=value_color, anchor="mm",
+              stroke_width=1, stroke_fill=(0, 0, 0, 145))
 
 
 def render_profile_card(
@@ -421,8 +800,9 @@ def render_profile_card(
     """Render one PNG using the selected template's own dimensions and layout."""
     profile = dict(profile or {})
     template = dict(template or {})
-    metadata = _metadata_for_native_frame(
-        _safe_metadata(template), template_bytes
+    metadata = _apply_smart_template_layout(
+        _metadata_for_native_frame(_safe_metadata(template), template_bytes),
+        template_bytes,
     )
     style = _parse_object(template.get("style") or template.get("style_json"))
     color_style = _parse_object(profile.get("color_style"))
@@ -454,8 +834,21 @@ def render_profile_card(
     width, height = metadata["width"], metadata["height"]
     scale = max(.55, min(1.25, width / 1000))
     deep = _safe_color(style.get("deep"), "#090B15")
-    text_color = _safe_color(profile.get("font_color"), "#F9F7FF")
-    muted = "#B8B6C7"
+    accent2 = _safe_color(style.get("accent2") or style.get("glow") or accent, "#F9F7FF")
+    # The settings-table default is white; treat it as auto-contrast unless a
+    # real custom color was selected. A template may opt out via style.text_color.
+    configured_font_color = str(profile.get("font_color") or "").strip().upper()
+    explicit_text_color = bool(style.get("text_color")) or (
+        configured_font_color not in {"", "#FFFFFF", "#F9F7FF"}
+    )
+    light_text = _safe_color(
+        profile.get("font_color") or style.get("text_color"),
+        _mix_hex(accent2, "#FFFFFF", 0.34),
+    )
+    muted_light = _mix_hex(style.get("muted") or accent2, "#DCE5F3", 0.42)
+    dark_text = _safe_color(style.get("deep"), "#101522")
+    font_family = _normalise_font_family(style.get("font_family") or "modern")
+    auto_contrast = not explicit_text_color
 
     bg = _image_from_bytes(background_bytes)
     if bg is None:
@@ -524,18 +917,35 @@ def render_profile_card(
     name = str(profile.get("display_name") or profile.get("name") or "Member").strip()[:48]
     handle = "@" + str(profile.get("username") or "member").strip()[:42].lstrip("@")
     name_available = _clamp(name_box.get("max_width"), 120, width, int(width * .42))
-    name_font = _fit_font(name, name_available, max(21, min(52, int(min(width, height) * .047))),
-                          minimum_size=15, bold=True)
+    name_font = _fit_font(
+        name, name_available, max(21, min(52, int(min(width, height) * .047))),
+        minimum_size=15, bold=True, font_family=font_family,
+    )
     handle_text = handle
     handle_available = _clamp(handle_box.get("max_width"), 100, width, name_available)
-    handle_font = _fit_font(handle_text, handle_available,
-                             max(13, min(29, int(min(width, height) * .026))),
-                             minimum_size=10)
-    draw.text((name_x, name_y), _display_text(name), font=name_font, fill=text_color,
-              anchor=str(name_box.get("anchor") or "ra"), stroke_width=1,
-              stroke_fill=(0, 0, 0, 100))
-    draw.text((handle_x, handle_y), _display_text(handle_text), font=handle_font, fill=muted,
-              anchor=str(handle_box.get("anchor") or "ra"))
+    handle_font = _fit_font(
+        handle_text, handle_available, max(13, min(29, int(min(width, height) * .026))),
+        minimum_size=10, font_family=font_family,
+    )
+    name_color = (
+        light_text if not auto_contrast else _contrast_text_color(
+            canvas, name_box, light_text, dark_text,
+            line_height=max(18, int(min(width, height) * .065)),
+        )
+    )
+    handle_color = (
+        muted_light if not auto_contrast else _contrast_text_color(
+            canvas, handle_box, muted_light, dark_text,
+            line_height=max(14, int(min(width, height) * .045)),
+        )
+    )
+    name_stroke = (0, 0, 0, 175) if name_color == light_text else (255, 255, 255, 125)
+    draw.text((name_x, name_y), _display_text(name), font=name_font, fill=name_color,
+              anchor=str(name_box.get("anchor") or "ra"), stroke_width=2,
+              stroke_fill=name_stroke)
+    draw.text((handle_x, handle_y), _display_text(handle_text), font=handle_font, fill=handle_color,
+              anchor=str(handle_box.get("anchor") or "ra"), stroke_width=1,
+              stroke_fill=(0, 0, 0, 135))
 
     level_box = metadata.get("level") or {}
     level_x = _scale_position(level_box, "x", inset * 3, width)
@@ -545,12 +955,20 @@ def render_profile_card(
     required = max(1, _number(profile.get("required_xp"), 1))
     level_text = f"المستوى {level}"
     level_available = _clamp(level_box.get("max_width"), 100, width, int(width * .44))
-    progress_font = _fit_font(level_text, level_available,
-                              max(18, min(36, int(min(width, height) * .034))),
-                              minimum_size=12, bold=True)
+    progress_font = _fit_font(
+        level_text, level_available, max(18, min(36, int(min(width, height) * .034))),
+        minimum_size=12, bold=True, font_family=font_family,
+    )
+    level_color = (
+        light_text if not auto_contrast else _contrast_text_color(
+            canvas, level_box, light_text, dark_text,
+            line_height=max(18, int(min(width, height) * .05)),
+        )
+    )
     draw.text((level_x, level_y), _display_text(level_text),
-              font=progress_font, fill=text_color,
-              anchor=str(level_box.get("anchor") or "la"))
+              font=progress_font, fill=level_color,
+              anchor=str(level_box.get("anchor") or "ra"), stroke_width=1,
+              stroke_fill=(0, 0, 0, 145))
     xp_box = metadata.get("xp_bar") or {}
     bar_x = _scale_position(xp_box, "x", level_x, width-20)
     bar_y = _scale_position(xp_box, "y", level_y + int(36*scale), height-10)
@@ -565,11 +983,21 @@ def render_profile_card(
         draw.rounded_rectangle((bar_x, bar_y, bar_x+max(bar_h, fill_w), bar_y+bar_h),
                                radius=bar_h//2, fill=xp_color)
     xp_label = f"{xp:,} / {required:,} XP"
-    xp_font = _fit_font(xp_label, max(80, bar_w), max(12, min(24, int(bar_h * 1.8))),
-                        minimum_size=8)
+    xp_font = _fit_font(
+        xp_label, max(80, bar_w), max(12, min(24, int(bar_h * 1.8))),
+        minimum_size=8, font_family=font_family,
+    )
     xp_label_y = min(height - 2, bar_y + bar_h + max(12, int(bar_h * 1.45)))
+    xp_label_box = {"x": bar_x, "y": xp_label_y, "max_width": bar_w, "anchor": "la"}
+    xp_color_text = (
+        muted_light if not auto_contrast else _contrast_text_color(
+            canvas, xp_label_box, muted_light, dark_text,
+            line_height=max(10, int(bar_h * 2)),
+        )
+    )
     draw.text((bar_x, xp_label_y), _display_text(xp_label),
-              font=xp_font, fill=muted, anchor="la")
+              font=xp_font, fill=xp_color_text, anchor="la",
+              stroke_width=1, stroke_fill=(0, 0, 0, 100))
 
     stat_values = {
         "balance": f"{_number(profile.get('balance')):,}",
@@ -582,7 +1010,11 @@ def render_profile_card(
             continue
         key = str(stat.get("key") or "")
         if key in stat_values:
-            _draw_stat_text(draw, stat, stat_values[key], scale, text_color, muted)
+            _draw_stat_text(
+                draw, stat, stat_values[key], scale,
+                light_text, muted_light, image=canvas, dark_text=dark_text,
+                font_family=font_family, auto_contrast=auto_contrast,
+            )
 
     # Badges are separate image files/records and are composited individually.
     badges = badge_bytes or []
@@ -607,8 +1039,9 @@ def render_profile_card(
             draw.ellipse((x, badge_y, x+badge_size, badge_y+badge_size),
                          fill=(10, 11, 24, 235), outline=accent, width=2)
             draw.text((x+badge_size//2, badge_y+badge_size//2), "✦",
-                      font=_load_font(max(12, int(badge_size*.58)), bold=True),
-                      fill=text_color, anchor="mm")
+                      font=_load_font(max(12, int(badge_size*.58)), bold=True,
+                                      font_family=font_family),
+                      fill=light_text, anchor="mm")
 
     # A clean, high-resolution PNG avoids accidentally treating template sheets as cards.
     output = io.BytesIO()

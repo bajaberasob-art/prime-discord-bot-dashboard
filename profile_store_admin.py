@@ -48,7 +48,7 @@ MIME_TO_FORMAT = {
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$")
 COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 _CATEGORY_RE = re.compile(r"^[\w -]{1,80}$", re.UNICODE)
-_ASSET_ITEM_TYPES = {"background", "flag", "badge", "shape", "club_logo"}
+_ASSET_ITEM_TYPES = {"background", "card_template", "flag", "badge", "shape", "club_logo"}
 _registered = False
 
 

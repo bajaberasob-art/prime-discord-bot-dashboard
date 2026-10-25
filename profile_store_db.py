@@ -41,49 +41,50 @@ def _profile_template_metadata(width: int, height: int, layout: str, template_ke
     # ratio. Values use the element's top-left coordinate except text anchors (right edge).
     layouts = {
         "icy_blue_wide": {
-            "avatar": (.805, .075, .145), "name": (.775, .355, .405, "ra"),
+            # The avatar is centered in the artwork's reserved ring at the lower-right.
+            "avatar": (.82, .515, .19), "name": (.775, .355, .405, "ra"),
             "handle": (.775, .402, .405, "ra"), "level": (.055, .475, .40, "la"),
             "xp": (.055, .535, .675, .014), "badges": (.055, .595, .030),
             "stats": [(0.035, .775, .210, .135), (.275, .775, .210, .135),
                       (.515, .775, .210, .135), (.755, .775, .210, .135)],
         },
         "ruby_gold_ultrawide": {
-            "avatar": (.825, .065, .150), "name": (.785, .315, .385, "ra"),
+            "avatar": (.758, .42, .36), "name": (.785, .315, .385, "ra"),
             "handle": (.785, .365, .385, "ra"), "level": (.055, .425, .405, "la"),
             "xp": (.055, .500, .705, .016), "badges": (.055, .565, .032),
             "stats": [(0.035, .775, .210, .140), (.275, .775, .210, .140),
                       (.515, .775, .210, .140), (.755, .775, .210, .140)],
         },
         "emerald_landscape": {
-            "avatar": (.805, .080, .145), "name": (.755, .345, .390, "ra"),
+            "avatar": (.75, .54, .27), "name": (.755, .345, .390, "ra"),
             "handle": (.755, .392, .390, "ra"), "level": (.055, .455, .390, "la"),
             "xp": (.055, .530, .665, .015), "badges": (.055, .590, .030),
             "stats": [(0.025, .775, .220, .135), (.265, .775, .220, .135),
                       (.505, .775, .220, .135), (.745, .775, .220, .135)],
         },
         "neon_pink_portrait": {
-            "avatar": (.695, .085, .150), "name": (.925, .315, .405, "ra"),
+            "avatar": (.655, .595, .240), "name": (.925, .315, .405, "ra"),
             "handle": (.925, .355, .405, "ra"), "level": (.070, .450, .420, "la"),
             "xp": (.070, .505, .855, .010), "badges": (.070, .565, .028),
             "stats": [(0.060, .665, .405, .105), (.535, .665, .405, .105),
                       (.060, .810, .405, .105), (.535, .810, .405, .105)],
         },
         "moonlit_blue_portrait": {
-            "avatar": (.675, .090, .145), "name": (.910, .335, .405, "ra"),
+            "avatar": (.68, .527, .220), "name": (.910, .335, .405, "ra"),
             "handle": (.910, .377, .405, "ra"), "level": (.070, .465, .425, "la"),
             "xp": (.070, .520, .855, .010), "badges": (.070, .580, .028),
             "stats": [(0.060, .675, .405, .105), (.535, .675, .405, .105),
                       (.060, .815, .405, .105), (.535, .815, .405, .105)],
         },
         "violet_crystal_square": {
-            "avatar": (.695, .065, .155), "name": (.920, .300, .405, "ra"),
+            "avatar": (.665, .600, .240), "name": (.920, .300, .405, "ra"),
             "handle": (.920, .342, .405, "ra"), "level": (.070, .395, .420, "la"),
             "xp": (.070, .455, .855, .012), "badges": (.070, .520, .029),
             "stats": [(0.060, .645, .405, .115), (.535, .645, .405, .115),
                       (.060, .805, .405, .115), (.535, .805, .405, .115)],
         },
         "amethyst_avatar_square": {
-            "avatar": (.675, .075, .150), "name": (.900, .315, .405, "ra"),
+            "avatar": (.645, .585, .240), "name": (.900, .315, .405, "ra"),
             "handle": (.900, .355, .405, "ra"), "level": (.065, .410, .420, "la"),
             "xp": (.065, .470, .865, .012), "badges": (.065, .535, .029),
             "stats": [(0.055, .655, .410, .115), (.535, .655, .410, .115),
@@ -106,6 +107,7 @@ def _profile_template_metadata(width: int, height: int, layout: str, template_ke
                       "w": int(w*cell_width), "h": int(h*cell_height)})
 
     return {
+        "layout_engine": "prime-smart-v2",
         "layout": layout, "width": w, "height": h,
         "orientation": "portrait" if layout == "portrait" else (
             "square" if layout == "square" else "landscape"
@@ -134,7 +136,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب PNG عريض أزرق جليدي مع عناصر الملف الشخصي.",
         "asset_path": "assets/profile_templates/02_wide_icy_blue.png",
         "price": 0, "currency": "moon", "rarity": "common",
-        "style": {"visualStyle": "icy-blue", "accent": "#6CDFFF", "accent2": "#D9F8FF", "deep": "#071725", "glow": "#8AEAFF"},
+        "style": {"visualStyle": "icy-blue", "accent": "#6CDFFF", "accent2": "#D9F8FF", "deep": "#071725", "glow": "#8AEAFF", "font_family": "tech"},
         "metadata": _profile_template_metadata(1672, 941, "wide", "icy_blue_wide"),
     },
     {
@@ -142,7 +144,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب PNG فائق العرض بألوان الياقوت والذهب.",
         "asset_path": "assets/profile_templates/05_ultrawide_ruby_gold.png",
         "price": 18000, "currency": "moon", "rarity": "gold",
-        "style": {"visualStyle": "ruby-gold", "accent": "#FF4A61", "accent2": "#FFD27A", "deep": "#17070C", "glow": "#FFB45C"},
+        "style": {"visualStyle": "ruby-gold", "accent": "#FF4A61", "accent2": "#FFD27A", "deep": "#17070C", "glow": "#FFB45C", "font_family": "elegant"},
         "metadata": _profile_template_metadata(1860, 845, "wide", "ruby_gold_ultrawide"),
     },
     {
@@ -150,7 +152,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب PNG أفقي بإطار زمردي وشفافية أصلية.",
         "asset_path": "assets/profile_templates/04_landscape_emerald.png",
         "price": 15000, "currency": "moon", "rarity": "silver",
-        "style": {"visualStyle": "emerald", "accent": "#24F0A5", "accent2": "#A6FFD9", "deep": "#06170F", "glow": "#70FFC8"},
+        "style": {"visualStyle": "emerald", "accent": "#24F0A5", "accent2": "#A6FFD9", "deep": "#06170F", "glow": "#70FFC8", "font_family": "modern"},
         "metadata": _profile_template_metadata(1536, 1024, "wide", "emerald_landscape"),
     },
     {
@@ -158,7 +160,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب PNG طولي وردي مع إطار نيون شفاف.",
         "asset_path": "assets/profile_templates/01_portrait_neon_pink.png",
         "price": 12000, "currency": "moon", "rarity": "silver",
-        "style": {"visualStyle": "rose-neon", "accent": "#FF78B7", "accent2": "#FFC7E0", "deep": "#170B17", "glow": "#FF9CCC"},
+        "style": {"visualStyle": "rose-neon", "accent": "#FF78B7", "accent2": "#FFC7E0", "deep": "#170B17", "glow": "#FF9CCC", "font_family": "soft"},
         "metadata": _profile_template_metadata(1024, 1536, "portrait", "neon_pink_portrait"),
     },
     {
@@ -166,7 +168,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب PNG طولي أزرق بتصميم قمري.",
         "asset_path": "assets/profile_templates/file_00000000ecd0820ab92f03cf4eae4acd.png",
         "price": 300, "currency": "gem", "rarity": "legendary",
-        "style": {"visualStyle": "moonlit-blue", "accent": "#6DAEFF", "accent2": "#D6E8FF", "deep": "#071226", "glow": "#8AC7FF"},
+        "style": {"visualStyle": "moonlit-blue", "accent": "#6DAEFF", "accent2": "#D6E8FF", "deep": "#071226", "glow": "#8AC7FF", "font_family": "elegant"},
         "metadata": _profile_template_metadata(1024, 1536, "portrait", "moonlit_blue_portrait"),
     },
     {
@@ -174,7 +176,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب PNG مربع بإطار بلوري بنفسجي شفاف.",
         "asset_path": "assets/profile_templates/03_square_violet_crystal.png",
         "price": 9000, "currency": "moon", "rarity": "silver",
-        "style": {"visualStyle": "violet-crystal", "accent": "#9C67FF", "accent2": "#CFADFF", "deep": "#0C061C", "glow": "#CFADFF"},
+        "style": {"visualStyle": "violet-crystal", "accent": "#9C67FF", "accent2": "#CFADFF", "deep": "#0C061C", "glow": "#CFADFF", "font_family": "tech"},
         "metadata": _profile_template_metadata(1254, 1254, "square", "violet_crystal_square"),
     },
     {
@@ -182,7 +184,7 @@ DEFAULT_PROFILE_TEMPLATES = (
         "description": "قالب PNG مربع بصورة رمزية وإطار أماثيست.",
         "asset_path": "assets/profile_templates/file_00000000c03481f4963ba7074882a700.png",
         "price": 10000, "currency": "moon", "rarity": "common",
-        "style": {"visualStyle": "amethyst", "accent": "#B68AFF", "accent2": "#E6D4FF", "deep": "#120A22", "glow": "#D0A9FF"},
+        "style": {"visualStyle": "amethyst", "accent": "#B68AFF", "accent2": "#E6D4FF", "deep": "#120A22", "glow": "#D0A9FF", "font_family": "soft"},
         "metadata": _profile_template_metadata(1254, 1254, "square", "amethyst_avatar_square"),
     },
 )
