@@ -137,14 +137,14 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 ORDER BY slug
                 """
             ) as cursor:
-                rows = [dict(row) for row in await cursor.fetchall()]
+                rows = [tuple(row) for row in await cursor.fetchall()]
 
         self.assertGreaterEqual(len(rows), 8)
-        self.assertEqual(len({row["slug"] for row in rows}), len(rows))
-        self.assertTrue(all(row["asset_path"] for row in rows))
+        self.assertEqual(len({row[0] for row in rows}), len(rows))
+        self.assertTrue(all(row[1] for row in rows))
         dimensions = set()
         for row in rows:
-            metadata = json.loads(row["metadata_json"])
+            metadata = json.loads(row[3])
             dimensions.add((metadata["width"], metadata["height"]))
         self.assertGreaterEqual(len(dimensions), 4)
 
