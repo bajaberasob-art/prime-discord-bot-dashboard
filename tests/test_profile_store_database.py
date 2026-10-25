@@ -1,4 +1,3 @@
-import hashlib
 import os
 import sqlite3
 import tempfile
@@ -103,7 +102,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                     VALUES ('negative-item', 'Invalid', 'background', -1)
                     """
                 )
-            with self.assertRaises(Exception):
+            with self.assertRaises(sqlite3.IntegrityError):
                 await db.execute(
                     """
                     INSERT INTO profile_store_items
@@ -156,7 +155,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 """,
                 (item_id,),
             )
-            with self.assertRaises(Exception):
+            with self.assertRaises(sqlite3.IntegrityError):
                 await db.execute(
                     """
                     INSERT INTO user_profile_card_settings
@@ -165,7 +164,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                     """,
                     (item_id,),
                 )
-            with self.assertRaises(Exception):
+            with self.assertRaises(sqlite3.IntegrityError):
                 await db.execute(
                     """
                     INSERT INTO user_profile_equipped_items
@@ -194,8 +193,16 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(selected, item_id)
         self.assertEqual(slots, ["badge_1"])
 
+    async def test_session_token_helper_returns_digest_and_rejects_empty_input(self):
+        digest = profile_store_db.hash_session_token("secret-token")
+        self.assertEqual(len(digest), 64)
+        self.assertTrue(all(char in "0123456789abcdef" for char in digest))
+        self.assertNotEqual(digest, "secret-token")
+        with self.assertRaises(ValueError):
+            profile_store_db.hash_session_token("")
+
     async def test_temporary_sessions_store_hashes_and_reject_invalid_expiry(self):
-        token_hash = hashlib.sha256(b"temporary-secret").hexdigest()
+        token_hash = profile_store_db.hash_session_token("temporary-secret")
         created = "2026-10-25T12:00:00Z"
         expires = "2026-10-25T12:15:00Z"
         async with database.connect() as db:
@@ -207,14 +214,14 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 """,
                 (token_hash, created, expires),
             )
-            with self.assertRaises(Exception):
+            with self.assertRaises(sqlite3.IntegrityError):
                 await db.execute(
                     """
                     INSERT INTO profile_store_sessions
                         (token_hash, guild_id, user_id, created_at, expires_at)
                     VALUES (?, 99, 1234, ?, ?)
                     """,
-                    (hashlib.sha256(b"bad-expiry").hexdigest(), expires, created),
+                    (profile_store_db.hash_session_token("bad-expiry"), expires, created),
                 )
             await db.commit()
 
