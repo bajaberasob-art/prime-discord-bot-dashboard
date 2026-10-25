@@ -315,6 +315,16 @@
     const secondary = safeColor(item.style && (item.style.secondary || item.style.glow), "#8b72ff");
     const layout = String(item.metadata && (item.metadata.layout || item.metadata.orientation) || "wide").toLowerCase();
     card.dataset.layout = ["portrait", "square"].includes(layout) ? layout : "wide";
+    const templateArt = $("#previewTemplateArt");
+    if (item.item_type === "card_template" && typeof item.asset === "string" && /^\/api\/profile-store\/assets\/[1-9]\d*$/.test(item.asset)) {
+      templateArt.src = item.asset;
+      templateArt.hidden = false;
+      card.dataset.hasTemplate = "true";
+    } else {
+      templateArt.removeAttribute("src");
+      templateArt.hidden = true;
+      card.dataset.hasTemplate = "false";
+    }
     card.style.setProperty("--preview-accent", accent);
     card.style.setProperty("--preview-secondary", secondary);
     $("#previewName").textContent = state.user.name || "عضو PRIME";
