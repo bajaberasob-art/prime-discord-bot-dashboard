@@ -567,150 +567,188 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
     }
 
 
+def _template_region_score(
+    raw_frame: bytes | None,
+    rect: tuple[int, int, int, int],
+) -> float:
+    """Score a text region from image texture, contrast variation, and edge density."""
+    frame = _image_from_bytes(raw_frame)
+    if frame is None:
+        return 1.0
+    left, top, right, bottom = rect
+    left, right = max(0, left), min(frame.width, right)
+    top, bottom = max(0, top), min(frame.height, bottom)
+    if right - left < 8 or bottom - top < 8:
+        return 1.0
+    try:
+        crop = frame.convert("RGB").crop((left, top, right, bottom))
+        crop.thumbnail((48, 24), Image.Resampling.BILINEAR)
+        gray = crop.convert("L")
+        edges = gray.filter(ImageFilter.FIND_EDGES)
+        edge_values = list(edges.getdata())
+        gray_values = list(gray.getdata())
+        if not gray_values:
+            return 1.0
+        edge_density = sum(edge_values) / (255.0 * len(edge_values))
+        mean = sum(gray_values) / len(gray_values)
+        variance = sum((value - mean) ** 2 for value in gray_values) / len(gray_values)
+        contrast_variation = min(1.0, math.sqrt(variance) / 96.0)
+        # Uniform dark or light regions both work: foreground contrast is chosen later.
+        # Busy details and sharp ornamental lines are the main causes of unreadable text.
+        return min(1.0, edge_density * 0.72 + contrast_variation * 0.28)
+    except Exception:
+        return 1.0
+
+
+def _rect_overlaps(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> bool:
+    return not (
+        left[2] <= right[0] or right[2] <= left[0]
+        or left[3] <= right[1] or right[3] <= left[1]
+    )
+
+
+def _choose_template_text_box(
+    raw_frame: bytes | None,
+    *,
+    width: int,
+    height: int,
+    box_width: int,
+    box_height: int,
+    reserved: list[tuple[int, int, int, int]],
+    y_range: tuple[float, float],
+    x_centers: tuple[float, ...] = (0.28, 0.42, 0.58, 0.72),
+) -> dict | None:
+    """Find a low-detail region for text while avoiding the avatar, stats, and prior text."""
+    if not raw_frame:
+        return None
+    best: tuple[float, dict] | None = None
+    max_x = max(0, width - box_width)
+    y_start = max(0, int(height * y_range[0]))
+    y_end = min(height - box_height, int(height * y_range[1]))
+    y_step = max(8, int(height * 0.035))
+    x_positions = sorted({
+        max(0, min(max_x, int(width * center - box_width / 2)))
+        for center in x_centers
+    })
+    for y in range(y_start, max(y_start + 1, y_end + 1), y_step):
+        for x in x_positions:
+            rect = (x, y, x + box_width, y + box_height)
+            if any(_rect_overlaps(rect, item) for item in reserved):
+                continue
+            texture = _template_region_score(raw_frame, rect)
+            # A tiny top/side margin preference avoids putting text directly on frame rails.
+            margin_penalty = (
+                0.12 if x < width * 0.055 or x + box_width > width * 0.945 else 0.0
+            )
+            score = texture + margin_penalty
+            if best is None or score < best[0]:
+                best = (score, {"x": x + box_width // 2, "y": y + box_height // 2,
+                                "max_width": box_width, "anchor": "mm",
+                                "_rect": rect, "_score": round(score, 4)})
+    if best is None or best[0] > 0.34:
+        return None
+    return best[1]
+
+
 def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dict:
-    """Correct avatar coordinates without replacing a template's curated text/stat layout."""
+    """Analyze each template's visual negative space and place text without collisions.
+
+    This is a deterministic, local vision/layout pass: it scores real image regions rather
+    than assuming every template has the same geometry. Existing stat-cell anchors remain
+    template-owned; avatar and text placement are optimized around them.
+    """
     result = dict(metadata or {})
-    avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
-    has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
-    detected = _detect_template_avatar_slot(raw_frame)
-
-    if has_curated_avatar:
-        # Approved templates contain art-directed name, level, progress-track and stat
-        # anchors. Re-generating those positions relative to the avatar caused collisions.
-        # Only correct the avatar when high-confidence image analysis finds a different ring.
-        if detected and detected.get("confidence", 0) >= 0.28:
-            current_x = int(avatar["x"]) + int(avatar["size"]) / 2
-            current_y = int(avatar["y"]) + int(avatar["size"]) / 2
-            detected_x = int(detected.get("x", 0)) + int(detected.get("size", 0)) / 2
-            detected_y = int(detected.get("y", 0)) + int(detected.get("size", 0)) / 2
-            disagreement = math.hypot(current_x - detected_x, current_y - detected_y)
-            if disagreement >= max(24, int(avatar["size"] * 0.30)):
-                width = _clamp(result.get("width"), 320, 2048, 1280)
-                height = _clamp(result.get("height"), 320, 2048, 720)
-                source_width = max(1, int(detected.get("frame_width") or width))
-                source_height = max(1, int(detected.get("frame_height") or height))
-                scale_x, scale_y = width / source_width, height / source_height
-                target_size = max(48, int(detected["size"] * min(scale_x, scale_y)))
-                center_x = (detected["x"] + detected["size"] / 2) * scale_x
-                center_y = (detected["y"] + detected["size"] / 2) * scale_y
-                result["avatar"] = {
-                    "x": max(0, min(width - target_size, int(center_x - target_size / 2))),
-                    "y": max(0, min(height - target_size, int(center_y - target_size / 2))),
-                    "size": min(target_size, width, height),
-                }
-                result["avatar_detection"] = {
-                    "method": "circular-contour-override",
-                    "confidence": detected["confidence"],
-                }
-        # Preserve the remaining curated positions exactly, even if the avatar moved.
-        return result
-
     width = _clamp(result.get("width"), 320, 2048, 1280)
     height = _clamp(result.get("height"), 320, 2048, 720)
-    if detected:
-        source_width = max(1, int(detected.get("frame_width") or width))
-        source_height = max(1, int(detected.get("frame_height") or height))
-        scale_x, scale_y = width / source_width, height / source_height
-        target_size = max(48, int(detected["size"] * min(scale_x, scale_y)))
-        center_x = (detected["x"] + detected["size"] / 2) * scale_x
-        center_y = (detected["y"] + detected["size"] / 2) * scale_y
-        avatar = {
-            "x": max(0, min(width - target_size, int(center_x - target_size / 2))),
-            "y": max(0, min(height - target_size, int(center_y - target_size / 2))),
-            "size": min(target_size, width, height),
-        }
-        result["avatar"] = avatar
-        result["avatar_detection"] = {
-            "method": "circular-contour-override" if has_curated_avatar else "circular-contour",
-            "confidence": detected["confidence"],
-        }
-    else:
-        # Safe, deterministic fallback if the uploaded template contains no convincing ring.
-        size = int(min(width, height) * 0.18)
-        avatar = {
-            "x": int(width * 0.79) - size // 2,
-            "y": int(height * 0.65) - size // 2,
-            "size": size,
-        }
-        result["avatar"] = avatar
-        result["avatar_detection"] = {"method": "lower-right-fallback", "confidence": 0.0}
+    result["width"], result["height"] = width, height
+    detected = _detect_template_avatar_slot(raw_frame)
+    avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
+    has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
 
-    # Keep textual fields away from the avatar ring. If the detected opening is right-sided,
-    # arrange identity to its upper-left and progress/statistics in separate lower bands.
-    center_x = avatar["x"] + avatar["size"] / 2
-    center_y = avatar["y"] + avatar["size"] / 2
-    radius = avatar["size"] / 2
-    margin = max(24, int(min(width, height) * 0.045))
-    right_side = center_x >= width * 0.5
-    if right_side:
-        name_x = max(margin + 10, int(center_x - radius * 0.12))
-        name_anchor = "ra"
-        name_width = max(120, name_x - margin)
-        level_x = margin
-        level_anchor = "la"
-        xp_x = margin
-        xp_width = max(100, min(int(width * 0.68), int(avatar["x"] - xp_x - margin * 0.45)))
-    else:
-        name_x = min(width - margin - 10, int(center_x + radius * 1.1))
-        name_anchor = "la"
-        name_width = max(120, width - name_x - margin)
-        level_x = max(margin, int(width * 0.52))
-        level_anchor = "la"
-        xp_x = max(margin, int(width * 0.06))
-        xp_width = max(100, min(int(width * 0.68), width - xp_x - margin))
+    if detected and (not has_curated_avatar or detected.get("confidence", 0) >= 0.34):
+        current_center = (
+            int(avatar.get("x", 0)) + int(avatar.get("size", 0)) / 2,
+            int(avatar.get("y", 0)) + int(avatar.get("size", 0)) / 2,
+        )
+        detected_center = (
+            int(detected["x"]) + int(detected["size"]) / 2,
+            int(detected["y"]) + int(detected["size"]) / 2,
+        )
+        disagreement = math.hypot(
+            current_center[0] - detected_center[0],
+            current_center[1] - detected_center[1],
+        ) if has_curated_avatar else float("inf")
+        if not has_curated_avatar or disagreement >= max(24, int(avatar.get("size", 0) * 0.30)):
+            source_width = max(1, int(detected.get("frame_width") or width))
+            source_height = max(1, int(detected.get("frame_height") or height))
+            scale_x, scale_y = width / source_width, height / source_height
+            target_size = max(48, int(detected["size"] * min(scale_x, scale_y)))
+            center_x = (detected["x"] + detected["size"] / 2) * scale_x
+            center_y = (detected["y"] + detected["size"] / 2) * scale_y
+            result["avatar"] = {
+                "x": max(0, min(width - target_size, int(center_x - target_size / 2))),
+                "y": max(0, min(height - target_size, int(center_y - target_size / 2))),
+                "size": min(target_size, width, height),
+            }
+            result["avatar_detection"] = {
+                "method": "circular-contour",
+                "confidence": detected["confidence"],
+            }
 
-    name_y = max(margin, int(center_y - radius * 1.75))
-    handle_y = min(height - margin * 2, name_y + max(30, int(height * 0.045)))
-    level_y = min(height - margin * 3, int(center_y + radius * 0.15))
-    xp_y = min(height - margin * 2, int(center_y + radius * 0.78))
-    result["name"] = {
-        "x": name_x, "y": name_y, "max_width": name_width, "anchor": name_anchor,
+    avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
+    avatar_size = _clamp(avatar.get("size"), 48, min(width, height) // 2, int(min(width, height) * 0.2))
+    avatar_x = _scale_position(avatar, "x", int(width * 0.76), width - avatar_size)
+    avatar_y = _scale_position(avatar, "y", int(height * 0.62), height - avatar_size)
+    result["avatar"] = {"x": avatar_x, "y": avatar_y, "size": avatar_size}
+
+    reserved: list[tuple[int, int, int, int]] = [
+        (max(0, avatar_x - 14), max(0, avatar_y - 14),
+         min(width, avatar_x + avatar_size + 14), min(height, avatar_y + avatar_size + 14))
+    ]
+    for stat in result.get("stats") or []:
+        if isinstance(stat, dict):
+            try:
+                sx, sy, sw, sh = (int(stat[k]) for k in ("x", "y", "w", "h"))
+                reserved.append((max(0, sx - 4), max(0, sy - 4),
+                                 min(width, sx + sw + 4), min(height, sy + sh + 4)))
+            except (KeyError, TypeError, ValueError):
+                pass
+
+    # Optimize the identity block first, then place the level label in a distinct region.
+    # Remove old positions only when the image itself supplies a clearly better empty area.
+    name_box = _choose_template_text_box(
+        raw_frame, width=width, height=height,
+        box_width=max(120, int(width * 0.43)), box_height=max(36, int(height * 0.095)),
+        reserved=reserved, y_range=(0.12, 0.66),
+    )
+    if name_box:
+        reserved.append(name_box.pop("_rect"))
+        name_box.pop("_score", None)
+        result["name"] = dict(name_box)
+        handle_box = dict(name_box)
+        handle_box["y"] = min(height - 8, int(name_box["y"] + height * 0.045))
+        handle_box["max_width"] = max(100, int(name_box["max_width"] * 0.98))
+        result["handle"] = handle_box
+
+    level_box = _choose_template_text_box(
+        raw_frame, width=width, height=height,
+        box_width=max(110, int(width * 0.32)), box_height=max(28, int(height * 0.075)),
+        reserved=reserved, y_range=(0.38, 0.76),
+        x_centers=(0.20, 0.36, 0.52, 0.68, 0.80),
+    )
+    if level_box:
+        level_box.pop("_score", None)
+        level_box.pop("_rect", None)
+        result["level"] = dict(level_box)
+
+    result["layout_engine"] = "prime-vision-layout-v3"
+    result["layout_analysis"] = {
+        "avatar_slot": result.get("avatar_detection", {}).get("method", "template-metadata"),
+        "name_region_optimized": bool(name_box),
+        "level_region_optimized": bool(level_box),
+        "method": "local-image-texture-and-collision-scoring",
     }
-    result["handle"] = {
-        "x": name_x, "y": handle_y, "max_width": name_width, "anchor": name_anchor,
-    }
-    result["level"] = {
-        "x": level_x, "y": level_y, "max_width": max(120, width - level_x - margin),
-        "anchor": level_anchor,
-    }
-    result["xp_bar"] = {
-        "x": xp_x, "y": xp_y, "width": xp_width,
-        "height": max(7, int(min(width, height) * 0.012)),
-    }
-    result["badges"] = {
-        "x": margin, "y": min(height - margin, int(xp_y + height * 0.055)),
-        "size": max(20, int(min(width, height) * 0.025)), "limit": 5,
-    }
-    if width >= height * 1.18:
-        stat_y = int(height * 0.82)
-        stat_h = int(height * 0.12)
-        stat_w = int(width * 0.21)
-        stat_xs = [int(width * ratio) for ratio in (0.035, 0.275, 0.515, 0.755)]
-        stats = [
-            {"key": key, "label": label, "x": stat_xs[index], "y": stat_y,
-             "w": stat_w, "h": stat_h}
-            for index, (key, label) in enumerate((
-                ("balance", "الرصيد"), ("messages", "الرسائل"),
-                ("rank", "الترتيب"), ("voice", "الصوت"),
-            ))
-        ]
-    else:
-        stat_y1, stat_y2 = int(height * 0.78), int(height * 0.88)
-        stat_w, stat_h = int(width * 0.405), int(height * 0.075)
-        stats = [
-            {"key": key, "label": label, "x": int(width * x), "y": int(height * y),
-             "w": stat_w, "h": stat_h}
-            for (key, label, x, y) in (
-                ("balance", "الرصيد", 0.06, stat_y1 / height),
-                ("messages", "الرسائل", 0.535, stat_y1 / height),
-                ("rank", "الترتيب", 0.06, stat_y2 / height),
-                ("voice", "الصوت", 0.535, stat_y2 / height),
-            )
-        ]
-    result["stats"] = stats
-    result["layout_engine"] = "prime-smart-v2"
     return result
-
 
 def _draw_gradient(width: int, height: int, base: str, accent: str) -> Image.Image:
     """Build a smooth dark gradient in O(height), then add a blurred accent glow."""
