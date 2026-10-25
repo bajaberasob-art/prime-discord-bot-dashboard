@@ -1095,34 +1095,60 @@ def _apply_smart_template_layout(
         name_metadata=result.get("name"), handle_metadata=result.get("handle"),
         font_family=font_family, reserved=reserved,
     )
-    if identity:
-        result["name"] = identity["name"]
-        result["handle"] = identity["handle"]
-        reserved.append(_inflate_rect(identity["rect"], max(6, margin // 2), width, height))
+    accepted_level = None
+    identity_rect = None
+    level_rect = None
+    level_score = None
+    level_font_size = None
 
-    level_box = _find_best_level_box(
-        analysis, width=width, height=height, text=level_text,
-        metadata_box=result.get("level"), font_family=font_family,
-        reserved=reserved,
-    )
-    if level_box:
-        level_score = level_box.pop("_score", None)
-        level_font_size = level_box.pop("_font_size", None)
-        level_rect = level_box.pop("_rect", None)
-        result["level"] = level_box
-        if level_rect:
-            reserved.append(_inflate_rect(level_rect, max(6, margin // 2), width, height))
+    # Commit new positions only as a pair. If either field has no safe region, retain the
+    # existing art-directed coordinates rather than applying a half-layout that may collide.
+    if identity:
+        trial_reserved = reserved + [
+            _inflate_rect(identity["rect"], max(6, margin // 2), width, height)
+        ]
+        candidate_level = _find_best_level_box(
+            analysis, width=width, height=height, text=level_text,
+            metadata_box=result.get("level"), font_family=font_family,
+            reserved=trial_reserved,
+        )
+        if candidate_level:
+            identity_rect = identity["rect"]
+            result["name"] = identity["name"]
+            result["handle"] = identity["handle"]
+            accepted_level = {
+                "x": candidate_level["x"], "y": candidate_level["y"],
+                "max_width": candidate_level["max_width"],
+                "anchor": candidate_level["anchor"],
+            }
+            result["level"] = accepted_level
+            level_rect = candidate_level.get("_rect")
+            level_score = candidate_level.get("_score")
+            level_font_size = candidate_level.get("_font_size")
+            reserved = trial_reserved
+            if level_rect:
+                reserved.append(_inflate_rect(level_rect, max(6, margin // 2), width, height))
+        else:
+            identity = None
+
+    if not identity:
+        identity = None
+        # Preserve existing text positions if the image has no pair of safe boxes.
+        # This makes the failure visible in diagnostics instead of silently misplacing labels.
 
     result["layout_engine"] = "prime-vision-layout-v4"
     result["layout_analysis"] = {
         "method": "alpha-aware-multiscale-region-scoring",
         "avatar_slot": result.get("avatar_detection", {}).get("method", "template-metadata"),
-        "name_region_optimized": bool(identity),
-        "level_region_optimized": bool(level_box),
-        "identity_region_score": identity.get("score") if identity else None,
-        "level_region_score": level_score if level_box else None,
-        "identity_font_sizes": identity.get("font_sizes") if identity else None,
-        "level_font_size": level_font_size if level_box else None,
+        "name_region_optimized": bool(identity and accepted_level),
+        "level_region_optimized": bool(accepted_level),
+        "layout_applied": bool(identity and accepted_level),
+        "identity_region_score": identity.get("score") if identity and accepted_level else None,
+        "level_region_score": level_score if accepted_level else None,
+        "identity_font_sizes": identity.get("font_sizes") if identity and accepted_level else None,
+        "level_font_size": level_font_size if accepted_level else None,
+        "identity_rect": identity_rect if accepted_level else None,
+        "level_rect": level_rect if accepted_level else None,
         "reserved_region_count": len(reserved),
         "uses_profile_text_lengths": True,
     }
