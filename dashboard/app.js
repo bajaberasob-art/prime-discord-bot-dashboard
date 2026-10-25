@@ -820,6 +820,29 @@
       el("span", { class: "nav-copy" }, el("b", { text: meta.label }), el("small", { text: meta.hint })),
     );
   }
+  function profileStoreAdminLink() {
+    const guildId = state.guild && state.guild.id ? String(state.guild.id) : "";
+    return el(
+      "a",
+      {
+        class: "nav-item profile-store-admin-nav",
+        href: guildId ? `/guild/${encodeURIComponent(guildId)}/profile-store-admin` : "#",
+        target: "_blank",
+        rel: "noopener noreferrer",
+        "aria-label": "إدارة متجر PRIME",
+        "aria-disabled": String(!guildId),
+        title: guildId ? "فتح إدارة المنتجات والأقسام والأسعار" : "اختر سيرفرًا أولًا",
+      },
+      el("span", { class: "nav-icon", text: "▧", "aria-hidden": "true" }),
+      el(
+        "span",
+        { class: "nav-copy" },
+        el("b", { text: "إدارة متجر PRIME" }),
+        el("small", { text: "المنتجات والأسعار والأقسام" }),
+      ),
+    );
+  }
+
   function workspaceNav() {
     return el(
       "aside",
@@ -839,6 +862,7 @@
         "nav",
         { class: "nav-list" },
         ...Object.keys(viewLabels).map((view) => navButton(view)),
+        profileStoreAdminLink(),
       ),
       el(
         "div",
@@ -873,6 +897,7 @@
       navButton("settings"),
       navButton("backup"),
       navButton("system"),
+      profileStoreAdminLink(),
     );
     const moreButton = el(
       "button",
