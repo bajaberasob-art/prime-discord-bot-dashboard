@@ -658,9 +658,7 @@ def register_profile_store_admin_routes(routes, authorize) -> None:
 
     @routes.delete("/api/guild/{guild_id}/profile-store/items/{item_id}")
     async def profile_store_item_delete(request):
-        _session, _guild = await authorize(
-            request, write=True, management_tier="admin",
-        )
+        _session, _guild = await store_authorize(request, write=True)
         raw_id = str(request.match_info.get("item_id", ""))
         if not raw_id.isdigit() or int(raw_id) <= 0:
             return _json_error(404, "item_not_found")
