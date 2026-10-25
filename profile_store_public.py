@@ -351,11 +351,16 @@ async def _store_state(request, session) -> dict:
 
 
 async def _read_json(request) -> dict:
+    if request.content_type != "application/json":
+        raise ValueError("invalid_content_type")
     if request.content_length is not None and request.content_length > MAX_REQUEST_BODY:
         raise ValueError("request_too_large")
     try:
-        body = await request.json(loads=json.loads)
-    except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as error:
+        raw = await request.content.read(MAX_REQUEST_BODY + 1)
+        if len(raw) > MAX_REQUEST_BODY:
+            raise ValueError("request_too_large")
+        body = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise ValueError("invalid_json") from error
     if not isinstance(body, dict):
         raise ValueError("request_body_must_be_object")
