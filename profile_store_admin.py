@@ -690,6 +690,81 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             return _json_error(404, "item_not_found")
         return web.json_response({"item_id": item_id, "deleted": True})
 
+    @routes.post("/api/guild/{guild_id}/profile-store/users/{user_id}/gems")
+    async def profile_store_gem_adjust(request):
+        _session, guild = await store_authorize(request, write=True)
+        raw_user_id = str(request.match_info.get("user_id", ""))
+        if not raw_user_id.isdigit() or int(raw_user_id) <= 0:
+            return _json_error(400, "invalid_user_id")
+        user_id = int(raw_user_id)
+        try:
+            body = await _read_item_payload(request, read_json_body)
+            delta = body.get("delta")
+            if isinstance(delta, bool) or not isinstance(delta, int) or delta == 0 or abs(delta) > 1_000_000:
+                raise ValueError("invalid_gem_delta")
+            reason = body.get("reason", "")
+            if not isinstance(reason, str) or len(reason.strip()) > 200:
+                raise ValueError("invalid_gem_reason")
+            reason = reason.strip() or "administrator_adjustment"
+
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO user_profile_gem_wallets
+                        (guild_id, user_id, balance)
+                    VALUES (?, ?, 0)
+                    """,
+                    (int(guild.id), user_id),
+                )
+                async with db.execute(
+                    """
+                    SELECT balance FROM user_profile_gem_wallets
+                    WHERE guild_id = ? AND user_id = ?
+                    """,
+                    (int(guild.id), user_id),
+                ) as cursor:
+                    wallet = await cursor.fetchone()
+                current = int(wallet["balance"]) if wallet else 0
+                updated = current + delta
+                if updated < 0:
+                    await db.rollback()
+                    return _json_error(409, "insufficient_gems")
+                await db.execute(
+                    """
+                    UPDATE user_profile_gem_wallets
+                    SET balance = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE guild_id = ? AND user_id = ?
+                    """,
+                    (updated, int(guild.id), user_id),
+                )
+                await db.execute(
+                    """
+                    INSERT INTO profile_store_transactions
+                        (guild_id, user_id, item_id, transaction_type, currency,
+                         delta, balance_after, reason)
+                    VALUES (?, ?, NULL, ?, 'gem', ?, ?, ?)
+                    """,
+                    (
+                        int(guild.id), user_id,
+                        "gem_grant" if delta > 0 else "gem_adjustment",
+                        delta, updated, reason[:200],
+                    ),
+                )
+                await db.commit()
+            return web.json_response({
+                "guild_id": str(guild.id),
+                "user_id": str(user_id),
+                "currency": "gem",
+                "delta": delta,
+                "balance": updated,
+            })
+        except ValueError as error:
+            return _validation_response(error)
+        except Exception:
+            logger.exception("PRIME gem wallet adjustment failed guild=%s user=%s", guild.id, user_id)
+            return _json_error(500, "gem_adjustment_failed")
+
     @routes.post("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
     async def profile_store_item_upload(request):
         return await _write_item_asset(request, authorize=store_authorize)
