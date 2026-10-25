@@ -95,6 +95,40 @@ class ProfileCardSmartLayoutTests(unittest.TestCase):
         self.assertEqual(len(resolved["stats"]), 4)
         self.assertGreater(resolved["xp_bar"]["width"], 0)
 
+    def test_detected_avatar_ring_overrides_stale_saved_coordinates(self):
+        width, height = 280, 360
+        image = Image.new("RGBA", (width, height), (10, 13, 22, 255))
+        draw = ImageDraw.Draw(image)
+        center = (220, 245)
+        radius = 38
+        draw.ellipse(
+            (center[0] - radius, center[1] - radius,
+             center[0] + radius, center[1] + radius),
+            fill=(4, 8, 18, 255),
+            outline=(230, 240, 255, 255),
+            width=5,
+        )
+        encoded = io.BytesIO()
+        image.save(encoded, format="PNG")
+
+        # Simulate old database metadata pointing to an avatar position that no longer
+        # matches the template artwork after an admin replaces the image.
+        metadata = {
+            "width": width, "height": height, "layout": "portrait",
+            "avatar": {"x": 12, "y": 16, "size": 48},
+            "name": {"x": 150, "y": 40, "max_width": 100, "anchor": "ra"},
+            "handle": {}, "level": {}, "xp_bar": {}, "stats": [],
+        }
+        resolved = generator._apply_smart_template_layout(metadata, encoded.getvalue())
+        avatar = resolved["avatar"]
+        actual_center_x = avatar["x"] + avatar["size"] / 2
+        actual_center_y = avatar["y"] + avatar["size"] / 2
+        self.assertEqual(
+            resolved["avatar_detection"]["method"], "circular-contour-override"
+        )
+        self.assertLess(abs(actual_center_x - center[0]), 25)
+        self.assertLess(abs(actual_center_y - center[1]), 25)
+
     def test_admin_allows_profile_template_artwork_upload(self):
         self.assertIn("card_template", profile_store_admin._ASSET_ITEM_TYPES)
 
