@@ -236,10 +236,8 @@ async def _exchange_link_token(request, raw_token: str):
 async def _store_state(request, session) -> dict:
     guild_id, user_id = int(session["guild_id"]), int(session["user_id"])
     async with database.connect(aiosqlite.Row) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO users (user_id, guild_id) VALUES (?, ?)",
-            (user_id, guild_id),
-        )
+        # Never create an economy user while merely opening the store: the legacy
+        # users table defaults new wallets to 100 coins, which would mint currency.
         await db.execute(
             """
             INSERT OR IGNORE INTO user_profile_gem_wallets (guild_id, user_id, balance)
@@ -531,10 +529,6 @@ async def _purchase_item(session, item_id: int) -> dict:
                 raise StoreActionError(409, "invalid_catalog_item", "بيانات سعر العنصر غير صالحة.")
 
             if currency == "moon":
-                await db.execute(
-                    "INSERT OR IGNORE INTO users (user_id, guild_id) VALUES (?, ?)",
-                    (user_id, guild_id),
-                )
                 async with db.execute(
                     "SELECT balance FROM users WHERE user_id = ? AND guild_id = ?",
                     (user_id, guild_id),
@@ -544,16 +538,19 @@ async def _purchase_item(session, item_id: int) -> dict:
                 if balance < price:
                     await db.rollback()
                     raise StoreActionError(402, "insufficient_coins", "رصيد عملات PRIME لا يكفي لهذا العنصر.")
-                cursor = await db.execute(
-                    """
-                    UPDATE users SET balance = balance - ?
-                    WHERE user_id = ? AND guild_id = ? AND balance >= ?
-                    """,
-                    (price, user_id, guild_id, price),
-                )
-                if cursor.rowcount != 1:
-                    await db.rollback()
-                    raise StoreActionError(409, "wallet_changed", "تغيّر رصيدك أثناء الشراء. حدّث الصفحة وحاول مجدداً.")
+                # A free item must not create a legacy economy row or grant its
+                # 100-coin schema default just because a member opened the shop.
+                if price > 0:
+                    cursor = await db.execute(
+                        """
+                        UPDATE users SET balance = balance - ?
+                        WHERE user_id = ? AND guild_id = ? AND balance >= ?
+                        """,
+                        (price, user_id, guild_id, price),
+                    )
+                    if cursor.rowcount != 1:
+                        await db.rollback()
+                        raise StoreActionError(409, "wallet_changed", "تغيّر رصيدك أثناء الشراء. حدّث الصفحة وحاول مجدداً.")
                 balance_after = balance - price
             else:
                 await db.execute(
