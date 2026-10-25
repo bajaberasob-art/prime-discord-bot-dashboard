@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 import database
 
-PROFILE_STORE_SCHEMA_VERSION = 3
+PROFILE_STORE_SCHEMA_VERSION = 4
 DEFAULT_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -338,6 +338,23 @@ _SCHEMA_STATEMENTS = (
         ON profile_store_transactions(guild_id, user_id, created_at DESC)
     """,
     """
+    CREATE TABLE IF NOT EXISTS profile_store_admin_audit (
+        audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id INTEGER NOT NULL CHECK (guild_id > 0),
+        actor_user_id INTEGER CHECK (actor_user_id IS NULL OR actor_user_id > 0),
+        target_user_id INTEGER NOT NULL CHECK (target_user_id > 0),
+        action TEXT NOT NULL CHECK (action IN ('gem_grant', 'gem_adjustment')),
+        delta INTEGER NOT NULL CHECK (delta != 0),
+        balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profile_store_admin_audit_target
+        ON profile_store_admin_audit(guild_id, target_user_id, created_at DESC)
+    """,
+    """
     CREATE INDEX IF NOT EXISTS idx_profile_store_items_catalog
         ON profile_store_items(item_type, category, is_active, rarity, price)
     """,
@@ -449,7 +466,7 @@ async def ensure_profile_store_schema() -> None:
                 INSERT OR IGNORE INTO profile_store_migrations (version, description)
                 VALUES (?, ?)
                 """,
-                (PROFILE_STORE_SCHEMA_VERSION, "Add secure PRIME storefront sessions, wallet ledger, and gem balances"),
+                (PROFILE_STORE_SCHEMA_VERSION, "Add audited admin gem adjustments to the PRIME storefront"),
             )
             await db.commit()
         except BaseException:
