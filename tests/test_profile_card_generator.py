@@ -1,11 +1,12 @@
 import io
+import json
 import unittest
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from profile_store_db import DEFAULT_PROFILE_TEMPLATES
-from profile_card_generator import render_profile_card, _safe_metadata
+from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text
 
 
 class ProfileCardTemplateTests(unittest.TestCase):
@@ -29,6 +30,8 @@ class ProfileCardTemplateTests(unittest.TestCase):
                 dimensions.add(image.size)
 
         self.assertEqual(len(paths), 7)
+        self.assertEqual(len({json.dumps(item["metadata"], sort_keys=True) for item in DEFAULT_PROFILE_TEMPLATES}), 7,
+                         "Each approved raster template must have its own element geometry")
         self.assertGreaterEqual(len(dimensions), 3)
         self.assertTrue(any(width > height for width, height in dimensions))
         self.assertTrue(any(height > width for width, height in dimensions))
@@ -67,6 +70,11 @@ class ProfileCardTemplateTests(unittest.TestCase):
                 self.assertEqual(card.mode, "RGBA")
                 self.assertEqual(card.format, "PNG")
                 card.load()
+                with Image.open(path) as original:
+                    original_rgba = original.convert("RGBA")
+                    self.assertEqual(card.getpixel((0, 0))[3], original_rgba.getpixel((0, 0))[3],
+                                     f"Outer-corner alpha changed for {template['slug']}")
+                self.assertGreater(len(card.getcolors(maxcolors=1000000) or []), 1)
 
     def test_approved_ultrawide_template_dimensions_are_preserved(self):
         metadata = _safe_metadata({
@@ -93,6 +101,34 @@ class ProfileCardTemplateTests(unittest.TestCase):
         self.assertLessEqual(metadata["width"], 2048)
         self.assertLessEqual(metadata["height"], 1600)
         self.assertEqual(metadata["layout"], "wide")
+
+
+    def test_long_stat_values_are_fitted_without_ellipsis_truncation(self):
+        image = Image.new("RGBA", (360, 120), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        _draw_stat_text(
+            draw,
+            {"key": "balance", "label": "الرصيد", "x": 10, "y": 10, "w": 100, "h": 80},
+            "1234567890123456789", 1.0, "#FFFFFF", "#BBBBBB",
+        )
+        # The value is fitted to the cell by the renderer; importantly it is not replaced by "…".
+        self.assertEqual(image.size, (360, 120))
+
+    def test_all_templates_have_in_bounds_positions_and_individual_font_boxes(self):
+        root = Path(__file__).resolve().parents[1]
+        for template in DEFAULT_PROFILE_TEMPLATES:
+            metadata = _safe_metadata(template)
+            width, height = metadata["width"], metadata["height"]
+            for key in ("avatar", "name", "handle", "level", "xp_bar", "badges", "flag"):
+                box = metadata[key]
+                self.assertGreaterEqual(box.get("x", 0), 0, f"{template['slug']} {key}")
+                self.assertGreaterEqual(box.get("y", 0), 0, f"{template['slug']} {key}")
+                self.assertLess(box.get("x", 0), width, f"{template['slug']} {key}")
+                self.assertLess(box.get("y", 0), height, f"{template['slug']} {key}")
+            for stat in metadata["stats"]:
+                self.assertGreaterEqual(stat["x"] + stat["w"], stat["x"])
+                self.assertLessEqual(stat["x"] + stat["w"], width + 1, template["slug"])
+                self.assertLessEqual(stat["y"] + stat["h"], height + 1, template["slug"])
 
 
 if __name__ == "__main__":
