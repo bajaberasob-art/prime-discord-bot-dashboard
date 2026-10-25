@@ -98,17 +98,21 @@
   }
   function renderCategorySelect(selected = "") {
     const select = $("#itemCategory"); select.replaceChildren();
-    const active = state.categories.filter(category => Number(category.is_active));
-    active.forEach(category => {
+    const allOption = document.createElement("option");
+    allOption.value = "all"; allOption.textContent = "كل الأقسام"; select.append(allOption);
+    const available = state.categories.filter(category => Number(category.is_active) || category.slug === selected);
+    available.forEach(category => {
       const option = document.createElement("option");
-      option.value = category.slug; option.textContent = category.name; select.append(option);
+      option.value = category.slug;
+      option.textContent = category.name + (Number(category.is_active) ? "" : " · مخفي");
+      select.append(option);
     });
-    if (!active.length) {
-      const option = document.createElement("option"); option.value = "all";
-      option.textContent = "كل الأقسام"; select.append(option);
+    if (selected && ![...select.options].some(option => option.value === selected)) {
+      const missing = document.createElement("option"); missing.value = selected;
+      missing.textContent = selected + " · قسم غير معروف"; select.append(missing);
     }
     if (selected && [...select.options].some(option => option.value === selected)) select.value = selected;
-    else if (active.length) select.value = active[0].slug;
+    else select.value = available[0]?.slug || "all";
   }
   function assetUrl(item) { return item?.item_id && item?.has_asset ? `/api/guild/${guildId}/profile-store/items/${item.item_id}/asset` : ""; }
   function renderItemThumb(item) {
@@ -173,6 +177,7 @@
   function clearItemForm() {
     state.selectedItemId = null; state.selectedFile = null; state.clearAsset = false;
     $("#itemForm").reset(); $("#itemId").value = ""; $("#itemPrice").value = "100";
+    $("#itemSlug").dataset.touched = "";
     $("#itemActive").checked = true; $("#itemFeatured").checked = false;
     $("#itemFormTitle").textContent = "إضافة منتج جديد"; $("#itemIdLabel").textContent = "منتج جديد";
     $("#deleteItemButton").hidden = true; $("#itemFile").value = ""; $("#assetInfo").textContent = "لم يتم إرفاق صورة بعد.";
