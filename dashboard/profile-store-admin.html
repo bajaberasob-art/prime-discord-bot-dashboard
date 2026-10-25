@@ -99,6 +99,23 @@
             </div>
 
             <div class="form-divider"></div>
+            <div class="subheading"><div><h4>ألوان وتخطيط العنصر</h4><p>ألوان القالب أو الخلفية تُستخدم في المعاينة والرندر بحسب نوع العنصر. إعدادات JSON تسمح بتحديد إحداثيات القوالب المخصصة بدقة.</p></div></div>
+            <div class="form-grid color-grid">
+              <label class="field"><span>اللون الأساسي</span><input id="itemAccent" type="color" value="#6CDFFF"></label>
+              <label class="field"><span>اللون الثانوي</span><input id="itemAccent2" type="color" value="#D9F8FF"></label>
+              <label class="field"><span>لون الفواصل</span><input id="itemDivider" type="color" value="#D9F8FF"></label>
+              <label class="field"><span>لون شريط الخبرة</span><input id="itemXp" type="color" value="#6CDFFF"></label>
+              <label class="field"><span>لون الخلفية الداكنة</span><input id="itemDeep" type="color" value="#071725"></label>
+              <label class="field"><span>لون التوهج</span><input id="itemGlow" type="color" value="#8AEAFF"></label>
+            </div>
+            <details class="advanced-details">
+              <summary>إعدادات متقدمة — JSON</summary>
+              <div class="form-grid advanced-grid">
+                <label class="field span-2"><span>بيانات الستايل (JSON)</span><textarea id="itemStyleJson" rows="5" spellcheck="false" dir="ltr" placeholder='{"visualStyle":"custom","accent":"#6CDFFF"}'></textarea></label>
+                <label class="field span-2"><span>تخطيط القالب والمواضع (JSON)</span><textarea id="itemMetadataJson" rows="7" spellcheck="false" dir="ltr" placeholder='{"layout":"wide","width":1280,"height":460,"avatar":{"x":1000,"y":40,"size":100}}'></textarea><small class="field-help">للقوالب المخصصة: width وheight وlayout، ثم avatar وname وhandle وlevel وxp_bar وstats حسب أبعاد الصورة الأصلية.</small></label>
+              </div>
+            </details>
+            <div class="form-divider"></div>
             <div class="subheading"><div><h4>صورة المنتج</h4><p>PNG أو JPG أو WebP ثابتة، بحد أقصى 5 ميجابايت. تُخزّن خارج مجلد الويب وتُفحص قبل الحفظ.</p></div></div>
             <div class="upload-area">
               <div class="asset-preview" id="assetPreview"><div class="asset-placeholder"><span>＋</span><b>معاينة الصورة</b><small>تظهر هنا بعد اختيارها أو حفظها</small></div></div>
