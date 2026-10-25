@@ -267,6 +267,14 @@ class ProfileStoreAdminUploadRouteTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(row)
             item_id = int(row["item_id"])
 
+            # Existing repository-owned template assets must preview too, not just uploads.
+            original_preview = await self.client.get(
+                f"/api/guild/99/profile-store/items/{item_id}/asset"
+            )
+            self.assertEqual(original_preview.status, 200, await original_preview.text())
+            with Image.open(io.BytesIO(await original_preview.read())) as existing_image:
+                self.assertEqual(existing_image.format, "PNG")
+
             raw = image_bytes("PNG", size=(96, 64))
             form = FormData()
             form.add_field("file", raw, filename="new-template.png", content_type="image/png")
