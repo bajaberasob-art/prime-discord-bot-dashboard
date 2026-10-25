@@ -357,7 +357,8 @@
     const item = findItem(itemId);
     if (!item) return;
     const nextId = Number(item.item_id);
-    if (state.selectedId !== nextId) {
+    const itemChanged = state.selectedId !== nextId;
+    if (itemChanged) {
       const previousImage = $("#serverPreviewImage");
       if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
       state.previewObjectUrl = null;
@@ -419,7 +420,7 @@
     renderGrid();
     // Generate the truthful server-side preview as soon as a template is selected.
     // The normal "update preview" button remains available for a manual refresh.
-    if (item.item_type === "card_template" && state.selectedId === nextId && !state.previewBusy) {
+    if (item.item_type === "card_template" && itemChanged && !state.previewBusy) {
       renderFullPreview();
     }
   }
