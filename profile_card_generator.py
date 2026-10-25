@@ -342,6 +342,23 @@ def _display_text(value: Any) -> str:
         return text
 
 
+def _draw_display_text(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int],
+    value: Any,
+    **kwargs: Any,
+) -> None:
+    """Draw pre-shaped Arabic in visual order without applying a second RTL reorder."""
+    shown = _display_text(value)
+    try:
+        # _display_text already performs Arabic shaping and bidi ordering. Explicit LTR
+        # prevents RAQM-enabled Pillow builds from reordering the visual string again.
+        draw.text(xy, shown, direction="ltr", **kwargs)
+    except (TypeError, ValueError):
+        # Compatibility with Pillow builds compiled without libraqm.
+        draw.text(xy, shown, **kwargs)
+
+
 def _number(value: Any, default: int = 0) -> int:
     try:
         return max(0, min(int(value), 10**18))
@@ -517,7 +534,9 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
         return None
 
     # x/y are the top-left of the actual avatar image; _fit_avatar adds its own 9px ring pad.
-    slot_size = int(round(2 * radius * min(scale_x, scale_y)))
+    # _fit_avatar adds a 9px ring pad on every side, so subtract that padding
+    # from the detected opening diameter to keep the avatar ring inside the artwork's hole.
+    slot_size = int(round(2 * radius * min(scale_x, scale_y))) - 18
     center_x = int(round(cx * scale_x))
     center_y = int(round(cy * scale_y))
     slot_size = max(72, min(slot_size, int(min(native_width, native_height) * 0.34)))
@@ -533,14 +552,30 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
 
 
 def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dict:
-    """Use explicit template metadata when present; otherwise infer a custom frame layout."""
+    """Use image analysis to validate curated anchors and infer missing template layout."""
     result = dict(metadata or {})
     avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
-    # Valid curated/manual anchor data always wins over heuristic image detection.
-    if all(key in avatar for key in ("x", "y", "size")):
-        return result
-
+    has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
     detected = _detect_template_avatar_slot(raw_frame)
+
+    # Stored coordinates can become stale when an administrator replaces a template image.
+    # Keep curated anchors when they match the artwork, but prefer a high-confidence ring
+    # detected in the actual pixels when it clearly disagrees with those old coordinates.
+    if has_curated_avatar and detected:
+        current_x = int(avatar.get("x", 0)) + int(avatar.get("size", 0)) / 2
+        current_y = int(avatar.get("y", 0)) + int(avatar.get("size", 0)) / 2
+        detected_x = int(detected.get("x", 0)) + int(detected.get("size", 0)) / 2
+        detected_y = int(detected.get("y", 0)) + int(detected.get("size", 0)) / 2
+        disagreement = math.hypot(current_x - detected_x, current_y - detected_y)
+        if detected.get("confidence", 0) < 0.28 or disagreement < max(24, int(avatar.get("size", 0) * 0.30)):
+            return result
+        # A real high-contrast circular slot is a stronger anchor than old database metadata.
+        result["avatar_detection"] = {
+            "method": "circular-contour-override",
+            "confidence": detected["confidence"],
+        }
+    elif has_curated_avatar:
+        return result
     width = _clamp(result.get("width"), 320, 2048, 1280)
     height = _clamp(result.get("height"), 320, 2048, 720)
     if detected:
@@ -557,7 +592,7 @@ def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dic
         }
         result["avatar"] = avatar
         result["avatar_detection"] = {
-            "method": "circular-contour",
+            "method": "circular-contour-override" if has_curated_avatar else "circular-contour",
             "confidence": detected["confidence"],
         }
     else:
@@ -778,13 +813,13 @@ def _draw_stat_text(
         _contrast_text_color(image, stat, text_color, dark_text, stat_cell=True)
         if can_sample else text_color
     )
-    draw.text((center_x, y + int(height * .31)), _display_text(label),
-              font=label_font, fill=label_color, anchor="mm",
-              stroke_width=1, stroke_fill=(0, 0, 0, 120))
+    _draw_display_text(draw, (center_x, y + int(height * .31)), label,
+                       font=label_font, fill=label_color, anchor="mm",
+                       stroke_width=1, stroke_fill=(0, 0, 0, 120))
     # Never replace a wallet/message/rank value with an ellipsis: fit the font instead.
-    draw.text((center_x, y + int(height * .70)), _display_text(value_text),
-              font=value_font, fill=value_color, anchor="mm",
-              stroke_width=1, stroke_fill=(0, 0, 0, 145))
+    _draw_display_text(draw, (center_x, y + int(height * .70)), value_text,
+                       font=value_font, fill=value_color, anchor="mm",
+                       stroke_width=1, stroke_fill=(0, 0, 0, 145))
 
 
 def render_profile_card(
@@ -940,12 +975,12 @@ def render_profile_card(
         )
     )
     name_stroke = (0, 0, 0, 175) if name_color == light_text else (255, 255, 255, 125)
-    draw.text((name_x, name_y), _display_text(name), font=name_font, fill=name_color,
-              anchor=str(name_box.get("anchor") or "ra"), stroke_width=2,
-              stroke_fill=name_stroke)
-    draw.text((handle_x, handle_y), _display_text(handle_text), font=handle_font, fill=handle_color,
-              anchor=str(handle_box.get("anchor") or "ra"), stroke_width=1,
-              stroke_fill=(0, 0, 0, 135))
+    _draw_display_text(draw, (name_x, name_y), name, font=name_font, fill=name_color,
+                        anchor=str(name_box.get("anchor") or "ra"), stroke_width=2,
+                        stroke_fill=name_stroke)
+    _draw_display_text(draw, (handle_x, handle_y), handle_text, font=handle_font, fill=handle_color,
+                        anchor=str(handle_box.get("anchor") or "ra"), stroke_width=1,
+                        stroke_fill=(0, 0, 0, 135))
 
     level_box = metadata.get("level") or {}
     level_x = _scale_position(level_box, "x", inset * 3, width)
@@ -965,10 +1000,10 @@ def render_profile_card(
             line_height=max(18, int(min(width, height) * .05)),
         )
     )
-    draw.text((level_x, level_y), _display_text(level_text),
-              font=progress_font, fill=level_color,
-              anchor=str(level_box.get("anchor") or "ra"), stroke_width=1,
-              stroke_fill=(0, 0, 0, 145))
+    _draw_display_text(draw, (level_x, level_y), level_text,
+                        font=progress_font, fill=level_color,
+                        anchor=str(level_box.get("anchor") or "ra"), stroke_width=1,
+                        stroke_fill=(0, 0, 0, 145))
     xp_box = metadata.get("xp_bar") or {}
     bar_x = _scale_position(xp_box, "x", level_x, width-20)
     bar_y = _scale_position(xp_box, "y", level_y + int(36*scale), height-10)
@@ -995,9 +1030,9 @@ def render_profile_card(
             line_height=max(10, int(bar_h * 2)),
         )
     )
-    draw.text((bar_x, xp_label_y), _display_text(xp_label),
-              font=xp_font, fill=xp_color_text, anchor="la",
-              stroke_width=1, stroke_fill=(0, 0, 0, 100))
+    _draw_display_text(draw, (bar_x, xp_label_y), xp_label,
+                        font=xp_font, fill=xp_color_text, anchor="la",
+                        stroke_width=1, stroke_fill=(0, 0, 0, 100))
 
     stat_values = {
         "balance": f"{_number(profile.get('balance')):,}",
