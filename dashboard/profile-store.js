@@ -482,7 +482,7 @@
       await loadState(false);
       const refreshed = findItem(item.item_id);
       if (action === "purchase") toast("تم اقتناء «" + (data.purchase && data.purchase.name || item.name) + "» بنجاح.");
-      else if (action === "equip") toast("تم تجهيز «" + item.name + "» على بطاقة PRIME.");
+      else if (action === "equip") toast("تم حفظ تجهيز «" + item.name + "». استخدم /profile لعرض البطاقة الجديدة داخل Discord.");
       else toast("تمت إزالة «" + item.name + "» من التجهيز.");
       if (refreshed) openSheet(refreshed.item_id);
       else closeSheet();
