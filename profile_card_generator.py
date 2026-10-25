@@ -189,27 +189,148 @@ async def _read_store_asset(
     return _read_local_asset(str(path), template_asset=template_asset)
 
 
-def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    filename = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+_FONT_FAMILY_FILES = {
+    # Try bundled fonts first, then common Linux fonts if the host provides them.
+    "modern": {
+        False: ("DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        True: ("DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    },
+    "tech": {
+        False: ("DejaVuSansCondensed.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+                "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf", "DejaVuSans.ttf"),
+        True: ("DejaVuSansCondensed-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+               "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf", "DejaVuSans-Bold.ttf"),
+    },
+    "elegant": {
+        False: ("DejaVuSerif.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+                "/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf", "DejaVuSans.ttf"),
+        True: ("DejaVuSerif-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+               "/usr/share/fonts/truetype/liberation2/LiberationSerif-Bold.ttf", "DejaVuSans-Bold.ttf"),
+    },
+    "soft": {
+        False: ("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf", "DejaVuSans.ttf"),
+        True: ("/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf", "DejaVuSans-Bold.ttf"),
+    },
+}
+
+
+def _normalise_font_family(value: Any) -> str:
+    family = str(value or "modern").strip().lower()
+    return family if family in _FONT_FAMILY_FILES else "modern"
+
+
+def _load_font(
+    size: int, bold: bool = False, font_family: str = "modern"
+) -> ImageFont.ImageFont:
+    """Load the requested template font, with portable fallbacks for minimal hosts."""
+    family = _normalise_font_family(font_family)
+    for candidate in _FONT_FAMILY_FILES[family][bool(bold)]:
+        path = Path(candidate)
+        if not path.is_absolute():
+            path = _FONT_ROOT / candidate
+        try:
+            if path.is_file():
+                return ImageFont.truetype(str(path), max(9, int(size)))
+        except OSError:
+            continue
+    # Modern/DejaVu is bundled, so this fallback should normally be available.
+    fallback = _FONT_ROOT / ("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf")
     try:
-        return ImageFont.truetype(str(_FONT_ROOT / filename), max(9, int(size)))
+        return ImageFont.truetype(str(fallback), max(9, int(size)))
     except OSError:
         return ImageFont.load_default()
 
 
-def _fit_font(text: Any, max_width: int, preferred_size: int, *, minimum_size: int = 8, bold: bool = False) -> ImageFont.ImageFont:
+def _fit_font(
+    text: Any,
+    max_width: int,
+    preferred_size: int,
+    *,
+    minimum_size: int = 8,
+    bold: bool = False,
+    font_family: str = "modern",
+) -> ImageFont.ImageFont:
     """Return the largest available font that fits the rendered text in its box."""
     shown = _display_text(text)
     width = max(1, int(max_width))
     size = max(minimum_size, int(preferred_size))
     probe = ImageDraw.Draw(Image.new("L", (1, 1)))
     while True:
-        font = _load_font(size, bold=bold)
+        font = _load_font(size, bold=bold, font_family=font_family)
         bounds = probe.textbbox((0, 0), shown, font=font, stroke_width=0)
         measured = max(0, bounds[2] - bounds[0])
         if measured <= width or size <= minimum_size:
             return font
         size -= 1
+
+
+def _mix_hex(left: Any, right: Any, right_weight: float = 0.5) -> str:
+    """Blend two colors without losing the selected template's palette."""
+    try:
+        left_rgb = ImageColor.getrgb(str(left))
+        right_rgb = ImageColor.getrgb(str(right))
+    except (TypeError, ValueError):
+        return "#F8FAFF"
+    weight = max(0.0, min(1.0, float(right_weight)))
+    rgb = tuple(round(a * (1 - weight) + b * weight) for a, b in zip(left_rgb[:3], right_rgb[:3]))
+    return "#{:02X}{:02X}{:02X}".format(*rgb)
+
+
+def _region_luminance(image: Image.Image, bounds: tuple[int, int, int, int]) -> float | None:
+    """Sample a small region behind an overlay to choose readable contrast automatically."""
+    left, top, right, bottom = bounds
+    left = max(0, min(image.width, int(left)))
+    right = max(left, min(image.width, int(right)))
+    top = max(0, min(image.height, int(top)))
+    bottom = max(top, min(image.height, int(bottom)))
+    if right <= left or bottom <= top:
+        return None
+    try:
+        crop = image.convert("RGB").crop((left, top, right, bottom))
+        crop.thumbnail((20, 20), Image.Resampling.BILINEAR)
+        pixels = list(crop.getdata())
+        if not pixels:
+            return None
+        return sum(0.2126 * r + 0.7152 * g + 0.0722 * b for r, g, b in pixels) / len(pixels)
+    except Exception:
+        return None
+
+
+def _contrast_text_color(
+    image: Image.Image,
+    box: dict,
+    light_color: str,
+    dark_color: str,
+    *,
+    stat_cell: bool = False,
+    line_height: int | None = None,
+) -> str:
+    """Choose a light or dark text color from the actual template pixels underneath it."""
+    try:
+        x, y = int(box.get("x", 0)), int(box.get("y", 0))
+        if stat_cell:
+            width = int(box.get("w", 0))
+            height = int(box.get("h", 0))
+            # Sample the center rather than the bright ornamental border of a stat cell.
+            inset_x, inset_y = int(width * 0.18), int(height * 0.12)
+            bounds = (x + inset_x, y + inset_y, x + width - inset_x, y + height - inset_y)
+        else:
+            width = int(box.get("max_width", box.get("width", image.width // 2)))
+            anchor = str(box.get("anchor") or "la")
+            if anchor.startswith("r"):
+                left = x - width
+            elif anchor.startswith("m"):
+                left = x - width // 2
+            else:
+                left = x
+            height = max(10, int(line_height or image.height * 0.04))
+            bounds = (left + int(width * 0.10), y - height, left + int(width * 0.90), y + max(2, height // 5))
+        luminance = _region_luminance(image, bounds)
+    except (TypeError, ValueError, OverflowError):
+        luminance = None
+    if luminance is None:
+        return light_color
+    return dark_color if luminance >= 155 else light_color
 
 
 def _display_text(value: Any) -> str:
