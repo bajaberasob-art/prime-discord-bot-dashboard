@@ -568,11 +568,11 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
 
 
 def _template_region_score(
-    raw_frame: bytes | None,
+    raw_frame: bytes | Image.Image | None,
     rect: tuple[int, int, int, int],
 ) -> float:
     """Score a text region from image texture, contrast variation, and edge density."""
-    frame = _image_from_bytes(raw_frame)
+    frame = raw_frame if isinstance(raw_frame, Image.Image) else _image_from_bytes(raw_frame)
     if frame is None:
         return 1.0
     left, top, right, bottom = rect
@@ -621,6 +621,9 @@ def _choose_template_text_box(
     """Find a low-detail region for text while avoiding the avatar, stats, and prior text."""
     if not raw_frame:
         return None
+    analysis_frame = _image_from_bytes(raw_frame)
+    if analysis_frame is None:
+        return None
     best: tuple[float, dict] | None = None
     max_x = max(0, width - box_width)
     y_start = max(0, int(height * y_range[0]))
@@ -635,7 +638,7 @@ def _choose_template_text_box(
             rect = (x, y, x + box_width, y + box_height)
             if any(_rect_overlaps(rect, item) for item in reserved):
                 continue
-            texture = _template_region_score(raw_frame, rect)
+            texture = _template_region_score(analysis_frame, rect)
             # A tiny top/side margin preference avoids putting text directly on frame rails.
             margin_penalty = (
                 0.12 if x < width * 0.055 or x + box_width > width * 0.945 else 0.0
