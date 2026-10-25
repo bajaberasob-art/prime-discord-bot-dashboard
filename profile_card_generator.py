@@ -91,7 +91,9 @@ def _asset_roots() -> tuple[Path, ...]:
     if configured:
         store_root = Path(configured).expanduser().resolve()
     else:
-        db_name = getattr(database, "DB_NAME", "data/bot.db")
+        # Keep the renderer's asset root identical to profile_store_admin.profile_asset_root().
+        # DB_PATH is supported by the upload API and must be respected when it is set.
+        db_name = (os.environ.get("DB_PATH") or "").strip() or getattr(database, "DB_NAME", "data/bot.db")
         store_root = (Path(db_name).expanduser().resolve().parent / "profile_store_assets").resolve()
     return TEMPLATE_ROOT, store_root
 
