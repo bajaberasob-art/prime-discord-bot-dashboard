@@ -292,6 +292,15 @@ async def _store_state(request, session) -> dict:
             equipped_rows = await cursor.fetchall()
         equipped_ids = {int(row["item_id"]) for row in equipped_rows}
         equipped_slots = {str(row["slot_key"]): int(row["item_id"]) for row in equipped_rows}
+        async with db.execute(
+            """
+            SELECT slug, name, description, icon, sort_order
+            FROM profile_store_categories
+            WHERE is_active = 1
+            ORDER BY sort_order ASC, name COLLATE NOCASE ASC
+            """
+        ) as cursor:
+            categories = [dict(row) for row in await cursor.fetchall()]
         await db.commit()
 
     for column in ("background_item_id", "template_item_id", "color_item_id", "flag_item_id"):
@@ -346,6 +355,7 @@ async def _store_state(request, session) -> dict:
             "slots": equipped_slots,
         },
         "items": catalog,
+        "categories": categories,
     }
 
 
