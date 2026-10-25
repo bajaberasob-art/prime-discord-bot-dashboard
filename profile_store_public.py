@@ -6,6 +6,7 @@ import json
 import logging
 import mimetypes
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -24,6 +25,7 @@ CSRF_COOKIE = "prime_profile_csrf"
 MAX_REQUEST_BODY = 16 * 1024
 
 _registered = False
+_preview_last_render: dict[str, float] = {}
 _SINGLE_SLOT_COLUMNS = {
     "background": "background_item_id",
     "card_color": "color_item_id",
@@ -767,7 +769,16 @@ def register_profile_store_public_routes(routes) -> None:
         page = DASHBOARD_DIR / "profile-store.html"
         if not page.is_file():
             raise web.HTTPServiceUnavailable(text="PRIME storefront is not installed")
-        return web.FileResponse(page, headers={"Cache-Control": "no-store"})
+        return web.FileResponse(
+            page,
+            headers={
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+                "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+            },
+        )
 
     @routes.get("/profile-store/")
     async def profile_store_trailing_slash(request):
@@ -797,6 +808,42 @@ def register_profile_store_public_routes(routes) -> None:
         except Exception:
             logger.exception("Could not load PRIME profile storefront state")
             return _error(500, "store_state_failed", "تعذر تحميل المتجر. حاول تحديث الصفحة.")
+
+    @routes.get("/api/profile-store/preview/{item_id}")
+    async def profile_store_preview(request):
+        session, failure = await _authorize_request(request)
+        if failure:
+            return failure
+        item_id = _valid_item_id(request.match_info.get("item_id"))
+        if not item_id:
+            raise web.HTTPNotFound()
+        session_key = str(session["session_hash"])
+        now_mono = time.monotonic()
+        last_render = _preview_last_render.get(session_key, 0.0)
+        if now_mono - last_render < 1.5:
+            return _error(429, "preview_rate_limited", "انتظر لحظة قصيرة قبل إنشاء معاينة أخرى.")
+        _preview_last_render[session_key] = now_mono
+        if len(_preview_last_render) > 2048:
+            cutoff = now_mono - 60.0
+            for key, stamped in list(_preview_last_render.items()):
+                if stamped < cutoff:
+                    _preview_last_render.pop(key, None)
+        try:
+            image_bytes = await _render_profile_preview(request, session, item_id)
+            return web.Response(
+                body=image_bytes,
+                content_type="image/png",
+                headers={
+                    "Cache-Control": "no-store, private",
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "default-src 'none'; sandbox",
+                },
+            )
+        except StoreActionError as error:
+            return _error(error.status, error.code, error.message)
+        except Exception:
+            logger.exception("PRIME real profile-card preview failed")
+            return _error(500, "preview_failed", "تعذر إنشاء المعاينة الحقيقية. لم يتم حفظ أي تغيير.")
 
     @routes.get("/api/profile-store/assets/{item_id}")
     async def profile_store_asset(request):
