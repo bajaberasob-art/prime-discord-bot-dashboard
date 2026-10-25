@@ -1,8 +1,9 @@
 """Render customizable PRIME profile cards in independent, variable-size layouts.
 
 Unlike rank cards, profile cards use a store-selected template asset, canvas size,
-background, flag, and equipped badges. Template overlays are separate transparent
-SVG files; the checkerboard of a sprite-sheet preview is never used as an asset.
+background, flag, and equipped badges. Templates may be repository-owned raster PNG
+artwork or legacy SVG overlays. Raster artwork must be composited in RGBA without
+flattening its alpha channel; a checkerboard preview must never be used as an asset.
 """
 from __future__ import annotations
 
