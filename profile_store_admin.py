@@ -156,11 +156,17 @@ def profile_asset_root() -> Path:
     """Use a private storage directory outside the public dashboard/static tree."""
     configured = (os.environ.get("PROFILE_STORE_ASSET_DIR") or "").strip()
     if configured:
-        return Path(configured).expanduser().resolve()
-    db_path = (os.environ.get("DB_PATH") or "").strip()
-    if not db_path:
-        db_path = getattr(database, "DB_NAME", "data/bot.db")
-    return (Path(db_path).expanduser().resolve().parent / "profile_store_assets").resolve()
+        root = Path(configured).expanduser().resolve()
+    else:
+        db_path = (os.environ.get("DB_PATH") or "").strip()
+        if not db_path:
+            db_path = getattr(database, "DB_NAME", "data/bot.db")
+        root = (Path(db_path).expanduser().resolve().parent / "profile_store_assets").resolve()
+
+    public_root = (Path(__file__).resolve().parent / "dashboard").resolve()
+    if root == public_root or public_root in root.parents:
+        raise ValueError("profile assets must be stored outside the public dashboard root")
+    return root
 
 
 def _json_object(value: Any, field: str) -> dict:
