@@ -7,6 +7,7 @@ import unittest
 from PIL import Image, ImageDraw
 
 import profile_card_generator as cards
+import profile_store_db
 
 
 def _template_png() -> bytes:
@@ -54,12 +55,61 @@ class PrimeSmartProfileLayoutTests(unittest.TestCase):
             ],
         }
         result = cards._apply_smart_template_layout(metadata, frame)
-        self.assertEqual(result["layout_engine"], "prime-vision-layout-v3")
+        self.assertEqual(result["layout_engine"], "prime-vision-layout-v4")
         self.assertEqual(result["stats"], metadata["stats"])
         self.assertIn("name_region_optimized", result["layout_analysis"])
         self.assertIn("level_region_optimized", result["layout_analysis"])
         self.assertTrue(0 <= result["avatar"]["x"] < result["width"])
         self.assertTrue(0 <= result["avatar"]["y"] < result["height"])
+
+    def test_all_approved_raster_templates_use_actual_profile_text_and_avoid_overlap(self):
+        sample_profile = {
+            "display_name": "aboody_515",
+            "username": "aboody_515",
+            "level": 117,
+            "balance": 325,
+            "messages": 483,
+            "rank": 1,
+            "voice_seconds": 3600,
+        }
+        checked = 0
+        for item in profile_store_db.DEFAULT_PROFILE_TEMPLATES:
+            with self.subTest(template=item["slug"]):
+                raw = cards._read_local_asset(item["asset_path"], template_asset=True)
+                self.assertIsNotNone(raw, f"approved asset missing: {item['asset_path']}")
+                metadata = cards._metadata_for_native_frame(
+                    cards._safe_metadata({"metadata": item["metadata"]}), raw
+                )
+                result = cards._apply_smart_template_layout(
+                    metadata, raw, profile=sample_profile, style=item["style"]
+                )
+                self.assertEqual(result["layout_engine"], "prime-vision-layout-v4")
+                self.assertTrue(result["layout_analysis"]["uses_profile_text_lengths"])
+                self.assertEqual(result["stats"], metadata["stats"])
+                # The solver must either produce a collision-free pair or keep the curated
+                # metadata intact; it may not half-apply one position and leave another stale.
+                self.assertEqual(
+                    result["layout_analysis"]["layout_applied"],
+                    result["layout_analysis"]["name_region_optimized"]
+                    and result["layout_analysis"]["level_region_optimized"],
+                )
+                if result["layout_analysis"]["layout_applied"]:
+                    identity_rect = tuple(result["layout_analysis"]["identity_rect"])
+                    level_rect = tuple(result["layout_analysis"]["level_rect"])
+                    self.assertFalse(cards._rect_overlaps(identity_rect, level_rect))
+                    avatar = result["avatar"]
+                    avatar_rect = (
+                        avatar["x"], avatar["y"],
+                        avatar["x"] + avatar["size"], avatar["y"] + avatar["size"],
+                    )
+                    self.assertFalse(cards._rect_overlaps(identity_rect, avatar_rect))
+                    self.assertFalse(cards._rect_overlaps(level_rect, avatar_rect))
+                    for stat in result["stats"]:
+                        stat_rect = (stat["x"], stat["y"], stat["x"] + stat["w"], stat["y"] + stat["h"])
+                        self.assertFalse(cards._rect_overlaps(identity_rect, stat_rect))
+                        self.assertFalse(cards._rect_overlaps(level_rect, stat_rect))
+                checked += 1
+        self.assertGreaterEqual(checked, 7)
 
     def test_missing_template_image_keeps_curated_text_positions(self):
         metadata = {
