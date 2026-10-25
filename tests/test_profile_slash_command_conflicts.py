@@ -42,22 +42,22 @@ def slash_command_names(relative_path: str) -> set[str]:
 
 
 class ProfileSlashCommandConflictTests(unittest.TestCase):
-    def test_economy_profile_and_visual_profile_have_distinct_slash_names(self):
+    def test_visual_profile_and_economy_wallet_use_the_canonical_names(self):
         economy_commands = slash_command_names("cogs/economy.py")
         visual_commands = slash_command_names("cogs/profile.py")
 
-        self.assertIn("profile", economy_commands)
-        self.assertIn("profile_card", visual_commands)
+        self.assertIn("wallet", economy_commands)
+        self.assertIn("profile", visual_commands)
         self.assertTrue(
             economy_commands.isdisjoint(visual_commands),
             f"Duplicate slash commands: {economy_commands & visual_commands}",
         )
 
-    def test_profile_publisher_targets_the_renamed_visual_command(self):
+    def test_profile_publisher_targets_the_canonical_visual_command(self):
         source = (ROOT / "cogs/profile.py").read_text(encoding="utf-8")
 
-        self.assertIn('bot.tree.get_command("profile_card")', source)
-        self.assertIn('existing.get("profile_card")', source)
+        self.assertIn('bot.tree.get_command("profile")', source)
+        self.assertIn('existing.get("profile")', source)
         self.assertIn('upsert_global_command(bot.application_id, payload)', source)
         self.assertIn('upsert_guild_command(bot.application_id, int(guild.id), payload)', source)
 
