@@ -3,6 +3,7 @@ import struct
 import unittest
 import zlib
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from profile_store_admin import (
     MAX_PROFILE_UPLOAD_BYTES,
     MAX_PROFILE_UPLOAD_PIXELS,
     is_profile_store_owner,
+    profile_asset_root,
     validate_catalog_item_payload,
     validate_static_image,
 )
@@ -151,6 +153,14 @@ class ProfileCatalogPayloadTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, expected):
                     validate_catalog_item_payload(payload)
 
+
+
+
+    def test_asset_root_rejects_public_dashboard_directory(self):
+        public_root = Path(__file__).resolve().parents[1] / "dashboard"
+        with patch.dict(os.environ, {"PROFILE_STORE_ASSET_DIR": str(public_root)}):
+            with self.assertRaisesRegex(ValueError, "outside the public dashboard root"):
+                profile_asset_root()
 
 
 class ProfileStoreOwnerAccessTests(unittest.TestCase):
