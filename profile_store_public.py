@@ -356,7 +356,10 @@ async def _read_json(request) -> dict:
     if request.content_length is not None and request.content_length > MAX_REQUEST_BODY:
         raise ValueError("request_too_large")
     try:
-        raw = await request.content.read(MAX_REQUEST_BODY + 1)
+        try:
+            raw = await request.content.readexactly(MAX_REQUEST_BODY + 1)
+        except asyncio.IncompleteReadError as error:
+            raw = error.partial
         if len(raw) > MAX_REQUEST_BODY:
             raise ValueError("request_too_large")
         body = json.loads(raw.decode("utf-8"))
