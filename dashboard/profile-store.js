@@ -3,16 +3,16 @@
   const $ = (selector, parent = document) => parent.querySelector(selector);
   const state = {
     items: [], wallet: { coins: 0, gems: 0, bank: 0 }, user: {}, guild: {}, equipped: {},
-    category: "all", subcategory: "all", filter: "all", sort: "recommended", search: "",
+    category: "all", storeCategory: "all", subcategory: "all", filter: "all", sort: "recommended", search: "",
     selectedId: null, busy: false, loaded: false, previewBusy: false, previewObjectUrl: null
   };
   const CATEGORIES = {
     all: { label: "كل الأقسام", icon: "▦" },
-    background: { label: "الخلفيات", icon: "▧" },
+    background: { label: "الخلفيات والبانرات", icon: "▧" },
     card_color: { label: "ألوان البطاقة", icon: "◉" },
     card_template: { label: "قوالب البروفايل", icon: "▣" },
     flag: { label: "الأعلام", icon: "⚑" },
-    badge: { label: "الشارات", icon: "✦" },
+    badge: { label: "الاستكرات والشارات", icon: "✦" },
     shape: { label: "الأشكال", icon: "⬡" },
     club_logo: { label: "شعارات الأندية", icon: "★" }
   };
@@ -183,27 +183,63 @@
   function renderSubcategories(items) {
     const root = $("#subcategoryTabs");
     root.replaceChildren();
-    const values = Array.from(new Set(items.map(subcategory).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ar"));
-    if (values.length < 2) {
+    const categories = Array.from(new Set(items.map(item => String(item.category || "").trim())
+      .filter(value => value && value !== "all"))).sort((a, b) => a.localeCompare(b, "ar"));
+    if (!categories.includes(state.storeCategory)) state.storeCategory = "all";
+    const categoryFiltered = state.storeCategory === "all"
+      ? items
+      : items.filter(item => String(item.category || "").trim() === state.storeCategory);
+    const values = Array.from(new Set(categoryFiltered.map(subcategory).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "ar"));
+    if (!categories.length && values.length < 2) {
       root.hidden = true;
+      state.storeCategory = "all";
       state.subcategory = "all";
       return;
     }
     root.hidden = false;
-    const add = (key, label) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "subcategory-chip" + (state.subcategory === key ? " is-active" : "");
-      button.dataset.subcategory = key;
-      button.textContent = label;
-      root.append(button);
-    };
-    add("all", "كل الأنواع");
-    values.forEach(value => add(value, value));
+    if (categories.length) {
+      const groupLabel = document.createElement("span");
+      groupLabel.className = "taxonomy-label";
+      groupLabel.textContent = "التصنيف";
+      root.append(groupLabel);
+      const addCategory = (key, label) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "subcategory-chip" + (state.storeCategory === key ? " is-active" : "");
+        button.dataset.storeCategory = key;
+        button.textContent = label;
+        root.append(button);
+      };
+      addCategory("all", "كل التصنيفات");
+      categories.forEach(value => addCategory(value, value));
+    } else {
+      state.storeCategory = "all";
+    }
+    if (values.length) {
+      const groupLabel = document.createElement("span");
+      groupLabel.className = "taxonomy-label";
+      groupLabel.textContent = "النوع الفرعي";
+      root.append(groupLabel);
+      const addSubcategory = (key, label) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "subcategory-chip" + (state.subcategory === key ? " is-active" : "");
+        button.dataset.subcategory = key;
+        button.textContent = label;
+        root.append(button);
+      };
+      addSubcategory("all", "كل الأنواع");
+      values.forEach(value => addSubcategory(value, value));
+      if (!values.includes(state.subcategory)) state.subcategory = "all";
+    } else {
+      state.subcategory = "all";
+    }
   }
   function visibleItems() {
     let items = state.items.slice();
     if (state.category !== "all") items = items.filter(item => item.item_type === state.category);
+    if (state.storeCategory !== "all") items = items.filter(item => String(item.category || "").trim() === state.storeCategory);
     if (state.subcategory !== "all") items = items.filter(item => subcategory(item) === state.subcategory);
     if (state.filter === "owned") items = items.filter(isOwned);
     if (state.filter === "affordable") items = items.filter(canAfford);
@@ -547,10 +583,18 @@
     const button = event.target.closest("[data-category]");
     if (!button) return;
     state.category = button.dataset.category;
+    state.storeCategory = "all";
     state.subcategory = "all";
     renderGrid();
   });
   $("#subcategoryTabs").addEventListener("click", event => {
+    const categoryButton = event.target.closest("[data-store-category]");
+    if (categoryButton) {
+      state.storeCategory = categoryButton.dataset.storeCategory;
+      state.subcategory = "all";
+      renderGrid();
+      return;
+    }
     const button = event.target.closest("[data-subcategory]");
     if (!button) return;
     state.subcategory = button.dataset.subcategory;
@@ -580,6 +624,7 @@
   document.addEventListener("keydown", event => { if (event.key === "Escape") closeSheet(); });
   $("#clearFilters").addEventListener("click", () => {
     state.category = "all";
+    state.storeCategory = "all";
     state.subcategory = "all";
     state.filter = "all";
     state.sort = "recommended";
