@@ -16,6 +16,7 @@ from profile_store_admin import (
     profile_asset_root,
     validate_catalog_item_payload,
     validate_static_image,
+    _ASSET_ITEM_TYPES,
 )
 
 
@@ -110,6 +111,20 @@ class StaticImageValidationTests(unittest.TestCase):
 
 
 class ProfileCatalogPayloadTests(unittest.TestCase):
+    def test_admin_upload_supports_templates_banners_stickers_and_flags(self):
+        self.assertTrue({"card_template", "background", "badge", "flag"}.issubset(_ASSET_ITEM_TYPES))
+
+    def test_custom_categories_are_preserved_for_storefront_filters(self):
+        result = validate_catalog_item_payload({
+            "slug": "anime-banner", "name": "بانر أنمي", "item_type": "background",
+            "category": "أنمي", "subcategory": "أزرق", "price": 0, "is_active": True,
+        })
+        self.assertEqual(result["category"], "أنمي")
+        self.assertEqual(result["subcategory"], "أزرق")
+        import json
+        metadata = json.loads(result["metadata_json"])
+        self.assertEqual(metadata, {})
+
     def test_accepts_free_and_paid_items(self):
         free = validate_catalog_item_payload({
             "slug": "rose-default",
@@ -133,6 +148,8 @@ class ProfileCatalogPayloadTests(unittest.TestCase):
         self.assertEqual(paid["price"], 1500)
         self.assertEqual(paid["currency"], "gem")
         self.assertEqual(paid["rarity"], "legendary")
+        self.assertEqual(paid["category"], "all")
+        self.assertEqual(paid["subcategory"], "")
         self.assertNotIn("asset_path", free)
 
     def test_rejects_bad_slug_type_rarity_negative_price_and_untrusted_style(self):
