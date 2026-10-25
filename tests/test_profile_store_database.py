@@ -33,6 +33,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             "profile_store_web_sessions",
             "user_profile_gem_wallets",
             "profile_store_transactions",
+            "profile_store_admin_audit",
         }
         async with database.connect() as db:
             async with db.execute(
@@ -61,6 +62,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             "idx_profile_store_sessions_owner",
             "idx_profile_store_web_sessions_expiry",
             "idx_profile_store_transactions_owner",
+            "idx_profile_store_admin_audit_target",
         }.issubset(indexes))
         self.assertEqual(tuple(settings), (1, 0, 0, "moon", 5 * 1024 * 1024, 900))
 
