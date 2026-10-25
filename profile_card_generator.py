@@ -598,7 +598,12 @@ def render_profile_card(
     scale = max(.55, min(1.25, width / 1000))
     deep = _safe_color(style.get("deep"), "#090B15")
     accent2 = _safe_color(style.get("accent2") or style.get("glow") or accent, "#F9F7FF")
-    explicit_text_color = bool(profile.get("font_color") or style.get("text_color"))
+    # The settings-table default is white; treat it as auto-contrast unless a
+    # real custom color was selected. A template may opt out via style.text_color.
+    configured_font_color = str(profile.get("font_color") or "").strip().upper()
+    explicit_text_color = bool(style.get("text_color")) or (
+        configured_font_color not in {"", "#FFFFFF", "#F9F7FF"}
+    )
     light_text = _safe_color(
         profile.get("font_color") or style.get("text_color"),
         _mix_hex(accent2, "#FFFFFF", 0.34),
@@ -797,8 +802,9 @@ def render_profile_card(
             draw.ellipse((x, badge_y, x+badge_size, badge_y+badge_size),
                          fill=(10, 11, 24, 235), outline=accent, width=2)
             draw.text((x+badge_size//2, badge_y+badge_size//2), "✦",
-                      font=_load_font(max(12, int(badge_size*.58)), bold=True),
-                      fill=text_color, anchor="mm")
+                      font=_load_font(max(12, int(badge_size*.58)), bold=True,
+                                      font_family=font_family),
+                      fill=light_text, anchor="mm")
 
     # A clean, high-resolution PNG avoids accidentally treating template sheets as cards.
     output = io.BytesIO()
