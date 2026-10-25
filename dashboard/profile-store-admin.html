@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080d18">
+  <meta name="referrer" content="no-referrer">
+  <meta name="prime-store-guild-id" content="__PRIME_STORE_GUILD_ID__">
+  <meta name="prime-store-csrf" content="__PRIME_STORE_CSRF__">
+  <title>إدارة متجر PRIME</title>
+  <link rel="stylesheet" href="/profile-store-admin/app.css">
+  <script src="/profile-store-admin/app.js" defer></script>
+</head>
+<body>
+  <main class="admin-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="العودة للداشبورد"><span class="brand-mark">P</span><span><b>PRIME</b><small>STORE CONTROL</small></span></a>
+      <div class="top-actions">
+        <a class="subtle-link" href="/">العودة للداشبورد</a>
+        <button class="button button-ghost" id="refreshButton" type="button">تحديث البيانات</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow"><span class="status-dot"></span> OWNER CONSOLE / PROFILE STORE</span>
+        <h1>إدارة متجر <span>PRIME</span></h1>
+        <p>ارفع صورك وقوالبك، ابنِ أقسامك بنفسك، وحدد متى يكون كل عنصر مجانيًا أو مدفوعًا.</p>
+      </div>
+      <div class="hero-mark" aria-hidden="true"><span>P</span><i></i><b></b></div>
+    </section>
+
+    <section class="stats-grid" aria-label="ملخص المتجر">
+      <article class="stat-card"><span>إجمالي المنتجات</span><strong id="totalItems">—</strong><small>كل عناصر الكتالوج</small></article>
+      <article class="stat-card"><span>الأقسام الفعالة</span><strong id="totalCategories">—</strong><small>تظهر للزبائن في المتجر</small></article>
+      <article class="stat-card"><span>المنتجات المنشورة</span><strong id="publishedItems">—</strong><small>عناصر متاحة للشراء</small></article>
+      <article class="stat-card"><span>حالة المتجر</span><strong id="storeStatus">—</strong><small id="storeStatusNote">حالة النشر العامة</small></article>
+    </section>
+
+    <div id="notice" class="notice" role="status" hidden></div>
+    <nav class="admin-tabs" aria-label="إدارة المتجر">
+      <button type="button" class="admin-tab is-active" data-view="products">المنتجات <span id="tabItemsCount">0</span></button>
+      <button type="button" class="admin-tab" data-view="categories">الأقسام <span id="tabCategoriesCount">0</span></button>
+      <button type="button" class="admin-tab" data-view="settings">إعدادات المتجر</button>
+    </nav>
+
+    <section class="admin-view is-active" id="productsView">
+      <div class="section-heading">
+        <div><span class="eyebrow">CATALOG / ASSETS</span><h2>المنتجات والملفات</h2><p>أنشئ منتجًا، ارفع صورته، واضبط سعره وظهوره للزبائن.</p></div>
+        <button type="button" class="button button-primary" id="newItemButton">＋ إضافة منتج</button>
+      </div>
+      <div class="products-layout">
+        <aside class="product-browser panel">
+          <div class="browser-heading"><h3>الكتالوج</h3><span id="browserCount">0</span></div>
+          <label class="search-field"><span>⌕</span><input id="itemSearch" type="search" placeholder="ابحث عن منتج..." autocomplete="off"></label>
+          <div class="browser-filters">
+            <button type="button" class="filter-pill is-active" data-item-filter="all">الكل</button>
+            <button type="button" class="filter-pill" data-item-filter="active">منشور</button>
+            <button type="button" class="filter-pill" data-item-filter="inactive">مخفي</button>
+          </div>
+          <div class="item-list" id="itemList"><div class="empty-inline">جارٍ تحميل الكتالوج...</div></div>
+        </aside>
+
+        <section class="editor panel">
+          <div class="editor-heading">
+            <div><span class="eyebrow">PRODUCT EDITOR</span><h3 id="itemFormTitle">إضافة منتج جديد</h3><p>السعر صفر يعني مجانيًا. عند حفظ منتج جديد، يُنشأ أولًا ثم تُرفع صورته بأمان.</p></div>
+            <span class="editor-id" id="itemIdLabel">منتج جديد</span>
+          </div>
+          <form id="itemForm">
+            <input id="itemId" type="hidden">
+            <div class="form-grid">
+              <label class="field span-2"><span>اسم المنتج *</span><input id="itemName" maxlength="100" required placeholder="مثال: بانر أزرق قمري"></label>
+              <label class="field"><span>المعرّف التقني *</span><input id="itemSlug" maxlength="80" required pattern="[a-z0-9][a-z0-9_-]*[a-z0-9]|[a-z0-9]" placeholder="moon-banner-blue"></label>
+              <label class="field"><span>نوع العنصر *</span><select id="itemType" required>
+                <option value="background">خلفية أو بانر</option>
+                <option value="card_template">قالب بطاقة البروفايل</option>
+                <option value="badge">استكر أو شارة</option>
+                <option value="flag">علم</option>
+                <option value="card_color">لون البطاقة</option>
+                <option value="shape">شكل أو إطار</option>
+                <option value="club_logo">شعار نادٍ</option>
+              </select></label>
+              <label class="field"><span>القسم الذي يظهر فيه *</span><select id="itemCategory" required></select></label>
+              <label class="field"><span>نوع فرعي / فلتر اختياري</span><input id="itemSubcategory" maxlength="80" placeholder="مثال: أزرق، أنمي، موسمي"></label>
+              <label class="field span-2"><span>وصف المنتج</span><textarea id="itemDescription" rows="3" maxlength="1000" placeholder="اكتب وصفًا مختصرًا يظهر للزبائن"></textarea></label>
+            </div>
+
+            <div class="form-divider"></div>
+            <div class="subheading"><div><h4>السعر والظهور</h4><p>تقدر تغير السعر أو تخلي المنتج مجانيًا بأي وقت.</p></div></div>
+            <div class="form-grid">
+              <label class="field"><span>طريقة البيع</span><select id="priceMode"><option value="free">مجاني</option><option value="paid">مدفوع</option></select></label>
+              <label class="field"><span>السعر</span><input id="itemPrice" type="number" min="1" max="1000000000" step="1" value="100" disabled></label>
+              <label class="field"><span>العملة</span><select id="itemCurrency"><option value="moon">عملات PRIME</option><option value="gem">بلورات PRIME</option></select></label>
+              <label class="field"><span>الندرة</span><select id="itemRarity"><option value="common">عادي</option><option value="silver">فضي</option><option value="gold">ذهبي</option><option value="legendary">أسطوري</option></select></label>
+            </div>
+            <div class="switch-row">
+              <label class="switch-card"><input type="checkbox" id="itemActive" checked><span class="switch-ui"></span><span><b>نشر المنتج</b><small>يظهر في المتجر ويمكن شراؤه</small></span></label>
+              <label class="switch-card"><input type="checkbox" id="itemFeatured"><span class="switch-ui"></span><span><b>منتج مميز</b><small>يظهر أولًا ضمن النتائج</small></span></label>
+            </div>
+
+            <div class="form-divider"></div>
+            <div class="subheading"><div><h4>صورة المنتج</h4><p>PNG أو JPG أو WebP ثابتة، بحد أقصى 5 ميجابايت. تُخزّن خارج مجلد الويب وتُفحص قبل الحفظ.</p></div></div>
+            <div class="upload-area">
+              <div class="asset-preview" id="assetPreview"><div class="asset-placeholder"><span>＋</span><b>معاينة الصورة</b><small>تظهر هنا بعد اختيارها أو حفظها</small></div></div>
+              <div class="upload-controls">
+                <label class="file-picker">اختيار صورة<input id="itemFile" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"></label>
+                <div class="asset-info" id="assetInfo">لم يتم إرفاق صورة بعد.</div>
+                <button type="button" class="button button-ghost" id="clearImageButton">إزالة الاختيار الحالي</button>
+              </div>
+            </div>
+            <div id="itemFormError" class="form-error" hidden></div>
+            <div class="form-actions">
+              <button type="submit" class="button button-primary" id="saveItemButton">حفظ المنتج</button>
+              <button type="button" class="button button-ghost" id="resetItemButton">إلغاء التعديل</button>
+              <button type="button" class="button button-danger" id="deleteItemButton" hidden>حذف المنتج</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    <section class="admin-view" id="categoriesView">
+      <div class="section-heading"><div><span class="eyebrow">STORE SECTIONS</span><h2>أقسام المتجر</h2><p>أنشئ أقسامًا مثل الخلفيات والقوالب والبانرات والاستكرات والأعلام، ثم اربط كل منتج بالقسم المناسب.</p></div><button type="button" class="button button-primary" id="newCategoryButton">＋ قسم جديد</button></div>
+      <div class="categories-layout">
+        <section class="panel category-list-panel"><div class="browser-heading"><h3>الأقسام الحالية</h3><span id="categoryBrowserCount">0</span></div><div id="categoryList" class="category-list"></div></section>
+        <section class="panel category-editor">
+          <div class="editor-heading"><div><span class="eyebrow">CATEGORY EDITOR</span><h3 id="categoryFormTitle">إضافة قسم</h3><p>القسم المخفي لا يظهر في واجهة الشراء؛ المنتجات المرتبطة به تبقى موجودة وتظهر ضمن «كل الأقسام».</p></div></div>
+          <form id="categoryForm">
+            <input id="categoryId" type="hidden">
+            <div class="form-grid">
+              <label class="field span-2"><span>اسم القسم *</span><input id="categoryName" maxlength="80" required placeholder="مثال: بانرات موسمية"></label>
+              <label class="field"><span>المعرّف التقني *</span><input id="categorySlug" maxlength="80" pattern="[a-z0-9][a-z0-9_-]*[a-z0-9]|[a-z0-9]" required placeholder="seasonal-banners"></label>
+              <label class="field"><span>رمز القسم</span><input id="categoryIcon" maxlength="12" value="▦" placeholder="▦"></label>
+              <label class="field"><span>ترتيب العرض</span><input id="categoryOrder" type="number" min="0" max="10000" value="100"></label>
+              <label class="field span-2"><span>وصف القسم</span><textarea id="categoryDescription" rows="3" maxlength="300" placeholder="وصف اختياري يساعدك على التنظيم"></textarea></label>
+            </div>
+            <label class="switch-card standalone"><input type="checkbox" id="categoryActive" checked><span class="switch-ui"></span><span><b>القسم فعال</b><small>إيقافه يخفيه عن واجهة الشراء دون حذف المنتجات</small></span></label>
+            <div id="categoryFormError" class="form-error" hidden></div>
+            <div class="form-actions"><button type="submit" class="button button-primary" id="saveCategoryButton">حفظ القسم</button><button type="button" class="button button-ghost" id="resetCategoryButton">قسم جديد</button><button type="button" class="button button-danger" id="deleteCategoryButton" hidden>حذف القسم</button></div>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    <section class="admin-view" id="settingsView">
+      <div class="section-heading"><div><span class="eyebrow">STORE SETTINGS</span><h2>إعدادات المتجر</h2><p>تحكم في إتاحة صفحة الشراء، وحدود رفع الصور، وإعدادات الجلسات.</p></div></div>
+      <section class="panel settings-panel">
+        <form id="settingsForm">
+          <div class="settings-switches">
+            <label class="switch-card"><input type="checkbox" id="settingEnabled" checked><span class="switch-ui"></span><span><b>تشغيل المتجر</b><small>إيقافه يمنع الشراء والتجهيز من واجهة المتجر</small></span></label>
+            <label class="switch-card"><input type="checkbox" id="settingCustomUpload"><span class="switch-ui"></span><span><b>إتاحة رفع الصور للمستخدمين</b><small>هذا الخيار لا يمنح المستخدم صلاحية إدارة الكتالوج</small></span></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>سعر الرفع المخصص</span><input id="settingUploadPrice" type="number" min="0" max="1000000000" value="0"></label>
+            <label class="field"><span>عملة الرفع</span><select id="settingUploadCurrency"><option value="moon">عملات PRIME</option><option value="gem">بلورات PRIME</option></select></label>
+            <label class="field"><span>أقصى حجم للملف (بايت)</span><input id="settingMaxBytes" type="number" min="1024" max="5242880" value="5242880"></label>
+            <label class="field"><span>مدة جلسة الإدارة بالثواني</span><input id="settingTtl" type="number" min="60" max="900" value="900"></label>
+          </div>
+          <div class="form-actions"><button type="submit" class="button button-primary" id="saveSettingsButton">حفظ الإعدادات</button></div>
+        </form>
+      </section>
+      <section class="panel security-note"><span class="security-icon">✓</span><div><h3>الرفع محمي</h3><p>الصور تُفحص بحسب المحتوى الحقيقي والامتداد والحجم وعدد الإطارات، ثم يعاد ترميزها لإزالة البيانات الوصفية. لا يُقبل SVG أو ملفات تنفيذية أو صور متحركة في هذا المسار.</p></div></section>
+    </section>
+
+    <footer class="page-footer"><span>PRIME / STORE CONTROL</span><span>تغييراتك تحفظ في قاعدة بيانات المتجر الحالية.</span></footer>
+  </main>
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
