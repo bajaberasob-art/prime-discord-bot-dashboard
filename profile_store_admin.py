@@ -826,9 +826,19 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
         if not row or row["deleted_at"] or not row["asset_path"]:
             return _json_error(404, "asset_not_found")
         try:
-            root = profile_asset_root().resolve()
-            candidate = (root / str(row["asset_path"])).resolve()
-            if root not in candidate.parents or not candidate.is_file():
+            stored_path = str(row["asset_path"]).replace("\\", "/").lstrip("/")
+            repo_root = Path(__file__).resolve().parent
+            templates_root = (repo_root / "assets" / "profile_templates").resolve()
+            if stored_path.startswith("assets/profile_templates/"):
+                candidate = (repo_root / stored_path).resolve()
+                if templates_root not in candidate.parents:
+                    return _json_error(404, "asset_not_found")
+            else:
+                root = profile_asset_root().resolve()
+                candidate = (root / stored_path).resolve()
+                if root not in candidate.parents:
+                    return _json_error(404, "asset_not_found")
+            if not candidate.is_file():
                 return _json_error(404, "asset_not_found")
         except (OSError, ValueError):
             return _json_error(404, "asset_not_found")
