@@ -111,3 +111,12 @@ Runtime SQLite files are ignored by Git via `*.db`, `*.sqlite`, and `*.sqlite3`.
 ## Discloud deployment verification
 
 After a change is merged into `main`, verify the deployed revision in the Discloud app details before testing dashboard features. The latest GitHub commit and the latest deployed commit are separate states; a successful rebuild or restart alone does not prove that the newest revision was deployed. If the displayed revision is stale, refresh the GitHub repository list and inspect the deployment event/log before retrying the build.
+
+
+## Profile customization store administration
+
+The profile-store API is served by the existing authenticated dashboard backend. Catalog writes require the dashboard's CSRF/session checks, the live admin management tier for the selected guild, and bot-owner authorization. The application owner is detected from discord.py when available; otherwise configure one of these comma-separated environment variables with Discord **user IDs**: `PROFILE_STORE_ADMIN_IDS`, `BOT_OWNER_IDS`, or `BOT_OWNER_ID`.
+
+Uploaded catalog images are validated server-side and accept only static PNG, JPEG/JPG, or WebP images. GIF, APNG, and animated WebP are rejected. Files are re-encoded to strip metadata and stored outside the public dashboard directory beside the configured database volume, under `profile_store_assets/catalog/`. Set `PROFILE_STORE_ASSET_DIR` to an alternate private persistent directory if needed; paths inside `dashboard/` are rejected.
+
+The custom-upload toggle and price are global store settings. The member-facing upload UI and the actual purchase/debit workflow are added in the next phase; the current economy schema has a moon-currency wallet but no gem-wallet balance column, so gem debiting must not be assumed to work until that currency is implemented.
