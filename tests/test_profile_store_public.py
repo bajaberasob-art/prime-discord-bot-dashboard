@@ -22,7 +22,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         database.DB_NAME = os.path.join(self.temp_dir.name, "store.db")
         await database.init_db()
         await profile_store_db.ensure_profile_store_schema()
-        self.session = {"guild_id": 99, "user_id": 1234}
+        self.session = {"guild_id": 99, "user_id": 1234, "expires_at": "2099-01-01T00:00:00Z"}
 
     async def asyncTearDown(self):
         profile_store_public._registered = self.original_routes_registered
