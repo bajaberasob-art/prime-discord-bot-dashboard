@@ -197,6 +197,30 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(profile_store_public._resolve_asset_path("/etc/passwd"))
         self.assertIsNone(profile_store_public._resolve_asset_path("assets/profile_templates/../profile_card_generator.py"))
 
+    def test_preview_changes_are_temporary_and_do_not_mutate_equipped_configuration(self):
+        original_template = {"item_id": 10, "item_type": "card_template", "name": "Default"}
+        original_badges = [{"item_id": 20, "item_type": "badge"}]
+        current = {"template": original_template, "badges": original_badges}
+        selected_template = {
+            "item_id": 11, "item_type": "card_template", "name": "Preview",
+            "style": {"accent": "#43D9FF"}, "metadata": {"layout": "portrait"},
+        }
+        preview = profile_store_public._apply_preview_item(current, selected_template)
+        self.assertEqual(preview["template"]["item_id"], 11)
+        self.assertEqual(current["template"]["item_id"], 10)
+        self.assertEqual(preview["preview_item_id"], 11)
+
+        selected_badge = {"item_id": 21, "item_type": "badge"}
+        badge_preview = profile_store_public._apply_preview_item(current, selected_badge)
+        self.assertEqual([item["item_id"] for item in badge_preview["badges"]], [20, 21])
+        self.assertEqual([item["item_id"] for item in current["badges"]], [20])
+
+        color_preview = profile_store_public._apply_preview_item(
+            {"color_style": {"accent": "#43D9FF"}}, 
+            {"item_id": 33, "item_type": "card_color", "style": {"accent": "#8B72FF"}},
+        )
+        self.assertEqual(color_preview["color_style"]["accent"], "#8B72FF")
+
     def test_storefront_routes_and_brand_are_registered_without_lona_or_crescent_branding(self):
         original_registered = profile_store_public._registered
         try:
@@ -211,6 +235,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("/api/profile-store/purchase", paths)
             self.assertIn("/api/profile-store/equip", paths)
             self.assertIn("/api/profile-store/assets/{item_id}", paths)
+            self.assertIn("/api/profile-store/preview/{item_id}", paths)
 
             root = Path(__file__).resolve().parents[1] / "dashboard"
             html = (root / "profile-store.html").read_text("utf-8")
@@ -221,6 +246,8 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("بلورات PRIME", js)
             self.assertIn("updateLivePreview(item)", js)
             self.assertIn("previewTemplateArt", html + js)
+            self.assertIn("/api/profile-store/preview/", js)
+            self.assertIn("عرض البطاقة الفعلية", html)
             self.assertNotIn("Lona", html + css + js)
             self.assertNotIn("🌙", html + css + js)
         finally:
