@@ -738,18 +738,18 @@ def _draw_fallback_frame(image: Image.Image, style: dict, metadata: dict) -> Non
 
 def _draw_stat_text(
     draw: ImageDraw.ImageDraw,
-    image: Image.Image,
     stat: dict,
     value: str,
     scale: float,
-    light_text: str,
-    muted_light: str,
-    dark_text: str,
+    text_color: str,
+    muted: str,
     *,
+    image: Image.Image | None = None,
+    dark_text: str = "#101522",
     font_family: str = "modern",
     auto_contrast: bool = True,
 ) -> None:
-    """Draw stat values inside the template's defined cells with per-cell contrast."""
+    """Draw stat values inside their cells; retain the legacy positional API."""
     try:
         x, y, width, height = (int(stat[k]) for k in ("x", "y", "w", "h"))
     except (KeyError, TypeError, ValueError):
@@ -769,13 +769,14 @@ def _draw_stat_text(
         value_text, available_width, max(14, min(46, int(height * .31))),
         minimum_size=8, bold=True, font_family=font_family,
     )
+    can_sample = image is not None and auto_contrast
     label_color = (
-        _contrast_text_color(image, stat, muted_light, dark_text, stat_cell=True)
-        if auto_contrast else muted_light
+        _contrast_text_color(image, stat, muted, dark_text, stat_cell=True)
+        if can_sample else muted
     )
     value_color = (
-        _contrast_text_color(image, stat, light_text, dark_text, stat_cell=True)
-        if auto_contrast else light_text
+        _contrast_text_color(image, stat, text_color, dark_text, stat_cell=True)
+        if can_sample else text_color
     )
     draw.text((center_x, y + int(height * .31)), _display_text(label),
               font=label_font, fill=label_color, anchor="mm",
@@ -1010,8 +1011,8 @@ def render_profile_card(
         key = str(stat.get("key") or "")
         if key in stat_values:
             _draw_stat_text(
-                draw, canvas, stat, stat_values[key], scale,
-                light_text, muted_light, dark_text,
+                draw, stat, stat_values[key], scale,
+                light_text, muted_light, image=canvas, dark_text=dark_text,
                 font_family=font_family, auto_contrast=auto_contrast,
             )
 
