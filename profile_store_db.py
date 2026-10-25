@@ -34,215 +34,124 @@ STORE_ITEM_TYPES = (
 )
 STORE_RARITIES = ("common", "silver", "gold", "legendary")
 
+def _profile_template_metadata(width: int, height: int, layout: str) -> dict:
+    """Build safe element coordinates for the approved raster template's native canvas."""
+    w, h = width, height
+    avatar_size = int(min(w, h) * (0.15 if layout == "portrait" else 0.17))
+    if layout == "portrait":
+        avatar = {"x": int(w * .66), "y": int(h * .10), "size": avatar_size}
+        name = {"x": int(w * .91), "y": int(h * .36), "anchor": "ra"}
+        handle = {"x": int(w * .91), "y": int(h * .395), "anchor": "ra"}
+        level = {"x": int(w * .07), "y": int(h * .47), "anchor": "la"}
+        xp_bar = {"x": int(w * .07), "y": int(h * .525), "width": int(w * .86), "height": max(10, int(h * .009))}
+        badges = {"x": int(w * .07), "y": int(h * .575), "size": max(28, int(h * .025)), "limit": 5}
+        stat_y1, stat_y2 = int(h * .67), int(h * .82)
+        stat_w, stat_h = int(w * .41), int(h * .105)
+        stats = [
+            {"key": "balance", "label": "الرصيد", "x": int(w * .06), "y": stat_y1, "w": stat_w, "h": stat_h},
+            {"key": "messages", "label": "الرسائل", "x": int(w * .53), "y": stat_y1, "w": stat_w, "h": stat_h},
+            {"key": "rank", "label": "الترتيب", "x": int(w * .06), "y": stat_y2, "w": stat_w, "h": stat_h},
+            {"key": "voice", "label": "الصوت", "x": int(w * .53), "y": stat_y2, "w": stat_w, "h": stat_h},
+        ]
+    elif layout == "square":
+        avatar = {"x": int(w * .68), "y": int(h * .07), "size": avatar_size}
+        name = {"x": int(w * .91), "y": int(h * .32), "anchor": "ra"}
+        handle = {"x": int(w * .91), "y": int(h * .355), "anchor": "ra"}
+        level = {"x": int(w * .07), "y": int(h * .39), "anchor": "la"}
+        xp_bar = {"x": int(w * .07), "y": int(h * .45), "width": int(w * .86), "height": max(10, int(h * .012))}
+        badges = {"x": int(w * .07), "y": int(h * .515), "size": max(26, int(h * .03)), "limit": 5}
+        stat_y1, stat_y2 = int(h * .63), int(h * .79)
+        stat_w, stat_h = int(w * .41), int(h * .12)
+        stats = [
+            {"key": "balance", "label": "الرصيد", "x": int(w * .06), "y": stat_y1, "w": stat_w, "h": stat_h},
+            {"key": "messages", "label": "الرسائل", "x": int(w * .53), "y": stat_y1, "w": stat_w, "h": stat_h},
+            {"key": "rank", "label": "الترتيب", "x": int(w * .06), "y": stat_y2, "w": stat_w, "h": stat_h},
+            {"key": "voice", "label": "الصوت", "x": int(w * .53), "y": stat_y2, "w": stat_w, "h": stat_h},
+        ]
+    else:
+        avatar = {"x": int(w * .78), "y": int(h * .08), "size": avatar_size}
+        name = {"x": int(w * .73), "y": int(h * .39), "anchor": "ra"}
+        handle = {"x": int(w * .73), "y": int(h * .43), "anchor": "ra"}
+        level = {"x": int(w * .055), "y": int(h * .43), "anchor": "la"}
+        xp_bar = {"x": int(w * .055), "y": int(h * .52), "width": int(w * .64), "height": max(9, int(h * .014))}
+        badges = {"x": int(w * .055), "y": int(h * .60), "size": max(24, int(h * .035)), "limit": 5}
+        stat_y1, stat_y2 = int(h * .76), int(h * .76)
+        stat_w, stat_h = int(w * .19), int(h * .15)
+        stats = [
+            {"key": "balance", "label": "الرصيد", "x": int(w * .04), "y": stat_y1, "w": stat_w, "h": stat_h},
+            {"key": "messages", "label": "الرسائل", "x": int(w * .27), "y": stat_y2, "w": stat_w, "h": stat_h},
+            {"key": "rank", "label": "الترتيب", "x": int(w * .50), "y": stat_y2, "w": stat_w, "h": stat_h},
+            {"key": "voice", "label": "الصوت", "x": int(w * .73), "y": stat_y2, "w": stat_w, "h": stat_h},
+        ]
+    return {
+        "layout": layout, "width": w, "height": h,
+        "orientation": "portrait" if layout == "portrait" else ("square" if layout == "square" else "landscape"),
+        "avatar": avatar, "name": name, "handle": handle, "level": level,
+        "xp_bar": xp_bar, "badges": badges,
+        "flag": {"x": int(w * .045), "y": int(h * .035), "width": max(42, int(w * .055)), "height": max(28, int(h * .035))},
+        "stats": stats,
+    }
+
+
 DEFAULT_PROFILE_TEMPLATES = (
     {
-        "slug": "profile-neon-wide", "name": "نيون عريض",
-        "description": "قالب أفقي عريض بإطار نيون بنفسجي وتوزيع إحصائيات سفلي.",
-        "asset_path": "assets/profile_templates/neon_wide_violet.svg",
+        "slug": "profile-neon-wide", "name": "جليد أزرق عريض",
+        "description": "قالب PNG عريض أزرق جليدي مع عناصر الملف الشخصي.",
+        "asset_path": "assets/profile_templates/02_wide_icy_blue.png",
         "price": 0, "currency": "moon", "rarity": "common",
-        "style": {"visualStyle": "cyberpunk", "accent": "#B34CFF", "accent2": "#F06DFF", "deep": "#090611", "glow": "#D66BFF"},
-        "metadata": {
-            "layout": "wide", "width": 1280, "height": 460, "orientation": "landscape",
-            "avatar": {"x": 1048, "y": 56, "size": 170},
-            "name": {"x": 900, "y": 245, "anchor": "ra"},
-            "handle": {"x": 900, "y": 278, "anchor": "ra"},
-            "level": {"x": 82, "y": 214, "anchor": "la"},
-            "xp_bar": {"x": 82, "y": 260, "width": 760, "height": 13},
-            "badges": {"x": 84, "y": 300, "size": 34, "limit": 5},
-            "flag": {"x": 70, "y": 42, "width": 62, "height": 40},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 64, "y": 350, "w": 174, "h": 72},
-                {"key": "messages", "label": "الرسائل", "x": 254, "y": 350, "w": 174, "h": 72},
-                {"key": "rank", "label": "الترتيب", "x": 444, "y": 350, "w": 174, "h": 72},
-                {"key": "voice", "label": "الصوت", "x": 634, "y": 350, "w": 174, "h": 72},
-            ],
-        },
+        "style": {"visualStyle": "icy-blue", "accent": "#6CDFFF", "accent2": "#D9F8FF", "deep": "#071725", "glow": "#8AEAFF"},
+        "metadata": _profile_template_metadata(1672, 941, "wide"),
     },
     {
-        "slug": "profile-inferno-wide", "name": "جحيم أحمر",
-        "description": "قالب أفقي أحمر بتفاصيل حادة وإضاءة قتالية.",
-        "asset_path": "assets/profile_templates/inferno_wide_red.svg",
+        "slug": "profile-inferno-wide", "name": "ياقوت وذهب",
+        "description": "قالب PNG فائق العرض بألوان الياقوت والذهب.",
+        "asset_path": "assets/profile_templates/05_ultrawide_ruby_gold.png",
         "price": 18000, "currency": "moon", "rarity": "gold",
-        "style": {"visualStyle": "inferno", "accent": "#FF304B", "accent2": "#FF9AAB", "deep": "#15070B", "glow": "#FF5266"},
-        "metadata": {
-            "layout": "wide", "width": 1400, "height": 480, "orientation": "landscape",
-            "avatar": {"x": 1152, "y": 56, "size": 178},
-            "name": {"x": 990, "y": 250, "anchor": "ra"},
-            "handle": {"x": 990, "y": 284, "anchor": "ra"},
-            "level": {"x": 84, "y": 220, "anchor": "la"},
-            "xp_bar": {"x": 84, "y": 266, "width": 850, "height": 14},
-            "badges": {"x": 86, "y": 306, "size": 36, "limit": 5},
-            "flag": {"x": 72, "y": 42, "width": 64, "height": 42},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 70, "y": 372, "w": 190, "h": 76},
-                {"key": "messages", "label": "الرسائل", "x": 274, "y": 372, "w": 190, "h": 76},
-                {"key": "rank", "label": "الترتيب", "x": 478, "y": 372, "w": 190, "h": 76},
-                {"key": "voice", "label": "الصوت", "x": 682, "y": 372, "w": 190, "h": 76},
-            ],
-        },
+        "style": {"visualStyle": "ruby-gold", "accent": "#FF4A61", "accent2": "#FFD27A", "deep": "#17070C", "glow": "#FFB45C"},
+        "metadata": _profile_template_metadata(1860, 845, "wide"),
     },
     {
-        "slug": "profile-ocean-wide", "name": "موج أزرق",
-        "description": "قالب أفقي بلون سماوي مع خطوط متدفقة.",
-        "asset_path": "assets/profile_templates/ocean_wide_blue.svg",
+        "slug": "profile-ocean-wide", "name": "زمرد أخضر",
+        "description": "قالب PNG أفقي بإطار زمردي وشفافية أصلية.",
+        "asset_path": "assets/profile_templates/04_landscape_emerald.png",
         "price": 15000, "currency": "moon", "rarity": "silver",
-        "style": {"visualStyle": "ocean", "accent": "#17D9FF", "accent2": "#7DEEFF", "deep": "#04121F", "glow": "#55E8FF"},
-        "metadata": {
-            "layout": "wide", "width": 1280, "height": 460, "orientation": "landscape",
-            "avatar": {"x": 1048, "y": 56, "size": 170},
-            "name": {"x": 900, "y": 245, "anchor": "ra"},
-            "handle": {"x": 900, "y": 278, "anchor": "ra"},
-            "level": {"x": 82, "y": 214, "anchor": "la"},
-            "xp_bar": {"x": 82, "y": 260, "width": 760, "height": 13},
-            "badges": {"x": 84, "y": 300, "size": 34, "limit": 5},
-            "flag": {"x": 70, "y": 42, "width": 62, "height": 40},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 64, "y": 350, "w": 174, "h": 72},
-                {"key": "messages", "label": "الرسائل", "x": 254, "y": 350, "w": 174, "h": 72},
-                {"key": "rank", "label": "الترتيب", "x": 444, "y": 350, "w": 174, "h": 72},
-                {"key": "voice", "label": "الصوت", "x": 634, "y": 350, "w": 174, "h": 72},
-            ],
-        },
-    },
-    {
-        "slug": "profile-rose-portrait", "name": "وردي طولي",
-        "description": "قالب طولي بإطار وردي وتوزيع إحصائيات على عمودين.",
-        "asset_path": "assets/profile_templates/rose_portrait.svg",
-        "price": 12000, "currency": "moon", "rarity": "silver",
-        "style": {"visualStyle": "rose", "accent": "#FF78B7", "accent2": "#FFC7E0", "deep": "#170B17", "glow": "#FF9CCC"},
-        "metadata": {
-            "layout": "portrait", "width": 760, "height": 1120, "orientation": "portrait",
-            "avatar": {"x": 526, "y": 382, "size": 154},
-            "name": {"x": 686, "y": 580, "anchor": "ra"},
-            "handle": {"x": 686, "y": 616, "anchor": "ra"},
-            "level": {"x": 60, "y": 660, "anchor": "la"},
-            "xp_bar": {"x": 60, "y": 708, "width": 640, "height": 14},
-            "badges": {"x": 62, "y": 750, "size": 38, "limit": 5},
-            "flag": {"x": 54, "y": 40, "width": 60, "height": 40},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 52, "y": 805, "w": 310, "h": 92},
-                {"key": "messages", "label": "الرسائل", "x": 396, "y": 805, "w": 310, "h": 92},
-                {"key": "rank", "label": "الترتيب", "x": 52, "y": 920, "w": 310, "h": 92},
-                {"key": "voice", "label": "الصوت", "x": 396, "y": 920, "w": 310, "h": 92},
-            ],
-        },
-    },
-    {
-        "slug": "profile-royal-portrait", "name": "ملكي طولي",
-        "description": "قالب طولي ذهبي بزخارف ملكية.",
-        "asset_path": "assets/profile_templates/royal_portrait.svg",
-        "price": 300, "currency": "gem", "rarity": "legendary",
-        "style": {"visualStyle": "royal", "accent": "#FFC75A", "accent2": "#FFF0B0", "deep": "#1C1205", "glow": "#FFE19A"},
-        "metadata": {
-            "layout": "portrait", "width": 780, "height": 1160, "orientation": "portrait",
-            "avatar": {"x": 540, "y": 398, "size": 160},
-            "name": {"x": 710, "y": 596, "anchor": "ra"},
-            "handle": {"x": 710, "y": 632, "anchor": "ra"},
-            "level": {"x": 62, "y": 682, "anchor": "la"},
-            "xp_bar": {"x": 62, "y": 730, "width": 656, "height": 14},
-            "badges": {"x": 64, "y": 772, "size": 38, "limit": 5},
-            "flag": {"x": 58, "y": 42, "width": 60, "height": 40},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 52, "y": 840, "w": 320, "h": 92},
-                {"key": "messages", "label": "الرسائل", "x": 408, "y": 840, "w": 320, "h": 92},
-                {"key": "rank", "label": "الترتيب", "x": 52, "y": 954, "w": 320, "h": 92},
-                {"key": "voice", "label": "الصوت", "x": 408, "y": 954, "w": 320, "h": 92},
-            ],
-        },
-    },
-    {
-        "slug": "profile-emerald-square", "name": "زمرد مربع",
-        "description": "قالب مربع بإضاءة خضراء وإحصائيات شبكية.",
-        "asset_path": "assets/profile_templates/emerald_square.svg",
-        "price": 9000, "currency": "moon", "rarity": "silver",
         "style": {"visualStyle": "emerald", "accent": "#24F0A5", "accent2": "#A6FFD9", "deep": "#06170F", "glow": "#70FFC8"},
-        "metadata": {
-            "layout": "square", "width": 900, "height": 900, "orientation": "square",
-            "avatar": {"x": 648, "y": 94, "size": 164},
-            "name": {"x": 600, "y": 320, "anchor": "ra"},
-            "handle": {"x": 600, "y": 354, "anchor": "ra"},
-            "level": {"x": 72, "y": 382, "anchor": "la"},
-            "xp_bar": {"x": 72, "y": 426, "width": 756, "height": 14},
-            "badges": {"x": 74, "y": 466, "size": 34, "limit": 5},
-            "flag": {"x": 62, "y": 42, "width": 62, "height": 40},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 60, "y": 540, "w": 372, "h": 110},
-                {"key": "messages", "label": "الرسائل", "x": 468, "y": 540, "w": 372, "h": 110},
-                {"key": "rank", "label": "الترتيب", "x": 60, "y": 678, "w": 372, "h": 110},
-                {"key": "voice", "label": "الصوت", "x": 468, "y": 678, "w": 372, "h": 110},
-            ],
-        },
+        "metadata": _profile_template_metadata(1536, 1024, "wide"),
     },
     {
-        "slug": "profile-frost-compact", "name": "جليد عريض",
-        "description": "قالب أفقي قصير للمعلومات المختصرة.",
-        "asset_path": "assets/profile_templates/frost_compact.svg",
+        "slug": "profile-rose-portrait", "name": "نيون وردي طولي",
+        "description": "قالب PNG طولي وردي مع إطار نيون شفاف.",
+        "asset_path": "assets/profile_templates/01_portrait_neon_pink.png",
+        "price": 12000, "currency": "moon", "rarity": "silver",
+        "style": {"visualStyle": "rose-neon", "accent": "#FF78B7", "accent2": "#FFC7E0", "deep": "#170B17", "glow": "#FF9CCC"},
+        "metadata": _profile_template_metadata(1024, 1536, "portrait"),
+    },
+    {
+        "slug": "profile-royal-portrait", "name": "أزرق قمري طولي",
+        "description": "قالب PNG طولي أزرق بتصميم قمري.",
+        "asset_path": "assets/profile_templates/file_00000000ecd0820ab92f03cf4eae4acd.png",
+        "price": 300, "currency": "gem", "rarity": "legendary",
+        "style": {"visualStyle": "moonlit-blue", "accent": "#6DAEFF", "accent2": "#D6E8FF", "deep": "#071226", "glow": "#8AC7FF"},
+        "metadata": _profile_template_metadata(1024, 1536, "portrait"),
+    },
+    {
+        "slug": "profile-emerald-square", "name": "بلور بنفسجي مربع",
+        "description": "قالب PNG مربع بإطار بلوري بنفسجي شفاف.",
+        "asset_path": "assets/profile_templates/03_square_violet_crystal.png",
+        "price": 9000, "currency": "moon", "rarity": "silver",
+        "style": {"visualStyle": "violet-crystal", "accent": "#9C67FF", "accent2": "#CFADFF", "deep": "#0C061C", "glow": "#CFADFF"},
+        "metadata": _profile_template_metadata(1254, 1254, "square"),
+    },
+    {
+        "slug": "profile-frost-compact", "name": "أماثيست مربع",
+        "description": "قالب PNG مربع بصورة رمزية وإطار أماثيست.",
+        "asset_path": "assets/profile_templates/file_00000000c03481f4963ba7074882a700.png",
         "price": 10000, "currency": "moon", "rarity": "common",
-        "style": {"visualStyle": "frost", "accent": "#B8E8FF", "accent2": "#F0FBFF", "deep": "#081522", "glow": "#F0FBFF"},
-        "metadata": {
-            "layout": "compact", "width": 1320, "height": 360, "orientation": "landscape",
-            "avatar": {"x": 1150, "y": 36, "size": 126},
-            "name": {"x": 1000, "y": 168, "anchor": "ra"},
-            "handle": {"x": 1000, "y": 198, "anchor": "ra"},
-            "level": {"x": 64, "y": 152, "anchor": "la"},
-            "xp_bar": {"x": 64, "y": 197, "width": 820, "height": 12},
-            "badges": {"x": 66, "y": 220, "size": 28, "limit": 5},
-            "flag": {"x": 58, "y": 30, "width": 56, "height": 36},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 52, "y": 270, "w": 190, "h": 68},
-                {"key": "messages", "label": "الرسائل", "x": 258, "y": 270, "w": 190, "h": 68},
-                {"key": "rank", "label": "الترتيب", "x": 464, "y": 270, "w": 190, "h": 68},
-                {"key": "voice", "label": "الصوت", "x": 670, "y": 270, "w": 190, "h": 68},
-            ],
-        },
-    },
-    {
-        "slug": "profile-violet-split", "name": "بنفسجي سينمائي",
-        "description": "قالب عرضي مقسوم بإطار بنفسجي عميق.",
-        "asset_path": "assets/profile_templates/violet_split.svg",
-        "price": 25000, "currency": "moon", "rarity": "gold",
-        "style": {"visualStyle": "violet", "accent": "#9C67FF", "accent2": "#CFADFF", "deep": "#0C061C", "glow": "#CFADFF"},
-        "metadata": {
-            "layout": "split", "width": 1200, "height": 600, "orientation": "landscape",
-            "avatar": {"x": 925, "y": 74, "size": 178},
-            "name": {"x": 1090, "y": 300, "anchor": "ra"},
-            "handle": {"x": 1090, "y": 336, "anchor": "ra"},
-            "level": {"x": 84, "y": 292, "anchor": "la"},
-            "xp_bar": {"x": 84, "y": 338, "width": 720, "height": 14},
-            "badges": {"x": 86, "y": 390, "size": 36, "limit": 5},
-            "flag": {"x": 70, "y": 44, "width": 62, "height": 40},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 62, "y": 496, "w": 178, "h": 76},
-                {"key": "messages", "label": "الرسائل", "x": 256, "y": 496, "w": 178, "h": 76},
-                {"key": "rank", "label": "الترتيب", "x": 450, "y": 496, "w": 178, "h": 76},
-                {"key": "voice", "label": "الصوت", "x": 644, "y": 496, "w": 178, "h": 76},
-            ],
-        },
-    },
-    {
-        "slug": "profile-rose-wide", "name": "وردي مزهر",
-        "description": "قالب أفقي وردي بزخارف ناعمة وحواف مضيئة.",
-        "asset_path": "assets/profile_templates/rose_wide.svg",
-        "price": 20000, "currency": "moon", "rarity": "gold",
-        "style": {"visualStyle": "rose", "accent": "#FF4DA6", "accent2": "#FFC4E2", "deep": "#190714", "glow": "#FFC4E2"},
-        "metadata": {
-            "layout": "wide", "width": 1280, "height": 460, "orientation": "landscape",
-            "avatar": {"x": 1048, "y": 56, "size": 170},
-            "name": {"x": 900, "y": 245, "anchor": "ra"},
-            "handle": {"x": 900, "y": 278, "anchor": "ra"},
-            "level": {"x": 82, "y": 214, "anchor": "la"},
-            "xp_bar": {"x": 82, "y": 260, "width": 760, "height": 13},
-            "badges": {"x": 84, "y": 300, "size": 34, "limit": 5},
-            "flag": {"x": 70, "y": 42, "width": 62, "height": 40},
-            "stats": [
-                {"key": "balance", "label": "الرصيد", "x": 64, "y": 350, "w": 174, "h": 72},
-                {"key": "messages", "label": "الرسائل", "x": 254, "y": 350, "w": 174, "h": 72},
-                {"key": "rank", "label": "الترتيب", "x": 444, "y": 350, "w": 174, "h": 72},
-                {"key": "voice", "label": "الصوت", "x": 634, "y": 350, "w": 174, "h": 72},
-            ],
-        },
+        "style": {"visualStyle": "amethyst", "accent": "#B68AFF", "accent2": "#E6D4FF", "deep": "#120A22", "glow": "#D0A9FF"},
+        "metadata": _profile_template_metadata(1254, 1254, "square"),
     },
 )
+
 
 _SCHEMA_STATEMENTS = (
     """
