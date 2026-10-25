@@ -218,6 +218,30 @@ DEFAULT_PROFILE_TEMPLATES = (
                 {"key": "voice", "label": "الصوت", "x": 644, "y": 496, "w": 178, "h": 76},
             ],
         },
+    },,
+
+    {
+        "slug": "profile-rose-wide", "name": "وردي مزهر",
+        "description": "قالب أفقي وردي بزخارف ناعمة وحواف مضيئة.",
+        "asset_path": "assets/profile_templates/rose_wide.svg",
+        "price": 20000, "currency": "moon", "rarity": "gold",
+        "style": {"visualStyle": "rose", "accent": "#FF4DA6", "deep": "#190714", "glow": "#FFC4E2"},
+        "metadata": {
+            "layout": "wide", "width": 1280, "height": 460, "orientation": "landscape",
+            "avatar": {"x": 1048, "y": 56, "size": 170},
+            "name": {"x": 900, "y": 245, "anchor": "ra"},
+            "handle": {"x": 900, "y": 278, "anchor": "ra"},
+            "level": {"x": 82, "y": 214, "anchor": "la"},
+            "xp_bar": {"x": 82, "y": 260, "width": 760, "height": 13},
+            "badges": {"x": 84, "y": 300, "size": 34, "limit": 5},
+            "flag": {"x": 70, "y": 42, "width": 62, "height": 40},
+            "stats": [
+                {"key": "balance", "label": "الرصيد", "x": 64, "y": 350, "w": 174, "h": 72},
+                {"key": "messages", "label": "الرسائل", "x": 254, "y": 350, "w": 174, "h": 72},
+                {"key": "rank", "label": "الترتيب", "x": 444, "y": 350, "w": 174, "h": 72},
+                {"key": "voice", "label": "الصوت", "x": 634, "y": 350, "w": 174, "h": 72},
+            ],
+        },
     },
 )
 
