@@ -412,7 +412,7 @@ async def _write_item_asset(request, *, authorize):
                 break
             if part.name != "file" or image_data is not None:
                 return _json_error(400, "expected_one_file_field")
-            declared_mime = part.headers.get("Content-Type", part.content_type or "")
+            declared_mime = part.headers.get("Content-Type", "")
             filename = part.filename or ""
             buffer = bytearray()
             while True:
@@ -435,15 +435,9 @@ async def _write_item_asset(request, *, authorize):
         return _json_error(status, str(error))
     except (web.HTTPException, asyncio.CancelledError):
         raise
-    except Exception as error:
-        logger.exception(
-            "Profile catalog asset upload failed guild=%s item=%s error_type=%s",
-            guild.id, item_id, type(error).__name__,
-        )
-        # This endpoint is already restricted to the bot owner/store administrators.
-        # Returning the exception type (not its message or filesystem details) makes
-        # malformed multipart requests diagnosable without exposing sensitive data.
-        return _json_error(500, "asset_upload_failed", f"upload_reader_{type(error).__name__}")
+    except Exception:
+        logger.exception("Profile catalog asset upload failed guild=%s item=%s", guild.id, item_id)
+        return _json_error(500, "asset_upload_failed")
 
     filename = f"{uuid.uuid4().hex}{normalized['extension']}"
     relative_path = Path("catalog") / str(int(guild.id)) / filename
