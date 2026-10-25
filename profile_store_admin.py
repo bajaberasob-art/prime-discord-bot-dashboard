@@ -9,6 +9,7 @@ import asyncio
 import io
 import json
 import logging
+import mimetypes
 import os
 import re
 import uuid
@@ -48,7 +49,7 @@ MIME_TO_FORMAT = {
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$")
 COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 _CATEGORY_RE = re.compile(r"^[\w -]{1,80}$", re.UNICODE)
-_ASSET_ITEM_TYPES = {"background", "flag", "badge", "shape", "club_logo"}
+_ASSET_ITEM_TYPES = {"background", "card_template", "flag", "badge", "shape", "club_logo"}
 _registered = False
 
 
@@ -478,6 +479,35 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             )
         return session, guild
 
+    # The static editor itself contains no catalog data; all reads and writes
+    # below are still protected by store_authorize and the dashboard's CSRF.
+    @routes.get("/profile-store-admin")
+    async def profile_store_admin_page(request):
+        page = Path(__file__).resolve().parent / "dashboard" / "profile-store-admin.html"
+        if not page.is_file():
+            raise web.HTTPServiceUnavailable(text="PRIME store admin UI is not installed")
+        return web.FileResponse(page, headers={
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        })
+
+    @routes.get("/profile-store-admin/app.css")
+    async def profile_store_admin_css(request):
+        path = Path(__file__).resolve().parent / "dashboard" / "profile-store-admin.css"
+        if not path.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+    @routes.get("/profile-store-admin/app.js")
+    async def profile_store_admin_js(request):
+        path = Path(__file__).resolve().parent / "dashboard" / "profile-store-admin.js"
+        if not path.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
     @routes.get("/api/guild/{guild_id}/profile-store")
     async def profile_store_admin_get(request):
         _session, guild = await store_authorize(request)
@@ -780,6 +810,35 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
         except Exception:
             logger.exception("PRIME gem wallet adjustment failed guild=%s user=%s", guild.id, user_id)
             return _json_error(500, "gem_adjustment_failed")
+
+    @routes.get("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
+    async def profile_store_item_asset_preview(request):
+        _session, guild = await store_authorize(request)
+        raw_id = str(request.match_info.get("item_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "item_not_found")
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                "SELECT asset_path, deleted_at FROM profile_store_items WHERE item_id = ?",
+                (int(raw_id),),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row or row["deleted_at"] or not row["asset_path"]:
+            return _json_error(404, "asset_not_found")
+        try:
+            root = profile_asset_root().resolve()
+            candidate = (root / str(row["asset_path"])).resolve()
+            if root not in candidate.parents or not candidate.is_file():
+                return _json_error(404, "asset_not_found")
+        except (OSError, ValueError):
+            return _json_error(404, "asset_not_found")
+        mime = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        return web.FileResponse(candidate, headers={
+            "Content-Type": mime,
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        })
 
     @routes.post("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
     async def profile_store_item_upload(request):
