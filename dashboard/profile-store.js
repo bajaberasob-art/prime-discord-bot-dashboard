@@ -60,6 +60,7 @@
   function rarity(item) { return RARITY[item && item.rarity] || RARITY.common; }
   function isOwned(item) { return Boolean(item && item.owned); }
   function isEquipped(item) { return Boolean(item && item.equipped); }
+  function isEquippable(item) { return Boolean(item && Object.prototype.hasOwnProperty.call(CATEGORIES, item.item_type) && item.item_type !== "all"); }
   function priceOf(item) { return amount(item && item.price); }
   function canAfford(item) {
     if (!item) return false;
