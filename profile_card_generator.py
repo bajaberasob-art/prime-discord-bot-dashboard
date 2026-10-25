@@ -534,7 +534,9 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
         return None
 
     # x/y are the top-left of the actual avatar image; _fit_avatar adds its own 9px ring pad.
-    slot_size = int(round(2 * radius * min(scale_x, scale_y)))
+    # _fit_avatar adds a 9px ring pad on every side, so subtract that padding
+    # from the detected opening diameter to keep the avatar ring inside the artwork's hole.
+    slot_size = int(round(2 * radius * min(scale_x, scale_y))) - 18
     center_x = int(round(cx * scale_x))
     center_y = int(round(cy * scale_y))
     slot_size = max(72, min(slot_size, int(min(native_width, native_height) * 0.34)))
