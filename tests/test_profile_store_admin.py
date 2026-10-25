@@ -1,9 +1,22 @@
 import io
+import os
 import struct
+import tempfile
+import unittest
 import unittest
 import zlib
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import aiosqlite
+from aiohttp import FormData, web
+from aiohttp.test_utils import TestClient, TestServer
+
+import database
+import profile_store_admin
+import profile_store_db
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -210,6 +223,81 @@ class ProfileStoreOwnerAccessTests(unittest.TestCase):
             self.assertTrue(is_profile_store_owner(request, {"id": "9002"}))
             self.assertTrue(is_profile_store_owner(request, {"id": "9003"}))
             self.assertTrue(is_profile_store_owner(request, {"id": "0", "_local_dev": True}))
+
+
+class ProfileStoreAdminUploadRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.original_db_name = database.DB_NAME
+        self.original_registered = profile_store_admin._registered
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="prime_store_admin_")
+        database.DB_NAME = os.path.join(self.temp_dir.name, "store.db")
+        await database.init_db()
+        await profile_store_db.ensure_profile_store_schema()
+        profile_store_admin._registered = False
+        self.routes = web.RouteTableDef()
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"id": 9001}, SimpleNamespace(id=99)
+
+        profile_store_admin.register_profile_store_admin_routes(self.routes, authorize)
+        app = web.Application(client_max_size=10 * 1024 * 1024)
+        app["bot"] = SimpleNamespace(owner_id=None, owner_ids=set(), application=None)
+        app.add_routes(self.routes)
+        self.client = TestClient(TestServer(app))
+        await self.client.start_server()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+        profile_store_admin._registered = self.original_registered
+        database.DB_NAME = self.original_db_name
+        self.temp_dir.cleanup()
+
+    async def test_template_upload_and_protected_admin_asset_preview(self):
+        with patch.dict(os.environ, {
+            "PROFILE_STORE_ADMIN_IDS": "9001",
+            "BOT_OWNER_IDS": "",
+            "BOT_OWNER_ID": "",
+            "PROFILE_STORE_ASSET_DIR": "",
+        }):
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT item_id FROM profile_store_items WHERE slug = 'profile-neon-wide'"
+                ) as cursor:
+                    row = await cursor.fetchone()
+            self.assertIsNotNone(row)
+            item_id = int(row["item_id"])
+
+            raw = image_bytes("PNG", size=(96, 64))
+            form = FormData()
+            form.add_field("file", raw, filename="new-template.png", content_type="image/png")
+            uploaded = await self.client.post(
+                f"/api/guild/99/profile-store/items/{item_id}/asset",
+                data=form,
+            )
+            self.assertEqual(uploaded.status, 201, await uploaded.text())
+            info = await uploaded.json()
+            self.assertEqual((info["width"], info["height"]), (96, 64))
+            self.assertTrue(info["has_asset"])
+
+            image = await self.client.get(
+                f"/api/guild/99/profile-store/items/{item_id}/asset"
+            )
+            self.assertEqual(image.status, 200, await image.text())
+            self.assertEqual(image.headers.get("Content-Type"), "image/png")
+            with Image.open(io.BytesIO(await image.read())) as decoded:
+                self.assertEqual(decoded.size, (96, 64))
+
+    async def test_admin_ui_assets_are_served_by_the_existing_web_server(self):
+        for path, expected in (
+            ("/profile-store-admin", "إدارة متجر"),
+            ("/profile-store-admin/app.css", "product-grid"),
+            ("/profile-store-admin/app.js", "submitProduct"),
+        ):
+            response = await self.client.get(path)
+            self.assertEqual(response.status, 200, path)
+            body = await response.text()
+            self.assertIn(expected, body, path)
+            self.assertEqual(response.headers.get("Cache-Control"), "no-store")
 
 
 if __name__ == "__main__":
