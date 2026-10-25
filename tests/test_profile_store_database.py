@@ -1,5 +1,6 @@
 import hashlib
 import os
+import sqlite3
 import tempfile
 import unittest
 
@@ -94,7 +95,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 """,
                 ("gold-frame", "إطار ذهبي", "card_template", "templates", "legendary", 200, "gem"),
             )
-            with self.assertRaises(Exception):
+            with self.assertRaises(sqlite3.IntegrityError):
                 await db.execute(
                     """
                     INSERT INTO profile_store_items
