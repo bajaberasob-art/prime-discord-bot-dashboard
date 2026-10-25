@@ -219,6 +219,8 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("PRIME", html)
             self.assertIn("--cyan: #43d9ff", css)
             self.assertIn("بلورات PRIME", js)
+            self.assertIn("updateLivePreview(item)", js)
+            self.assertIn("previewTemplateArt", html + js)
             self.assertNotIn("Lona", html + css + js)
             self.assertNotIn("🌙", html + css + js)
         finally:
