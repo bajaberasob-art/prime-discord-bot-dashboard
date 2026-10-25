@@ -309,6 +309,27 @@
   function findItem(itemId) {
     return state.items.find(item => Number(item.item_id) === Number(itemId === undefined ? state.selectedId : itemId)) || null;
   }
+  function updateLivePreview(item) {
+    const card = $("#liveProfileCard");
+    const accent = safeColor(item.style && (item.style.accent || item.style.primary), "#43d9ff");
+    const secondary = safeColor(item.style && (item.style.secondary || item.style.glow), "#8b72ff");
+    const layout = String(item.metadata && (item.metadata.layout || item.metadata.orientation) || "wide").toLowerCase();
+    card.dataset.layout = ["portrait", "square"].includes(layout) ? layout : "wide";
+    card.style.setProperty("--preview-accent", accent);
+    card.style.setProperty("--preview-secondary", secondary);
+    $("#previewName").textContent = state.user.name || "عضو PRIME";
+    $("#previewHandle").textContent = "@" + String(state.user.username || "prime_member").replace(/^@/, "");
+    $("#previewAvatar").src = state.user.avatar_url || "https://cdn.discordapp.com/embed/avatars/0.png";
+    $("#previewCoins").textContent = fmt(state.wallet.coins);
+    $("#previewGems").textContent = fmt(state.wallet.gems);
+    $("#previewLevel").textContent = "PRIME";
+    $("#previewBadge").textContent = String(item.name || "PRIME MEMBER").toLocaleUpperCase("en-US").slice(0, 22);
+    $("#previewXp").textContent = item.item_type === "card_template" ? "TEMPLATE PREVIEW" : categoryName(item.item_type).toLocaleUpperCase("en-US");
+    $("#previewNote").textContent = isOwned(item)
+      ? (isEquipped(item) ? "هذا العنصر مجهّز حالياً. معاينة المظهر تستخدم إعداداته الحالية." : "هذا العنصر ضمن مقتنياتك. اضغط «تجهيز العنصر» لتطبيقه على بطاقة PRIME.")
+      : "معاينة تقريبية بألوان العنصر. جرّبه هنا قبل الشراء؛ لن يتغير بروفايلك حتى تقتنيه وتجهّزه.";
+  }
+
   function openSheet(itemId) {
     const item = findItem(itemId);
     if (!item) return;
@@ -321,6 +342,7 @@
     $("#detailType").textContent = categoryName(item.item_type);
     $("#detailTitle").textContent = item.name || "عنصر PRIME";
     $("#detailDescription").textContent = item.description || "أضف هذا العنصر لهويتك داخل PRIME.";
+    updateLivePreview(item);
     const priceRoot = $("#detailPriceRow");
     priceRoot.replaceChildren(priceNode(item, true));
     if (priceOf(item) > 0) {
