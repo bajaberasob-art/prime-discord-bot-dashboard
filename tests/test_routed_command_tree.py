@@ -21,13 +21,6 @@ class RoutedCommandTreeRollbackTests(unittest.TestCase):
         self.tree = RoutedCommandTree(self.client)
         self.tree._slash_groups = {}
 
-    def tearDown(self):
-        # No network connection is opened by these tests; ensure the client
-        # lifecycle still gets closed in case discord.py changes internals.
-        if not self.client.is_closed():
-            import asyncio
-            asyncio.run(self.client.close())
-
     def test_remove_command_removes_nested_child_and_empty_group(self):
         command = make_command("clear_user")
         self.tree.add_command(command)
