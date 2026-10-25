@@ -62,7 +62,7 @@ def _parse_object(value: Any) -> dict:
 
 def _safe_metadata(template: dict) -> dict:
     metadata = _parse_object(template.get("metadata") or template.get("metadata_json"))
-    width = _clamp(metadata.get("width"), 640, 1600, 1280)
+    width = _clamp(metadata.get("width"), 640, 2048, 1280)
     height = _clamp(metadata.get("height"), 320, 1600, 460)
     if width * height > MAX_CANVAS_PIXELS:
         ratio = (MAX_CANVAS_PIXELS / float(width * height)) ** 0.5
