@@ -527,6 +527,8 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
         "x": x, "y": y, "size": slot_size,
         "confidence": round(best_score, 3),
         "detected_center": [center_x, center_y],
+        "frame_width": native_width,
+        "frame_height": native_height,
     }
 
 
@@ -542,7 +544,17 @@ def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dic
     width = _clamp(result.get("width"), 320, 2048, 1280)
     height = _clamp(result.get("height"), 320, 2048, 720)
     if detected:
-        avatar = {key: detected[key] for key in ("x", "y", "size")}
+        source_width = max(1, int(detected.get("frame_width") or width))
+        source_height = max(1, int(detected.get("frame_height") or height))
+        scale_x, scale_y = width / source_width, height / source_height
+        target_size = max(48, int(detected["size"] * min(scale_x, scale_y)))
+        center_x = (detected["x"] + detected["size"] / 2) * scale_x
+        center_y = (detected["y"] + detected["size"] / 2) * scale_y
+        avatar = {
+            "x": max(0, min(width - target_size, int(center_x - target_size / 2))),
+            "y": max(0, min(height - target_size, int(center_y - target_size / 2))),
+            "size": min(target_size, width, height),
+        }
         result["avatar"] = avatar
         result["avatar_detection"] = {
             "method": "circular-contour",
