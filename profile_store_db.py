@@ -365,6 +365,36 @@ async def ensure_profile_store_schema() -> None:
                     for item in DEFAULT_PROFILE_TEMPLATES
                 ],
             )
+            # Keep existing item IDs/inventory valid while migrating legacy SVG entries to PNG assets.
+            await db.executemany(
+                """
+                UPDATE profile_store_items
+                SET name = :name, description = :description, rarity = :rarity,
+                    price = :price, currency = :currency, asset_path = :asset_path,
+                    style_json = :style_json, metadata_json = :metadata_json,
+                    is_active = 1, deleted_at = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE slug = :slug AND item_type = 'card_template'
+                """,
+                [
+                    {
+                        "slug": item["slug"], "name": item["name"],
+                        "description": item["description"], "rarity": item["rarity"],
+                        "price": item["price"], "currency": item["currency"],
+                        "asset_path": item["asset_path"],
+                        "style_json": json.dumps(item["style"], ensure_ascii=False),
+                        "metadata_json": json.dumps(item["metadata"], ensure_ascii=False),
+                    }
+                    for item in DEFAULT_PROFILE_TEMPLATES
+                ],
+            )
+            await db.execute(
+                """
+                UPDATE profile_store_items
+                SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+                WHERE slug IN ('profile-violet-split', 'profile-rose-wide')
+                  AND item_type = 'card_template'
+                """
+            )
             await db.execute(
                 """
                 INSERT OR IGNORE INTO profile_store_migrations (version, description)
