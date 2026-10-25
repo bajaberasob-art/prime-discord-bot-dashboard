@@ -339,17 +339,30 @@ def render_profile_card(
     style = _parse_object(template.get("style") or template.get("style_json"))
     color_style = _parse_object(profile.get("color_style"))
     style.update(color_style)
-    accent = _safe_color(profile.get("accent_color") if profile.get("accent_color") != "#F58FB2" else style.get("accent"),
-                         "#B34CFF")
-    divider_color = _safe_color(
-        profile.get("divider_color") if profile.get("divider_color") != "#F58FB2" else style.get("divider"),
-        style.get("accent2") or accent,
+    requested_accent = profile.get("accent_color")
+    requested_divider = profile.get("divider_color")
+    requested_xp = profile.get("xp_color")
+    accent_source = (
+        requested_accent
+        if requested_accent and requested_accent != "#F58FB2"
+        else style.get("accent")
     )
-    xp_color = _safe_color(
-        profile.get("xp_color") if profile.get("xp_color") != "#F58FB2" else style.get("xp"),
-        accent,
+    divider_source = (
+        requested_divider
+        if requested_divider and requested_divider != "#F58FB2"
+        else style.get("divider")
     )
+    xp_source = (
+        requested_xp
+        if requested_xp and requested_xp != "#F58FB2"
+        else style.get("xp")
+    )
+    accent = _safe_color(accent_source, "#B34CFF")
+    divider_color = _safe_color(divider_source, style.get("accent2") or accent)
+    xp_color = _safe_color(xp_source, accent)
     style["accent"] = accent
+    style["divider"] = divider_color
+    style["xp"] = xp_color
     width, height = metadata["width"], metadata["height"]
     scale = max(.55, min(1.25, width / 1000))
     deep = _safe_color(style.get("deep"), "#090B15")
