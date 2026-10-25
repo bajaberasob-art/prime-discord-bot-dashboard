@@ -438,7 +438,7 @@ async def _purchase_item(session, item_id: int) -> dict:
                     (user_id, guild_id),
                 ) as cursor:
                     wallet = await cursor.fetchone()
-                balance = int((wallet or {}).get("balance") or 0)
+                balance = int(wallet["balance"] or 0) if wallet else 0
                 if balance < price:
                     await db.rollback()
                     raise StoreActionError(402, "insufficient_coins", "رصيد عملات PRIME لا يكفي لهذا العنصر.")
