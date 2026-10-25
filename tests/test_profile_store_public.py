@@ -1,8 +1,10 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+
+from aiohttp import web
 
 import aiosqlite
 import database
@@ -53,7 +55,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["user"]["id"], "1234")
         self.assertTrue(any(item["slug"] == "profile-neon-wide" for item in data["items"]))
         self.assertTrue(any(item["slug"] == "test-store-background" for item in data["items"]))
-        self.assertTrue(all("moon" not in item.get("currency_label", "") for item in data["items"]))
+        self.assertTrue(all(item["currency"] in {"moon", "gem"} for item in data["items"]))
 
     async def test_coin_purchase_is_atomic_and_duplicate_purchase_does_not_charge_twice(self):
         item_id = await self._add_item("prime-coins-item", price=35, currency="moon")
@@ -194,6 +196,33 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(profile_store_public._resolve_asset_path("../../web_server.py"))
         self.assertIsNone(profile_store_public._resolve_asset_path("/etc/passwd"))
         self.assertIsNone(profile_store_public._resolve_asset_path("assets/profile_templates/../profile_card_generator.py"))
+
+    def test_storefront_routes_and_brand_are_registered_without_lona_or_crescent_branding(self):
+        original_registered = profile_store_public._registered
+        try:
+            profile_store_public._registered = False
+            routes = web.RouteTableDef()
+            profile_store_public.register_profile_store_public_routes(routes)
+            app = web.Application()
+            app.add_routes(routes)
+            paths = {resource.canonical for resource in app.router.resources()}
+            self.assertIn("/profile-store", paths)
+            self.assertIn("/api/profile-store/state", paths)
+            self.assertIn("/api/profile-store/purchase", paths)
+            self.assertIn("/api/profile-store/equip", paths)
+            self.assertIn("/api/profile-store/assets/{item_id}", paths)
+
+            root = Path(__file__).resolve().parents[1] / "dashboard"
+            html = (root / "profile-store.html").read_text("utf-8")
+            css = (root / "profile-store.css").read_text("utf-8")
+            js = (root / "profile-store.js").read_text("utf-8")
+            self.assertIn("PRIME", html)
+            self.assertIn("--cyan: #43d9ff", css)
+            self.assertIn("بلورات PRIME", js)
+            self.assertNotIn("Lona", html + css + js)
+            self.assertNotIn("🌙", html + css + js)
+        finally:
+            profile_store_public._registered = original_registered
 
     def test_write_requests_require_matching_origin(self):
         good = SimpleNamespace(
