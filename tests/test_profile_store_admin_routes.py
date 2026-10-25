@@ -146,7 +146,7 @@ class ProfileStoreAdminRouteTests(unittest.IsolatedAsyncioTestCase):
         css = await self.client.get("/profile-store-admin/app.css")
         js = await self.client.get("/profile-store-admin/app.js")
         self.assertEqual(css.status, 200)
-        self.assertIn("application", css.headers.get("Content-Type", ""))
+        self.assertIn("text/css", css.headers.get("Content-Type", ""))
         self.assertEqual(js.status, 200)
         self.assertIn("itemForm", await js.text())
 
