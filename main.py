@@ -371,6 +371,7 @@ class EnterpriseBot(commands.Bot):
             "cogs.economy",
             "cogs.levels",
             "cogs.rank_commands",
+            "cogs.profile",
             "cogs.subscription_commands",
             "cogs.utilities",
             "cogs.temp_voice",
@@ -432,10 +433,12 @@ class EnterpriseBot(commands.Bot):
         else:
             logger.info("⏭️ تم تخطي مزامنة أوامر Slash؛ فعّل SYNC_COMMANDS=true عند الحاجة.")
             from cogs.rank_commands import publish_rank_commands
+            from cogs.profile import publish_profile_command
             from cogs.subscription_commands import publish_subscription_commands
             from command_registration import publish_command_groups
 
             await publish_rank_commands(self, guild=self.sync_guild)
+            await publish_profile_command(self, guild=self.sync_guild)
             await publish_subscription_commands(self, guild=self.sync_guild)
             # Broad sync is intentionally disabled by default; explicitly upsert
             # the new game/tournament groups and the standalone visual game command
