@@ -2,7 +2,7 @@
   "use strict";
   const $ = (selector, parent = document) => parent.querySelector(selector);
   const state = {
-    items: [], wallet: { coins: 0, gems: 0, bank: 0 }, user: {}, guild: {}, equipped: {},
+    items: [], categories: [], wallet: { coins: 0, gems: 0, bank: 0 }, user: {}, guild: {}, equipped: {},
     category: "all", subcategory: "all", filter: "all", sort: "recommended", search: "",
     selectedId: null, busy: false, loaded: false, previewBusy: false, previewObjectUrl: null
   };
@@ -157,10 +157,17 @@
     const root = $("#categoryTabs");
     root.replaceChildren();
     const counts = { all: state.items.length };
-    state.items.forEach(item => { counts[item.item_type] = (counts[item.item_type] || 0) + 1; });
-    ["all", "background", "card_color", "card_template", "flag", "badge", "shape", "club_logo"].forEach(key => {
-      if (key !== "all" && !counts[key]) return;
-      const meta = CATEGORIES[key];
+    state.items.forEach(item => {
+      const key = String(item.category || "all");
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    const rows = [{ slug: "all", name: "كل الأقسام", icon: "▦", sort_order: -1 },
+      ...state.categories.slice().sort((a, b) =>
+        Number(a.sort_order || 0) - Number(b.sort_order || 0) ||
+        String(a.name || "").localeCompare(String(b.name || ""), "ar")
+      )];
+    rows.forEach(category => {
+      const key = category.slug;
       const button = document.createElement("button");
       button.type = "button";
       button.className = "category-tab" + (state.category === key ? " is-active" : "");
@@ -170,9 +177,9 @@
       const icon = document.createElement("span");
       icon.className = "tab-icon";
       icon.setAttribute("aria-hidden", "true");
-      icon.textContent = meta.icon;
+      icon.textContent = category.icon || (key === "all" ? "▦" : "✦");
       const label = document.createElement("span");
-      label.textContent = meta.label;
+      label.textContent = category.name || key;
       const count = document.createElement("span");
       count.className = "tab-count";
       count.textContent = fmt(counts[key] || 0);
@@ -203,7 +210,7 @@
   }
   function visibleItems() {
     let items = state.items.slice();
-    if (state.category !== "all") items = items.filter(item => item.item_type === state.category);
+    if (state.category !== "all") items = items.filter(item => String(item.category || "all") === state.category);
     if (state.subcategory !== "all") items = items.filter(item => subcategory(item) === state.subcategory);
     if (state.filter === "owned") items = items.filter(isOwned);
     if (state.filter === "affordable") items = items.filter(canAfford);
@@ -305,13 +312,13 @@
     $("#emptyState").hidden = items.length > 0;
     grid.hidden = items.length === 0;
     renderCategories();
-    renderSubcategories(state.items.filter(item => state.category === "all" || item.item_type === state.category));
+    renderSubcategories(state.items.filter(item => state.category === "all" || String(item.category || "all") === state.category));
     $("#ownershipFilters").querySelectorAll("[data-filter]").forEach(button => {
       const active = button.dataset.filter === state.filter;
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
     });
-    $("#catalogHeading").textContent = state.category === "all" ? "اكتشف العناصر" : categoryName(state.category);
+    $("#catalogHeading").textContent = state.category === "all" ? "اكتشف العناصر" : (state.categories.find(item => item.slug === state.category)?.name || state.category);
   }
   function findItem(itemId) {
     return state.items.find(item => Number(item.item_id) === Number(itemId === undefined ? state.selectedId : itemId)) || null;
@@ -517,6 +524,7 @@
     try {
       const data = await api("/api/profile-store/state");
       state.items = Array.isArray(data.items) ? data.items : [];
+      state.categories = Array.isArray(data.categories) ? data.categories : [];
       state.wallet = data.wallet || { coins: 0, gems: 0, bank: 0 };
       state.user = data.user || {};
       state.guild = data.guild || {};
