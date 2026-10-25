@@ -31,8 +31,8 @@ class ToolsChannelsTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         self.assertTrue(set(names).issubset(MASTER_COMMANDS_REGISTRY))
 
-    def test_step_five_groups_are_present_in_main(self):
-        source = Path("main.py").read_text()
+    def test_step_five_groups_are_present_in_routed_command_tree(self):
+        source = Path("routed_command_tree.py").read_text()
         self.assertIn('"ToolsChannelsCog"', source)
         self.assertIn('"security_report"', source)
         self.assertIn('"steal_sticker"', source)
