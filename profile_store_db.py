@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 import database
 
-PROFILE_STORE_SCHEMA_VERSION = 4
+PROFILE_STORE_SCHEMA_VERSION = 5
 DEFAULT_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -417,6 +417,19 @@ _SCHEMA_STATEMENTS = (
     CREATE INDEX IF NOT EXISTS idx_profile_store_sessions_owner
         ON profile_store_sessions(guild_id, user_id, expires_at)
     """,
+    """
+    CREATE TABLE IF NOT EXISTS profile_store_categories (
+        category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT NOT NULL UNIQUE CHECK (length(trim(slug)) BETWEEN 1 AND 40),
+        name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 100),
+        description TEXT NOT NULL DEFAULT '',
+        icon TEXT NOT NULL DEFAULT '▦',
+        sort_order INTEGER NOT NULL DEFAULT 100,
+        is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
 )
 
 
@@ -496,12 +509,45 @@ async def ensure_profile_store_schema() -> None:
                   AND item_type = 'card_template'
                 """
             )
+            # Store sections are first-class data so the admin can create, order,
+            # rename, hide, and remove storefront categories without editing code.
+            await db.executemany(
+                """
+                INSERT OR IGNORE INTO profile_store_categories
+                    (slug, name, description, icon, sort_order, is_active)
+                VALUES (?, ?, ?, ?, ?, 1)
+                """,
+                [
+                    ("backgrounds", "الخلفيات", "خلفيات وصور البروفايل", "▧", 10),
+                    ("templates", "قوالب البروفايل", "قوالب بطاقة PRIME", "▣", 20),
+                    ("banners", "البانرات", "صور وبانرات قابلة للاقتناء", "▱", 30),
+                    ("stickers", "الاستكرات", "ملصقات وصور صغيرة للبطاقة", "✦", 40),
+                    ("flags", "الأعلام", "أعلام الدول والمناطق", "⚑", 50),
+                    ("badges", "الشارات", "شارات العضوية والمميزات", "✧", 60),
+                    ("colors", "ألوان البطاقة", "ألوان وتنسيقات البطاقة", "◉", 70),
+                    ("shapes", "الأشكال", "إطارات وأشكال إضافية", "⬡", 80),
+                    ("club-logos", "شعارات الأندية", "شعارات الأندية والفرق", "★", 90),
+                ],
+            )
+            # Preserve any section values created by older versions or direct API use.
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO profile_store_categories
+                    (slug, name, description, icon, sort_order, is_active)
+                SELECT DISTINCT category, category, '', '▦', 100, 1
+                FROM profile_store_items
+                WHERE trim(category) <> '' AND category <> 'all'
+                """
+            )
             await db.execute(
                 """
                 INSERT OR IGNORE INTO profile_store_migrations (version, description)
                 VALUES (?, ?)
                 """,
-                (PROFILE_STORE_SCHEMA_VERSION, "Add audited admin gem adjustments to the PRIME storefront"),
+                (
+                    PROFILE_STORE_SCHEMA_VERSION,
+                    "Add editable profile-store categories and storefront management",
+                ),
             )
             await db.commit()
         except BaseException:
