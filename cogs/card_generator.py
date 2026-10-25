@@ -1352,6 +1352,39 @@ async def generate_streak_card(user, state, stage, next_stage, ranks, stages=Non
         )
 
 
+def _quantize_gif_frames(rgb_frames, colors=128):
+    """Quantize frames against one palette sampled from the complete animation."""
+    if not rgb_frames:
+        raise ValueError("at least one GIF frame is required")
+    rgb_frames = [frame.convert("RGB") for frame in rgb_frames]
+    if len(rgb_frames) == 1:
+        palette_source = rgb_frames[0].convert(
+            "P", palette=Image.Palette.ADAPTIVE, colors=colors,
+        )
+    else:
+        width, height = rgb_frames[0].size
+        sample_width = min(96, width)
+        sample_height = max(1, round(height * sample_width / max(1, width)))
+        columns = min(6, len(rgb_frames))
+        rows = math.ceil(len(rgb_frames) / columns)
+        samples = Image.new("RGB", (columns * sample_width, rows * sample_height))
+        for index, frame in enumerate(rgb_frames):
+            sample = frame.resize(
+                (sample_width, sample_height), Image.Resampling.BILINEAR,
+            )
+            samples.paste(
+                sample,
+                ((index % columns) * sample_width, (index // columns) * sample_height),
+            )
+        palette_source = samples.convert(
+            "P", palette=Image.Palette.ADAPTIVE, colors=colors,
+        )
+    return [
+        frame.quantize(palette=palette_source, dither=Image.Dither.NONE)
+        for frame in rgb_frames
+    ]
+
+
 def _animate_png_frames(png_frames, design, durations=None, loop=0):
     bases = []
     for png_bytes in png_frames:
@@ -1362,19 +1395,10 @@ def _animate_png_frames(png_frames, design, durations=None, loop=0):
     width, height = bases[0].size
     intensity = number(design.get("animationIntensity"), 62)
     if design.get("animationEnabled") is False or intensity == 0:
-        # Derive one palette from the first frame and reuse it for every frame.
-        # Per-frame adaptive palettes cause visible color flicker and repeat expensive
-        # quantization work on every frame.
-        palette_source = bases[0].convert("RGB").convert(
-            "P", palette=Image.Palette.ADAPTIVE, colors=128,
-        )
-        frames = [palette_source]
-        frames.extend(
-            base.convert("RGB").quantize(
-                palette=palette_source, dither=Image.Dither.NONE,
-            )
-            for base in bases[1:]
-        )
+        # Build the shared palette from samples across every frame, not only
+        # frame zero. Later frames may contain moving highlights or background
+        # colors that would otherwise be quantized to poor matches.
+        frames = _quantize_gif_frames([base.convert("RGB") for base in bases])
         output = io.BytesIO()
         frame_durations = durations or [85] * len(frames)
         duration_arg = frame_durations if len(frames) > 1 else frame_durations[0]
@@ -1393,7 +1417,7 @@ def _animate_png_frames(png_frames, design, durations=None, loop=0):
         accent = (56, 189, 248)
     strength = intensity / 100
     style = design.get("animationStyle", "beam")
-    frames = []
+    rgb_frames = []
     frame_count = max(18, len(bases)) if len(bases) > 1 else 18
     for index in range(frame_count):
         base = bases[index % len(bases)]
@@ -1452,17 +1476,10 @@ def _animate_png_frames(png_frames, design, durations=None, loop=0):
         glow = glow.filter(ImageFilter.GaussianBlur(max(8, int(radius * .7))))
         frame = Image.alpha_composite(base, glow)
         frame = Image.alpha_composite(frame, layer).convert("RGB")
-        if not frames:
-            # A shared palette prevents frame-to-frame palette shifts (color flicker)
-            # and avoids rebuilding an adaptive palette for every animation frame.
-            palette_source = frame.convert(
-                "P", palette=Image.Palette.ADAPTIVE, colors=128,
-            )
-            frames.append(palette_source)
-        else:
-            frames.append(frame.quantize(
-                palette=palette_source, dither=Image.Dither.NONE,
-            ))
+        rgb_frames.append(frame)
+    # Quantize only after every rendered frame is available so the global
+    # palette represents the complete animation, including moving light effects.
+    frames = _quantize_gif_frames(rgb_frames)
     output = io.BytesIO()
     frame_durations = durations or [85] * frame_count
     if len(frame_durations) != frame_count:

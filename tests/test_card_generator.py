@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import aiohttp
 from aiohttp import web
-from PIL import Image, ImageDraw
+from PIL import Image, ImageColor, ImageDraw
 
 from cogs import card_generator as cards
 from cogs import card_images
@@ -247,6 +247,26 @@ class CardTests(unittest.IsolatedAsyncioTestCase):
         self.validate(disabled)
         self.assertNotEqual(low.getvalue(), high.getvalue())
         self.assertNotEqual(high.getvalue(), disabled.getvalue())
+
+    def test_gif_palette_preserves_colors_introduced_in_later_frames(self):
+        colors = ("#ff0000", "#00ff00", "#0000ff")
+        png_frames = [image_bytes(color, (64, 40)) for color in colors]
+        result = cards._animate_png_frames(
+            png_frames,
+            {"animationEnabled": False, "animationIntensity": 0},
+            durations=[100, 100, 100],
+        )
+        with Image.open(result) as image:
+            self.assertEqual(image.n_frames, 3)
+            for index, color in enumerate(colors):
+                image.seek(index)
+                actual = image.convert("RGB").getpixel((32, 20))
+                expected = ImageColor.getrgb(color)
+                self.assertLessEqual(
+                    max(abs(actual[channel] - expected[channel]) for channel in range(3)),
+                    8,
+                    f"frame {index} lost its dominant color",
+                )
 
     async def test_level_up_gif_has_eighteen_moving_frames_and_static_rank_stays_png(self):
         settings = {
