@@ -267,6 +267,13 @@ async def _store_state(request, session) -> dict:
             LEFT JOIN user_profile_inventory AS inv
               ON inv.guild_id = ? AND inv.user_id = ? AND inv.item_id = i.item_id
             WHERE i.is_active = 1 AND i.deleted_at IS NULL
+              AND (
+                i.category = 'all'
+                OR EXISTS (
+                    SELECT 1 FROM profile_store_categories c
+                    WHERE c.slug = i.category AND c.is_active = 1
+                )
+              )
             ORDER BY i.is_featured DESC, i.item_type ASC, i.price ASC, i.item_id ASC
             """,
             (guild_id, user_id),
@@ -323,6 +330,25 @@ async def _store_state(request, session) -> dict:
     if not _safe_https_url(avatar_url) or not urlsplit(avatar_url).hostname in {"cdn.discordapp.com", "media.discordapp.net"}:
         avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
 
+    async with database.connect(aiosqlite.Row) as db:
+        async with db.execute(
+            """
+            SELECT slug, name, description, icon, sort_order, is_active
+            FROM profile_store_categories
+            WHERE is_active = 1
+            ORDER BY sort_order ASC, name COLLATE NOCASE ASC, category_id ASC
+            """
+        ) as cursor:
+            category_rows = await cursor.fetchall()
+    categories = [
+        {
+            "slug": str(row["slug"]), "name": str(row["name"]),
+            "description": str(row["description"] or ""), "icon": str(row["icon"] or "▦"),
+            "sort_order": int(row["sort_order"] or 0), "is_active": bool(row["is_active"]),
+        }
+        for row in category_rows
+    ]
+
     return {
         "brand": "PRIME",
         "guild": {"id": str(guild_id), "name": str(getattr(guild, "name", None) or "سيرفر Discord")},
@@ -346,6 +372,7 @@ async def _store_state(request, session) -> dict:
             "slots": equipped_slots,
         },
         "items": catalog,
+        "categories": categories,
     }
 
 
@@ -439,8 +466,11 @@ async def _render_profile_preview(request, session, item_id: int) -> bytes:
     async with database.connect(aiosqlite.Row) as db:
         async with db.execute(
             """
-            SELECT * FROM profile_store_items
-            WHERE item_id = ? AND is_active = 1 AND deleted_at IS NULL
+            SELECT * FROM profile_store_items i
+            WHERE i.item_id = ? AND i.is_active = 1 AND i.deleted_at IS NULL
+              AND (i.category = 'all' OR EXISTS (
+                SELECT 1 FROM profile_store_categories c WHERE c.slug = i.category AND c.is_active = 1
+              ))
             """,
             (item_id,),
         ) as cursor:
@@ -483,8 +513,11 @@ async def _purchase_item(session, item_id: int) -> dict:
             async with db.execute(
                 """
                 SELECT item_id, slug, name, item_type, price, currency
-                FROM profile_store_items
-                WHERE item_id = ? AND is_active = 1 AND deleted_at IS NULL
+                FROM profile_store_items i
+                WHERE i.item_id = ? AND i.is_active = 1 AND i.deleted_at IS NULL
+                  AND (i.category = 'all' OR EXISTS (
+                    SELECT 1 FROM profile_store_categories c WHERE c.slug = i.category AND c.is_active = 1
+                  ))
                 """,
                 (item_id,),
             ) as cursor:
@@ -607,8 +640,11 @@ async def _equip_item(session, item_id: int, requested_slot: str | None = None) 
         try:
             async with db.execute(
                 """
-                SELECT item_id, name, item_type FROM profile_store_items
-                WHERE item_id = ? AND is_active = 1 AND deleted_at IS NULL
+                SELECT item_id, name, item_type FROM profile_store_items i
+                WHERE i.item_id = ? AND i.is_active = 1 AND i.deleted_at IS NULL
+                  AND (i.category = 'all' OR EXISTS (
+                    SELECT 1 FROM profile_store_categories c WHERE c.slug = i.category AND c.is_active = 1
+                  ))
                 """,
                 (item_id,),
             ) as cursor:
@@ -849,8 +885,11 @@ def register_profile_store_public_routes(routes) -> None:
         async with database.connect(aiosqlite.Row) as db:
             async with db.execute(
                 """
-                SELECT asset_path FROM profile_store_items
-                WHERE item_id = ? AND is_active = 1 AND deleted_at IS NULL
+                SELECT asset_path FROM profile_store_items i
+                WHERE i.item_id = ? AND i.is_active = 1 AND i.deleted_at IS NULL
+                  AND (i.category = 'all' OR EXISTS (
+                    SELECT 1 FROM profile_store_categories c WHERE c.slug = i.category AND c.is_active = 1
+                  ))
                 """,
                 (item_id,),
             ) as cursor:
