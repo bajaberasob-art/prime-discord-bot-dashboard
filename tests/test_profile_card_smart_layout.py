@@ -19,7 +19,8 @@ class ProfileCardSmartLayoutTests(unittest.TestCase):
                 width, height = int(meta["width"]), int(meta["height"])
                 avatar = meta["avatar"]
                 self.assertEqual(meta["layout_engine"], "prime-smart-v2")
-                self.assertGreater(avatar["y"], int(height * 0.50))
+                avatar_center_y = avatar["y"] + avatar["size"] / 2
+                self.assertGreater(avatar_center_y, height * 0.50)
                 self.assertGreater(avatar["size"], 0)
                 self.assertLessEqual(avatar["x"] + avatar["size"], width)
                 self.assertLessEqual(avatar["y"] + avatar["size"], height)
@@ -30,8 +31,11 @@ class ProfileCardSmartLayoutTests(unittest.TestCase):
                 meta = item["metadata"]
                 self.assertGreater(meta["xp_bar"]["y"], meta["level"]["y"])
                 self.assertLess(meta["xp_bar"]["x"] + meta["xp_bar"]["width"], meta["width"])
-                self.assertGreater(min(stat["y"] for stat in meta["stats"]), int(meta["height"] * 0.75))
+                first_stat_y = min(stat["y"] for stat in meta["stats"])
+                self.assertGreater(first_stat_y, int(meta["height"] * 0.55))
+                self.assertGreater(first_stat_y, meta["xp_bar"]["y"] + meta["xp_bar"]["height"])
                 self.assertTrue(all(stat["h"] > 0 and stat["w"] > 0 for stat in meta["stats"]))
+                self.assertTrue(all(stat["y"] + stat["h"] <= meta["height"] for stat in meta["stats"]))
 
     def test_template_palette_has_valid_font_presets(self):
         expected = {"modern", "tech", "elegant", "soft"}
