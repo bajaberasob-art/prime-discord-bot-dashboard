@@ -25,7 +25,8 @@ from cogs.card_images import fetch_image
 import database
 
 logger = logging.getLogger("PrimeProfileCard")
-ROOT = Path(__file__).resolve().parents[1]
+# This module is at the repository root, so .parent is the project root.
+ROOT = Path(__file__).resolve().parent
 TEMPLATE_ROOT = (ROOT / "assets" / "profile_templates").resolve()
 DEFAULT_ASSET_LIMIT = 8 * 1024 * 1024
 MAX_CANVAS_PIXELS = 2_500_000
