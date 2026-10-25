@@ -797,6 +797,12 @@ async def on_app_command_error(
 
 async def main():
     loop = asyncio.get_running_loop()
+    logger.info(
+        "🚀 PRIME deployment marker | python=%s | discord.py=%s | port=%s",
+        sys.version.split()[0],
+        discord.__version__,
+        configured_port_text(),
+    )
 
     def request_shutdown(received_signal):
         logger.info("🛑 Received %s; beginning graceful shutdown.", received_signal.name)
