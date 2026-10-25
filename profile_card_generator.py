@@ -567,7 +567,10 @@ def _detect_template_avatar_slot(raw_frame: bytes | Image.Image | None) -> dict 
     }
 
 
-_TEMPLATE_VISION_CACHE: dict[tuple[int, int], tuple[dict | None, dict | None]] = {}\n\n\ndef _prefix_sum_grid(values: list[float], width: int, height: int) -> list[list[float]]:
+_TEMPLATE_VISION_CACHE: dict[tuple[int, int], tuple[dict | None, dict | None]] = {}
+
+
+def _prefix_sum_grid(values: list[float], width: int, height: int) -> list[list[float]]:
     """Build an integral image so thousands of candidate rectangles score in O(1)."""
     prefix = [[0.0] * (width + 1) for _ in range(height + 1)]
     for y in range(1, height + 1):
@@ -1074,6 +1077,14 @@ def _apply_smart_template_layout(
         except (TypeError, ValueError):
             pass
     xp_box = result.get("xp_bar") if isinstance(result.get("xp_bar"), dict) else {}
+    if not xp_box:
+        # This metadata reserves a likely lower-middle track for custom templates only.
+        # The renderer never paints a second XP bar over the template artwork.
+        xp_box = {
+            "x": int(width * 0.07), "y": int(height * 0.57),
+            "width": int(width * 0.64), "height": max(6, int(min(width, height) * 0.012)),
+        }
+        result["xp_bar"] = xp_box
     try:
         xp_x, xp_y = int(xp_box.get("x", -1)), int(xp_box.get("y", -1))
         xp_w, xp_h = int(xp_box.get("width", 0)), int(xp_box.get("height", 0))
