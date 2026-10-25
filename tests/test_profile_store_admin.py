@@ -1,6 +1,7 @@
 import io
+import struct
 import unittest
-import warnings
+import zlib
 
 from PIL import Image
 
@@ -91,7 +92,11 @@ class StaticImageValidationTests(unittest.TestCase):
             validate_static_image(
                 png, declared_mime="image/png", filename="large.png", max_bytes=1,
             )
-        huge = image_bytes("PNG", size=(MAX_PROFILE_UPLOAD_PIXELS + 1, 1))
+        # Increase dimensions in a small PNG header to avoid allocating a 64MB image.
+        huge_buffer = bytearray(image_bytes("PNG", size=(1, 1)))
+        struct.pack_into(">II", huge_buffer, 16, MAX_PROFILE_UPLOAD_PIXELS + 1, 1)
+        struct.pack_into(">I", huge_buffer, 29, zlib.crc32(huge_buffer[12:29]) & 0xFFFFFFFF)
+        huge = bytes(huge_buffer)
         with self.assertRaisesRegex(ValueError, "image_pixel_limit"):
             validate_static_image(
                 huge, declared_mime="image/png", filename="huge.png",
