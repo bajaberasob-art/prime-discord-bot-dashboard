@@ -590,7 +590,7 @@ def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dic
         }
         result["avatar"] = avatar
         result["avatar_detection"] = {
-            "method": "circular-contour",
+            "method": "circular-contour-override" if has_curated_avatar else "circular-contour",
             "confidence": detected["confidence"],
         }
     else:
