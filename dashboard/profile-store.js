@@ -357,6 +357,7 @@
         priceRoot.append(note);
       }
     }
+    $(".detail-actions").classList.toggle("has-secondary", !secondary.hidden);
     $("#detailSheet").classList.add("is-open");
     $("#detailSheet").setAttribute("aria-hidden", "false");
     $("#sheetScrim").hidden = false;
