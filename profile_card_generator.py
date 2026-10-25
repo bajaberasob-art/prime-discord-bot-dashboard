@@ -447,7 +447,7 @@ def _metadata_for_native_frame(metadata: dict, raw_frame: bytes | None) -> dict:
     return scaled
 
 
-def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
+def _detect_template_avatar_slot(raw_frame: bytes | Image.Image | None) -> dict | None:
     """Infer a likely empty avatar ring from a custom template image.
 
     This is a local image-analysis fallback for user-uploaded templates without explicit
@@ -455,7 +455,7 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
     The detector looks for a high-contrast circular contour, favouring the lower-right
     area where profile templates commonly reserve an avatar slot.
     """
-    frame = _image_from_bytes(raw_frame)
+    frame = raw_frame.copy() if isinstance(raw_frame, Image.Image) else _image_from_bytes(raw_frame)
     if frame is None:
         return None
     native_width, native_height = frame.size
@@ -567,7 +567,7 @@ def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
     }
 
 
-def _prefix_sum_grid(values: list[float], width: int, height: int) -> list[list[float]]:
+_TEMPLATE_VISION_CACHE: dict[tuple[int, int], tuple[dict | None, dict | None]] = {}\n\n\ndef _prefix_sum_grid(values: list[float], width: int, height: int) -> list[list[float]]:
     """Build an integral image so thousands of candidate rectangles score in O(1)."""
     prefix = [[0.0] * (width + 1) for _ in range(height + 1)]
     for y in range(1, height + 1):
@@ -943,6 +943,31 @@ def _default_stat_boxes(width: int, height: int) -> list[dict]:
     return result
 
 
+def _get_template_vision(
+    raw_frame: bytes | None,
+) -> tuple[dict | None, dict | None]:
+    """Cache expensive pixel analysis and avatar detection per immutable template asset."""
+    if not raw_frame:
+        return None, None
+    key = (len(raw_frame), hash(raw_frame))
+    cached = _TEMPLATE_VISION_CACHE.get(key)
+    if cached is not None:
+        # Move the most recently used entry to the end without retaining the image bytes.
+        _TEMPLATE_VISION_CACHE.pop(key, None)
+        _TEMPLATE_VISION_CACHE[key] = cached
+        return cached
+    frame = _image_from_bytes(raw_frame)
+    if frame is None:
+        return None, None
+    analysis = _build_template_analysis(frame)
+    detected = _detect_template_avatar_slot(frame)
+    value = (analysis, detected)
+    _TEMPLATE_VISION_CACHE[key] = value
+    while len(_TEMPLATE_VISION_CACHE) > 12:
+        _TEMPLATE_VISION_CACHE.pop(next(iter(_TEMPLATE_VISION_CACHE)))
+    return value
+
+
 def _apply_smart_template_layout(
     metadata: dict,
     raw_frame: bytes | None,
@@ -962,7 +987,7 @@ def _apply_smart_template_layout(
     handle = "@" + str(profile.get("username") or "member").strip()[:42].lstrip("@")
     level_text = f"المستوى {_number(profile.get('level'), 0)}"
 
-    analysis = _build_template_analysis(raw_frame)
+    analysis, detected = _get_template_vision(raw_frame)
     if analysis is None:
         result["layout_engine"] = "prime-vision-layout-v4"
         result["layout_analysis"] = {
@@ -973,7 +998,6 @@ def _apply_smart_template_layout(
         }
         return result
 
-    detected = _detect_template_avatar_slot(raw_frame)
     avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
     has_curated_avatar = all(key in avatar for key in ("x", "y", "size"))
     if detected and detected.get("confidence", 0) >= 0.28:
