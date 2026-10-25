@@ -196,6 +196,21 @@ def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
         return ImageFont.load_default()
 
 
+def _fit_font(text: Any, max_width: int, preferred_size: int, *, minimum_size: int = 8, bold: bool = False) -> ImageFont.ImageFont:
+    """Return the largest available font that fits the rendered text in its box."""
+    shown = _display_text(text)
+    width = max(1, int(max_width))
+    size = max(minimum_size, int(preferred_size))
+    probe = ImageDraw.Draw(Image.new("L", (1, 1)))
+    while True:
+        font = _load_font(size, bold=bold)
+        bounds = probe.textbbox((0, 0), shown, font=font, stroke_width=0)
+        measured = max(0, bounds[2] - bounds[0])
+        if measured <= width or size <= minimum_size:
+            return font
+        size -= 1
+
+
 def _display_text(value: Any) -> str:
     text = str(value if value is not None else "")
     try:
@@ -250,7 +265,7 @@ def _metadata_for_native_frame(metadata: dict, raw_frame: bytes | None) -> dict:
         if not isinstance(box, dict):
             continue
         box = dict(box)
-        for coordinate in ("x", "width"):
+        for coordinate in ("x", "width", "max_width"):
             if coordinate in box:
                 box[coordinate] = int(box[coordinate] * sx)
         for coordinate in ("y", "height"):
@@ -365,22 +380,30 @@ def _draw_fallback_frame(image: Image.Image, style: dict, metadata: dict) -> Non
 
 
 def _draw_stat_text(draw: ImageDraw.ImageDraw, stat: dict, value: str, scale: float, text_color: str, muted: str) -> None:
+    """Draw complete stat labels/values with per-cell adaptive typography."""
     try:
         x, y, width, height = (int(stat[k]) for k in ("x", "y", "w", "h"))
     except (KeyError, TypeError, ValueError):
         return
     if min(x, y, width, height) < 0 or width <= 0 or height <= 0:
         return
-    label_font = _load_font(max(11, int(19 * scale)))
-    value_font = _load_font(max(14, int(28 * scale)), bold=True)
+    padding = max(3, int(width * .06))
+    available_width = max(1, width - 2 * padding)
     center_x = x + width // 2
-    draw.text((center_x, y + int(height * .36)), _display_text(stat.get("label", "")),
+    label = str(stat.get("label", ""))
+    label_font = _fit_font(
+        label, available_width, max(13, min(40, int(height * .24))),
+        minimum_size=9,
+    )
+    value_text = str(value)
+    value_font = _fit_font(
+        value_text, available_width, max(14, min(46, int(height * .31))),
+        minimum_size=8, bold=True,
+    )
+    draw.text((center_x, y + int(height * .31)), _display_text(label),
               font=label_font, fill=muted, anchor="mm", stroke_width=0)
-    shown = str(value)
-    max_chars = max(5, int(width / max(8, 14 * scale)))
-    if len(shown) > max_chars:
-        shown = shown[:max_chars - 1] + "…"
-    draw.text((center_x, y + int(height * .70)), _display_text(shown),
+    # Never replace a wallet/message/rank value with an ellipsis: fit the font instead.
+    draw.text((center_x, y + int(height * .70)), _display_text(value_text),
               font=value_font, fill=text_color, anchor="mm", stroke_width=0)
 
 
@@ -499,12 +522,18 @@ def render_profile_card(
     handle_y = _scale_position(handle_box, "y", name_y + int(32*scale), height)
     name = str(profile.get("display_name") or profile.get("name") or "Member").strip()[:48]
     handle = "@" + str(profile.get("username") or "member").strip()[:42].lstrip("@")
-    name_font = _load_font(max(20, int(39 * scale)), bold=True)
-    handle_font = _load_font(max(13, int(21 * scale)))
+    name_available = _clamp(name_box.get("max_width"), 120, width, int(width * .42))
+    name_font = _fit_font(name, name_available, max(21, min(52, int(min(width, height) * .047))),
+                          minimum_size=15, bold=True)
+    handle_text = handle
+    handle_available = _clamp(handle_box.get("max_width"), 100, width, name_available)
+    handle_font = _fit_font(handle_text, handle_available,
+                             max(13, min(29, int(min(width, height) * .026))),
+                             minimum_size=10)
     draw.text((name_x, name_y), _display_text(name), font=name_font, fill=text_color,
               anchor=str(name_box.get("anchor") or "ra"), stroke_width=1,
               stroke_fill=(0, 0, 0, 100))
-    draw.text((handle_x, handle_y), _display_text(handle), font=handle_font, fill=muted,
+    draw.text((handle_x, handle_y), _display_text(handle_text), font=handle_font, fill=muted,
               anchor=str(handle_box.get("anchor") or "ra"))
 
     level_box = metadata.get("level") or {}
@@ -513,8 +542,12 @@ def render_profile_card(
     level = _number(profile.get("level"), 0)
     xp = _number(profile.get("xp"), 0)
     required = max(1, _number(profile.get("required_xp"), 1))
-    progress_font = _load_font(max(16, int(26 * scale)), bold=True)
-    draw.text((level_x, level_y), _display_text(f"المستوى {level}"),
+    level_text = f"المستوى {level}"
+    level_available = _clamp(level_box.get("max_width"), 100, width, int(width * .44))
+    progress_font = _fit_font(level_text, level_available,
+                              max(18, min(36, int(min(width, height) * .034))),
+                              minimum_size=12, bold=True)
+    draw.text((level_x, level_y), _display_text(level_text),
               font=progress_font, fill=text_color,
               anchor=str(level_box.get("anchor") or "la"))
     xp_box = metadata.get("xp_bar") or {}
@@ -530,9 +563,11 @@ def render_profile_card(
     if fill_w > 0:
         draw.rounded_rectangle((bar_x, bar_y, bar_x+max(bar_h, fill_w), bar_y+bar_h),
                                radius=bar_h//2, fill=xp_color)
-    xp_font = _load_font(max(10, int(15*scale)))
-    draw.text((bar_x, min(height-2, bar_y+bar_h+int(17*scale))),
-              _display_text(f"{xp:,} / {required:,} XP"),
+    xp_label = f"{xp:,} / {required:,} XP"
+    xp_font = _fit_font(xp_label, max(80, bar_w), max(12, min(24, int(bar_h * 1.8))),
+                        minimum_size=8)
+    xp_label_y = min(height - 2, bar_y + bar_h + max(12, int(bar_h * 1.45)))
+    draw.text((bar_x, xp_label_y), _display_text(xp_label),
               font=xp_font, fill=muted, anchor="la")
 
     stat_values = {

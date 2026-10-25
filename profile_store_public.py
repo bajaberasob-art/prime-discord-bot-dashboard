@@ -16,6 +16,7 @@ from aiohttp import web
 
 import database
 import profile_store_db
+from profile_card_service import build_profile_card_data
 
 logger = logging.getLogger("PrimeProfileStore")
 ROOT = Path(__file__).resolve().parent
@@ -451,28 +452,9 @@ async def _render_profile_preview(request, session, item_id: int) -> bytes:
     item["style"] = _json_object(item.pop("style_json", "{}"))
     item["metadata"] = _json_object(item.pop("metadata_json", "{}"))
 
-    configuration = await profile_store_db.get_profile_card_configuration(guild_id, user_id)
+    profile, configuration = await build_profile_card_data(guild, member)
     configuration = _apply_preview_item(configuration, item)
 
-    humans = [int(user.id) for user in guild.members if not getattr(user, "bot", False)]
-    if user_id not in humans:
-        humans.append(user_id)
-    snapshot = await database.get_command_rank_snapshot(guild_id, user_id, humans, mode="text")
-    from level_progression import text_progress
-
-    progress = text_progress(int(snapshot.get("text_xp") or 0))
-    wallet = await profile_store_db.get_profile_wallet(guild_id, user_id)
-    profile = {
-        "display_name": str(getattr(member, "display_name", None) or member.name),
-        "username": str(getattr(member, "name", "member")),
-        "level": int(snapshot.get("text_level") or progress["level"]),
-        "xp": int(progress["progress_xp"]),
-        "required_xp": max(1, int(progress["xp_required"])),
-        "balance": int(wallet.get("balance") or 0),
-        "messages": int(snapshot.get("total_messages") or 0),
-        "rank": snapshot.get("rank"),
-        "voice_seconds": int(snapshot.get("total_voice_seconds") or 0),
-    }
 
     from profile_card_generator import generate_profile_card
 

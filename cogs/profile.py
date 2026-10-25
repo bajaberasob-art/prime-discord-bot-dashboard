@@ -14,11 +14,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-import database
 import profile_store_db
 from interaction_runtime import send_interaction_message
-from level_progression import text_progress, xp_required
 from profile_card_generator import generate_profile_card
+from profile_card_service import build_profile_card_data
 
 logger = logging.getLogger("PrimeProfile")
 PROFILE_STORE_URL = (
@@ -114,29 +113,7 @@ class ProfileCommands(commands.Cog):
         self.bot = bot
 
     async def _build_card(self, guild: discord.Guild, member: discord.Member):
-        humans = [int(user.id) for user in guild.members if not getattr(user, "bot", False)]
-        if member.id not in humans:
-            humans.append(int(member.id))
-
-        snapshot = await database.get_command_rank_snapshot(
-            guild.id, member.id, humans, mode="text",
-        )
-        progress = text_progress(int(snapshot.get("text_xp") or 0))
-        wallet = await profile_store_db.get_profile_wallet(guild.id, member.id)
-        configuration = await profile_store_db.get_profile_card_configuration(
-            guild.id, member.id,
-        )
-        profile = {
-            "display_name": str(getattr(member, "display_name", None) or member.name),
-            "username": str(getattr(member, "name", "member")),
-            "level": int(snapshot.get("text_level") or progress["level"]),
-            "xp": int(progress["progress_xp"]),
-            "required_xp": max(1, int(progress["xp_required"])),
-            "balance": int(wallet.get("balance") or 0),
-            "messages": int(snapshot.get("total_messages") or 0),
-            "rank": snapshot.get("rank"),
-            "voice_seconds": int(snapshot.get("total_voice_seconds") or 0),
-        }
+        profile, configuration = await build_profile_card_data(guild, member)
         return await generate_profile_card(member, profile, configuration)
 
     async def _send_profile(
