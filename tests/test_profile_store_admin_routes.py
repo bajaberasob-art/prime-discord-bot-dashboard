@@ -133,6 +133,23 @@ class ProfileStoreAdminRouteTests(unittest.IsolatedAsyncioTestCase):
                 loaded = Image.open(io.BytesIO(await preview.read()))
                 self.assertEqual(loaded.size, (72, 48))
 
+
+    async def test_owner_page_embeds_authorized_context_and_static_assets_load(self):
+        page = await self.client.get("/guild/99/profile-store-admin")
+        self.assertEqual(page.status, 200)
+        html = await page.text()
+        self.assertIn('name="prime-store-guild-id" content="99"', html)
+        self.assertIn('name="prime-store-csrf" content="test-csrf"', html)
+        self.assertNotIn("__PRIME_STORE_GUILD_ID__", html)
+        self.assertNotIn("__PRIME_STORE_CSRF__", html)
+
+        css = await self.client.get("/profile-store-admin/app.css")
+        js = await self.client.get("/profile-store-admin/app.js")
+        self.assertEqual(css.status, 200)
+        self.assertIn("application", css.headers.get("Content-Type", ""))
+        self.assertEqual(js.status, 200)
+        self.assertIn("itemForm", await js.text())
+
     async def test_default_sections_are_seeded_and_visible_to_admin(self):
         response = await self.client.get("/api/guild/99/profile-store")
         self.assertEqual(response.status, 200)
