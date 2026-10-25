@@ -413,6 +413,220 @@ def _metadata_for_native_frame(metadata: dict, raw_frame: bytes | None) -> dict:
     return scaled
 
 
+def _detect_template_avatar_slot(raw_frame: bytes | None) -> dict | None:
+    """Infer a likely empty avatar ring from a custom template image.
+
+    This is a local image-analysis fallback for user-uploaded templates without explicit
+    layout metadata. The seven bundled PRIME templates use curated coordinates instead.
+    The detector looks for a high-contrast circular contour, favouring the lower-right
+    area where profile templates commonly reserve an avatar slot.
+    """
+    frame = _image_from_bytes(raw_frame)
+    if frame is None:
+        return None
+    native_width, native_height = frame.size
+    if native_width < 160 or native_height < 160:
+        return None
+
+    # Keep the detector bounded in both CPU and memory for uploaded assets.
+    analysis = frame.copy()
+    analysis.thumbnail((320, 320), Image.Resampling.LANCZOS)
+    width, height = analysis.size
+    scale_x, scale_y = native_width / width, native_height / height
+
+    # Transparent templates often reveal the avatar opening as a dark hole. Composite
+    # transparency on a neutral dark surface before measuring edges and ring contrast.
+    backdrop = Image.new("RGBA", analysis.size, (10, 13, 22, 255))
+    backdrop.alpha_composite(analysis)
+    grayscale = backdrop.convert("L")
+    edge_image = grayscale.filter(ImageFilter.FIND_EDGES)
+    gray_pixels = grayscale.load()
+    edge_pixels = edge_image.load()
+    min_dimension = min(width, height)
+    if min_dimension < 100:
+        return None
+
+    # A compact angular sample keeps the scan cheap enough for previews, even on mobile.
+    angles = tuple(2.0 * 3.141592653589793 * index / 32 for index in range(32))
+    radii = list(range(max(10, int(min_dimension * 0.075)),
+                       max(12, int(min_dimension * 0.235)), 2))
+    if not radii:
+        return None
+
+    def mean_ring(cx: int, cy: int, radius: int, pixels, radial_offset: int = 0) -> float:
+        values = []
+        r = radius + radial_offset
+        for angle in angles:
+            x = int(round(cx + r * __import__("math").cos(angle)))
+            y = int(round(cy + r * __import__("math").sin(angle)))
+            if 0 <= x < width and 0 <= y < height:
+                values.append(pixels[x, y])
+        return sum(values) / len(values) if values else 0.0
+
+    best_score = 0.0
+    best = None
+    min_radius = min(radii)
+    max_radius = max(radii)
+    step_x = max(3, width // 72)
+    step_y = max(3, height // 72)
+    # Search enough of the canvas to support mirrored/custom designs but avoid extreme
+    # edge/corner ornaments that cannot fit a useful avatar crop.
+    for cy in range(max_radius + 4, height - max_radius - 3, step_y):
+        for cx in range(max_radius + 4, width - max_radius - 3, step_x):
+            inner = mean_ring(cx, cy, max(3, min_radius * 0.48).__int__(), gray_pixels)
+            for radius in radii:
+                edge_score = mean_ring(cx, cy, radius, edge_pixels) / 255.0
+                if edge_score < 0.075:
+                    continue
+                on_ring = mean_ring(cx, cy, radius, gray_pixels)
+                inside_ring = mean_ring(cx, cy, radius, gray_pixels, -4)
+                outside_ring = mean_ring(cx, cy, radius, gray_pixels, 4)
+                contrast = (abs(on_ring - inside_ring) + abs(on_ring - outside_ring)) / 510.0
+                inner_mean = mean_ring(cx, cy, max(3, int(radius * 0.58)), gray_pixels)
+                outer_mean = mean_ring(cx, cy, radius + 8, gray_pixels)
+                hole_contrast = max(0.0, outer_mean - inner_mean) / 255.0
+                # Soft prior, never strong enough to override a clearly better circle elsewhere.
+                location_bonus = 0.0
+                nx, ny = cx / width, cy / height
+                if 0.52 <= nx <= 0.96 and 0.38 <= ny <= 0.94:
+                    location_bonus = 0.045
+                score = (
+                    0.57 * min(1.0, edge_score)
+                    + 0.25 * min(1.0, contrast)
+                    + 0.18 * min(1.0, hole_contrast)
+                    + location_bonus
+                )
+                if score > best_score:
+                    best_score = score
+                    best = (cx, cy, radius, edge_score, contrast)
+
+    if best is None:
+        return None
+    cx, cy, radius, edge_score, contrast = best
+    # Reject weak circles in highly ornamented art; don't turn a random curve into an avatar slot.
+    if edge_score < 0.13 or contrast < 0.075 or best_score < 0.22:
+        return None
+
+    # x/y are the top-left of the actual avatar image; _fit_avatar adds its own 9px ring pad.
+    slot_size = int(round(2 * radius * min(scale_x, scale_y)))
+    center_x = int(round(cx * scale_x))
+    center_y = int(round(cy * scale_y))
+    slot_size = max(72, min(slot_size, int(min(native_width, native_height) * 0.34)))
+    x = max(0, min(native_width - slot_size, center_x - slot_size // 2))
+    y = max(0, min(native_height - slot_size, center_y - slot_size // 2))
+    return {
+        "x": x, "y": y, "size": slot_size,
+        "confidence": round(best_score, 3),
+        "detected_center": [center_x, center_y],
+    }
+
+
+def _apply_smart_template_layout(metadata: dict, raw_frame: bytes | None) -> dict:
+    """Use explicit template metadata when present; otherwise infer a custom frame layout."""
+    result = dict(metadata or {})
+    avatar = result.get("avatar") if isinstance(result.get("avatar"), dict) else {}
+    # Valid curated/manual anchor data always wins over heuristic image detection.
+    if all(key in avatar for key in ("x", "y", "size")):
+        return result
+
+    detected = _detect_template_avatar_slot(raw_frame)
+    width = _clamp(result.get("width"), 320, 2048, 1280)
+    height = _clamp(result.get("height"), 320, 2048, 720)
+    if detected:
+        avatar = {key: detected[key] for key in ("x", "y", "size")}
+        result["avatar"] = avatar
+        result["avatar_detection"] = {
+            "method": "circular-contour",
+            "confidence": detected["confidence"],
+        }
+    else:
+        # Safe, deterministic fallback if the uploaded template contains no convincing ring.
+        size = int(min(width, height) * 0.18)
+        avatar = {
+            "x": int(width * 0.79) - size // 2,
+            "y": int(height * 0.65) - size // 2,
+            "size": size,
+        }
+        result["avatar"] = avatar
+        result["avatar_detection"] = {"method": "lower-right-fallback", "confidence": 0.0}
+
+    # Keep textual fields away from the avatar ring. If the detected opening is right-sided,
+    # arrange identity to its upper-left and progress/statistics in separate lower bands.
+    center_x = avatar["x"] + avatar["size"] / 2
+    center_y = avatar["y"] + avatar["size"] / 2
+    radius = avatar["size"] / 2
+    margin = max(24, int(min(width, height) * 0.045))
+    right_side = center_x >= width * 0.5
+    if right_side:
+        name_x = max(margin + 10, int(center_x - radius * 0.12))
+        name_anchor = "ra"
+        name_width = max(120, name_x - margin)
+        level_x = margin
+        level_anchor = "la"
+        xp_x = margin
+        xp_width = max(100, min(int(width * 0.68), int(avatar["x"] - xp_x - margin * 0.45)))
+    else:
+        name_x = min(width - margin - 10, int(center_x + radius * 1.1))
+        name_anchor = "la"
+        name_width = max(120, width - name_x - margin)
+        level_x = max(margin, int(width * 0.52))
+        level_anchor = "la"
+        xp_x = max(margin, int(width * 0.06))
+        xp_width = max(100, min(int(width * 0.68), width - xp_x - margin))
+
+    name_y = max(margin, int(center_y - radius * 1.75))
+    handle_y = min(height - margin * 2, name_y + max(30, int(height * 0.045)))
+    level_y = min(height - margin * 3, int(center_y + radius * 0.15))
+    xp_y = min(height - margin * 2, int(center_y + radius * 0.78))
+    result["name"] = {
+        "x": name_x, "y": name_y, "max_width": name_width, "anchor": name_anchor,
+    }
+    result["handle"] = {
+        "x": name_x, "y": handle_y, "max_width": name_width, "anchor": name_anchor,
+    }
+    result["level"] = {
+        "x": level_x, "y": level_y, "max_width": max(120, width - level_x - margin),
+        "anchor": level_anchor,
+    }
+    result["xp_bar"] = {
+        "x": xp_x, "y": xp_y, "width": xp_width,
+        "height": max(7, int(min(width, height) * 0.012)),
+    }
+    result["badges"] = {
+        "x": margin, "y": min(height - margin, int(xp_y + height * 0.055)),
+        "size": max(20, int(min(width, height) * 0.025)), "limit": 5,
+    }
+    if width >= height * 1.18:
+        stat_y = int(height * 0.82)
+        stat_h = int(height * 0.12)
+        stat_w = int(width * 0.21)
+        stat_xs = [int(width * ratio) for ratio in (0.035, 0.275, 0.515, 0.755)]
+        stats = [
+            {"key": key, "label": label, "x": stat_xs[index], "y": stat_y,
+             "w": stat_w, "h": stat_h}
+            for index, (key, label) in enumerate((
+                ("balance", "الرصيد"), ("messages", "الرسائل"),
+                ("rank", "الترتيب"), ("voice", "الصوت"),
+            ))
+        ]
+    else:
+        stat_y1, stat_y2 = int(height * 0.78), int(height * 0.88)
+        stat_w, stat_h = int(width * 0.405), int(height * 0.075)
+        stats = [
+            {"key": key, "label": label, "x": int(width * x), "y": int(height * y),
+             "w": stat_w, "h": stat_h}
+            for (key, label, x, y) in (
+                ("balance", "الرصيد", 0.06, stat_y1 / height),
+                ("messages", "الرسائل", 0.535, stat_y1 / height),
+                ("rank", "الترتيب", 0.06, stat_y2 / height),
+                ("voice", "الصوت", 0.535, stat_y2 / height),
+            )
+        ]
+    result["stats"] = stats
+    result["layout_engine"] = "prime-smart-v2"
+    return result
+
+
 def _draw_gradient(width: int, height: int, base: str, accent: str) -> Image.Image:
     """Build a smooth dark gradient in O(height), then add a blurred accent glow."""
     base_rgb = ImageColor.getrgb(base)
@@ -564,8 +778,9 @@ def render_profile_card(
     """Render one PNG using the selected template's own dimensions and layout."""
     profile = dict(profile or {})
     template = dict(template or {})
-    metadata = _metadata_for_native_frame(
-        _safe_metadata(template), template_bytes
+    metadata = _apply_smart_template_layout(
+        _metadata_for_native_frame(_safe_metadata(template), template_bytes),
+        template_bytes,
     )
     style = _parse_object(template.get("style") or template.get("style_json"))
     color_style = _parse_object(profile.get("color_style"))
