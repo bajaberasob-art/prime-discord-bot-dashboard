@@ -9,6 +9,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import aiosqlite
 import database
+import profile_store_admin
 import profile_store_db
 import profile_store_public
 
@@ -45,6 +46,68 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             )
             await db.commit()
             return int(cursor.lastrowid)
+
+    async def test_admin_gem_grant_is_scoped_and_audited(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        async def read_json_body(request):
+            return await request.json()
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize, read_json_body)
+        app = web.Application()
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            granted = await client.post(
+                "/api/guild/99/profile-store/users/1234/gems",
+                json={"delta": 60, "reason": "launch_reward"},
+            )
+            self.assertEqual(granted.status, 200, await granted.text())
+            self.assertEqual((await granted.json())["balance"], 60)
+
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT balance FROM user_profile_gem_wallets WHERE guild_id = 99 AND user_id = 1234"
+                ) as cursor:
+                    wallet = await cursor.fetchone()
+                async with db.execute(
+                    """
+                    SELECT actor_user_id, target_user_id, action, delta, balance_after, reason
+                    FROM profile_store_admin_audit
+                    WHERE guild_id = 99 AND target_user_id = 1234
+                    ORDER BY audit_id DESC LIMIT 1
+                    """
+                ) as cursor:
+                    audit = await cursor.fetchone()
+            self.assertEqual(wallet["balance"], 60)
+            self.assertEqual(tuple(audit), (777, 1234, "gem_grant", 60, 60, "launch_reward"))
+
+            wrong_scope = await client.post(
+                "/api/guild/100/profile-store/users/1234/gems",
+                json={"delta": 20, "reason": "wrong_scope"},
+            )
+            self.assertEqual(wrong_scope.status, 403)
+
+            overdraw = await client.post(
+                "/api/guild/99/profile-store/users/1234/gems",
+                json={"delta": -100, "reason": "invalid_overdraw"},
+            )
+            self.assertEqual(overdraw.status, 409)
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT balance FROM user_profile_gem_wallets WHERE guild_id = 99 AND user_id = 1234"
+                ) as cursor:
+                    wallet = await cursor.fetchone()
+            self.assertEqual(wallet["balance"], 60)
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
 
     async def test_http_store_session_csrf_and_free_purchase_flow(self):
         profile_store_public._registered = False
