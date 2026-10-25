@@ -303,12 +303,27 @@ class EnterpriseBot(commands.Bot):
             await prime_ai_persistence.close_durable_store()
 
     async def _reset_http_session_for_retry(self) -> None:
-        """Replace the shared HTTP session without re-running bot setup."""
+        """Release both HTTP clients before retrying without re-running setup."""
         old_session = self.session
         self.session = None
         if old_session and not old_session.closed:
             with contextlib.suppress(Exception):
                 await old_session.close()
+
+        # discord.py creates its own HTTP session during static_login(), before
+        # setup_hook() loads extensions. If setup_hook fails, retrying without
+        # closing this separate session leaks one ClientSession per attempt.
+        http_client = getattr(self, "http", None)
+        if http_client is not None:
+            with contextlib.suppress(Exception):
+                await http_client.close()
+            with contextlib.suppress(Exception):
+                http_client.clear()
+            # The old session owns the connector. Force discord.py to create a
+            # fresh connector alongside the new session on the next login.
+            with contextlib.suppress(Exception):
+                http_client.connector = discord.utils.MISSING
+
         if self._is_initialized and not self.is_closed():
             self.session = aiohttp.ClientSession()
 
@@ -826,11 +841,24 @@ async def main():
                 await asyncio.sleep(retry_delay)
                 bot._retry_delay = min(retry_delay * 2, 60)
             except Exception as error:
-                await bot._reset_http_session_for_retry()
+                # Preserve the original startup exception: setup_hook wraps
+                # extension-load failures in RuntimeError, so exc_info is needed
+                # to reveal the underlying import/registration error.
+                try:
+                    await bot._reset_http_session_for_retry()
+                except Exception:
+                    logger.exception("تعذر تنظيف موارد HTTP بعد فشل التشغيل.")
+
+                retry_delay = bot._retry_delay
                 logger.critical(
-                    f"❌ انقطاع غير معالج في الحلقة التشغيلية: {error}"
+                    "❌ انقطاع غير معالج في الحلقة التشغيلية: %s. "
+                    "إعادة المحاولة خلال %s ثوانٍ.",
+                    error,
+                    retry_delay,
+                    exc_info=(type(error), error, error.__traceback__),
                 )
-                await asyncio.sleep(5)
+                await asyncio.sleep(retry_delay)
+                bot._retry_delay = min(retry_delay * 2, 60)
 
 
 if __name__ == "__main__":
