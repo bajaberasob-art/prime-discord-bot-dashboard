@@ -667,7 +667,13 @@ async def _equip_item(session, item_id: int, requested_slot: str | None = None) 
                     ) as cursor:
                         occupied = {str(row["slot_key"]) for row in await cursor.fetchall()}
                     if slot_key is None:
-                        slot_key = next((candidate for candidate in _BADGE_SLOTS if candidate not in occupied), "badge_5")
+                        slot_key = next((candidate for candidate in _BADGE_SLOTS if candidate not in occupied), None)
+                    if slot_key is None:
+                        await db.rollback()
+                        raise StoreActionError(
+                            409, "badge_slots_full",
+                            "خانات الشارات الخمس ممتلئة. أزل شارة موجودة ثم جهّز الجديدة.",
+                        )
                 else:
                     slot_key = item_type
                 await db.execute(
