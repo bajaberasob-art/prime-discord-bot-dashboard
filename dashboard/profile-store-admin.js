@@ -136,7 +136,7 @@ function updateLayoutOverlayStyle(element,key){
 function renderLayoutEditor(){
  const panel=$('layoutEditorPanel');if(!panel)return;const active=$('type').value==='card_template';panel.classList.toggle('hidden',!active);if(!active)return;
  const meta=normalizeLayoutMetadata(),stage=$('layoutStage'),img=$('layoutStageImage'),empty=$('layoutStageEmpty');
- stage.style.aspectRatio=meta.width+' / '+meta.height;
+ const stageMaxHeight=window.innerWidth<=850?380:460;stage.style.maxHeight=stageMaxHeight+'px';stage.style.width='min(100%, '+Math.round(stageMaxHeight*meta.width/meta.height)+'px)';stage.style.aspectRatio=meta.width+' / '+meta.height;
  const item=items.find(x=>String(x.item_id)===String($('itemId').value));
  const selected=$('layoutField').value||'avatar';ensureLayoutField(selected);
  const file=$('asset').files&&$('asset').files[0];const source=file&&previewUrl?previewUrl:(item&&item.has_asset?endpoint('/items/'+item.item_id+'/asset'):'');
@@ -191,6 +191,7 @@ $('resetLayout').addEventListener('click',()=>{
 $('layoutOverlayLayer').addEventListener('pointerdown',startLayoutPointer);
 document.addEventListener('pointermove',moveLayoutPointer);
 document.addEventListener('pointerup',endLayoutPointer);
+window.addEventListener('resize',()=>renderLayoutEditor());
 $('layoutStageImage').addEventListener('load',()=>{
  const img=$('layoutStageImage');
  if(img.naturalWidth&&img.naturalHeight&&layoutNeedsDefault){layoutMetadata=defaultLayoutMetadata(img.naturalWidth,img.naturalHeight);layoutNeedsDefault=false;renderLayoutEditor()}
