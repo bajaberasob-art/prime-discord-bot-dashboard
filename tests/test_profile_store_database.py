@@ -85,7 +85,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(row[1] == "templates" and row[2] is None for row in rows))
         self.assertTrue(all(row[3] == 1 for row in rows))
         # The migration introduces management metadata but leaves legacy catalog fields intact.
-        self.assertTrue(any(row[1] == "profile-neon-wide" for row in items_before))
+        self.assertTrue(any(row[0] == "profile-neon-wide" for row in items_before))
         self.assertTrue(any(row[1] == "templates" for row in items_before))
 
     async def test_schema_initialization_is_idempotent(self):
