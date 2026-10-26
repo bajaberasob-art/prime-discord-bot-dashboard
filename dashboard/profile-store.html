@@ -64,6 +64,31 @@
       </div>
     </section>
 
+    <section class="custom-background-panel" id="customBackgroundPanel" aria-labelledby="customBackgroundTitle" hidden>
+      <div class="custom-background-copy">
+        <span class="section-kicker">YOUR OWN BACKGROUND</span>
+        <h2 id="customBackgroundTitle">خلفيتك الخاصة</h2>
+        <p>ارفع صورة من جهازك لتكون خلف القالب الذي اخترته. تُقص الصورة تلقائيًا لتملأ أبعاد القالب بدون تمديد أو تشويه، ويبقى إطار القالب وعناصر البروفايل فوقها.</p>
+      </div>
+      <div class="custom-background-controls">
+        <label class="custom-background-file" for="customBackgroundFile">
+          <span>اختر صورة الخلفية</span>
+          <input id="customBackgroundFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+          <small>PNG أو JPG أو WebP أو GIF · الحد: <b id="customBackgroundMaxSize">5 MB</b></small>
+        </label>
+        <div class="custom-background-price">
+          <span>تكلفة الرفع</span>
+          <strong id="customBackgroundPrice">—</strong>
+          <small id="customBackgroundPriceNote">تُخصم عند نجاح الرفع فقط</small>
+        </div>
+        <div class="custom-background-actions">
+          <button type="button" class="primary-button" id="uploadCustomBackground">رفع وتطبيق الخلفية</button>
+          <button type="button" class="secondary-button" id="clearCustomBackground" hidden>إزالة الخلفية المخصصة</button>
+        </div>
+      </div>
+      <p class="custom-background-status" id="customBackgroundStatus" role="status" aria-live="polite">اختر صورة لبدء التخصيص.</p>
+    </section>
+
     <nav class="catalog-tabs" id="categoryTabs" aria-label="أقسام المتجر" role="tablist"></nav>
 
     <section class="catalog-controls" aria-label="البحث والفرز">
