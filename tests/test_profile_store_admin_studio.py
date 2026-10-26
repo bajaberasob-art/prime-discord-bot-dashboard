@@ -15,7 +15,7 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
             "الأعلام",
             "السعر (0 = مجاني)",
             "type=\"file\"",
-            "X-CSRF-Token",
+            "profile-store-admin.js",
             "/items/",
             "filterType",
             "filterStatus",
@@ -30,6 +30,12 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         self.assertIn('session, _guild = await store_authorize(request)', source)
         self.assertIn('@routes.get("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")', source)
         self.assertIn('if root not in path.parents or not path.is_file():', source)
+        server = (Path(__file__).resolve().parents[1] / "web_server.py").read_text("utf-8")
+        self.assertIn('"profile-store-admin.js": "application/javascript"', server)
+        client = (Path(__file__).resolve().parents[1] / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        self.assertIn("X-CSRF-Token", client)
+        self.assertIn("data-section", client)
+        self.assertIn("categories.map", client)
 
 
 if __name__ == "__main__":
