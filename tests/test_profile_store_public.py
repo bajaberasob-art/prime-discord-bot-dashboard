@@ -238,6 +238,12 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(item["item_id"], {entry["item_id"] for entry in hidden_state["items"]})
             self.assertNotIn("test-section", {entry["name"] for entry in hidden_state["categories"]})
 
+            settings_response = await client.post(
+                "/api/guild/99/profile-store/settings",
+                json={"enabled": True},
+            )
+            self.assertEqual(settings_response.status, 200, await settings_response.text())
+
             async with database.connect(aiosqlite.Row) as db:
                 async with db.execute(
                     "SELECT action, entity_type FROM profile_store_catalog_audit WHERE guild_id = 99 ORDER BY audit_id"
@@ -246,6 +252,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any(row["action"] == "category_created" for row in audit))
             self.assertTrue(any(row["action"] == "item_created" for row in audit))
             self.assertTrue(any(row["action"] == "category_updated" for row in audit))
+            self.assertTrue(any(row["action"] == "settings_updated" and row["entity_type"] == "settings" for row in audit))
         finally:
             await client.close()
             profile_store_admin._registered = original_registered
