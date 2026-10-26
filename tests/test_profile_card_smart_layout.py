@@ -90,7 +90,7 @@ class ProfileCardSmartLayoutTests(unittest.TestCase):
             "stats": [],
         }
         resolved = generator._apply_smart_template_layout(metadata, encoded.getvalue())
-        self.assertEqual(resolved["layout_engine"], "prime-smart-v2")
+        self.assertEqual(resolved["layout_engine"], "prime-vision-layout-v4")
         self.assertEqual(resolved["avatar_detection"]["method"], "circular-contour")
         self.assertEqual(len(resolved["stats"]), 4)
         self.assertGreater(resolved["xp_bar"]["width"], 0)
@@ -111,18 +111,20 @@ class ProfileCardSmartLayoutTests(unittest.TestCase):
         encoded = io.BytesIO()
         image.save(encoded, format="PNG")
 
-        # Simulate stale avatar coordinates in a template that already has hand-authored
-        # text, XP-track, and stats anchors. Only the avatar should move.
+        # Simulate stale avatar coordinates and overlapping text on a custom template.
         metadata = {
             "width": width, "height": height, "layout": "portrait",
             "avatar": {"x": 12, "y": 16, "size": 48},
-            "name": {"x": 150, "y": 40, "max_width": 100, "anchor": "ra"},
-            "handle": {"x": 150, "y": 60, "max_width": 100, "anchor": "ra"},
-            "level": {"x": 20, "y": 200, "max_width": 120, "anchor": "la"},
+            "name": {"x": 150, "y": 220, "max_width": 100, "anchor": "ra"},
+            "handle": {"x": 150, "y": 238, "max_width": 100, "anchor": "ra"},
+            "level": {"x": 150, "y": 240, "max_width": 120, "anchor": "la"},
             "xp_bar": {"x": 20, "y": 235, "width": 190, "height": 8},
             "stats": [{"key": "balance", "label": "الرصيد", "x": 20, "y": 290, "w": 100, "h": 35}],
         }
-        resolved = generator._apply_smart_template_layout(metadata, encoded.getvalue())
+        profile = {"display_name": "aboody_515", "username": "aboody_515", "level": 117}
+        resolved = generator._apply_smart_template_layout(
+            metadata, encoded.getvalue(), profile=profile, style={"font_family": "modern"}
+        )
         avatar = resolved["avatar"]
         actual_center_x = avatar["x"] + avatar["size"] / 2
         actual_center_y = avatar["y"] + avatar["size"] / 2
@@ -130,11 +132,17 @@ class ProfileCardSmartLayoutTests(unittest.TestCase):
         self.assertEqual(
             resolved["avatar_detection"]["method"], "circular-contour-override"
         )
-        # The coarse local contour scan is approximate but must beat the stale saved slot.
         self.assertLess(abs(actual_center_x - center[0]), 36)
         self.assertLess(abs(actual_center_y - center[1]), 36)
-        for key in ("name", "handle", "level", "xp_bar", "stats"):
-            self.assertEqual(resolved[key], metadata[key], f"{key} anchor changed with avatar")
+        self.assertTrue(resolved["layout_analysis"]["uses_profile_text_lengths"])
+        if resolved["layout_analysis"]["layout_applied"]:
+            identity_rect = tuple(resolved["layout_analysis"]["identity_rect"])
+            level_rect = tuple(resolved["layout_analysis"]["level_rect"])
+            self.assertFalse(generator._rect_overlaps(identity_rect, level_rect))
+            stat = resolved["stats"][0]
+            stat_rect = (stat["x"], stat["y"], stat["x"] + stat["w"], stat["y"] + stat["h"])
+            self.assertFalse(generator._rect_overlaps(identity_rect, stat_rect))
+            self.assertFalse(generator._rect_overlaps(level_rect, stat_rect))
 
     def test_arabic_draw_uses_directional_text_without_double_reordering(self):
         image = Image.new("RGBA", (420, 100), (8, 12, 22, 255))
