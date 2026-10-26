@@ -16,6 +16,7 @@
 .layout-element{position:absolute;display:flex;align-items:center;justify-content:center;min-width:7px;min-height:7px;padding:2px;border:1px dashed #72dcff;border-radius:5px;background:rgba(29,148,190,.18);color:#fff;font-size:clamp(8px,1.15vw,13px);font-weight:800;line-height:1.1;text-align:center;white-space:normal;overflow:visible;touch-action:none;user-select:none;cursor:move;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
 .layout-element.selected{z-index:5;border:2px solid #f4d06f;background:rgba(244,208,111,.2);box-shadow:0 0 0 2px rgba(244,208,111,.18)}
 .layout-element[data-kind="avatar"]{border-radius:50%;background:rgba(114,220,255,.12)}
+.layout-element[data-kind="background"]{border:1px dashed #63e6bd;background:rgba(99,230,189,.12);color:#effff8}
 .layout-element[data-kind="text"]{border-style:dashed}
 .layout-resize{position:absolute;right:-5px;left:auto;bottom:-5px;width:13px;height:13px;border:2px solid #080b14;border-radius:4px;background:#f4d06f;cursor:nwse-resize;touch-action:none}.layout-element[data-kind="text"][data-anchor="ra"] .layout-resize{left:-5px;right:auto}
 .layout-controls{display:grid;gap:10px;min-width:0}
@@ -67,7 +68,7 @@
 <div class="field full"><label for="accent">لون التمييز (اختياري)</label><input id="accent" type="text" maxlength="7" value="#72DCFF" pattern="#[0-9a-fA-F]{6}"></div>
 <div class="field full checks"><label><input id="active" type="checkbox" checked> ظاهر وقابل للشراء</label><label><input id="featured" type="checkbox"> منتج مميز</label></div></div><div class="actions"><button class="primary" type="submit" id="saveItem">حفظ المنتج</button><button type="button" id="deleteItem" class="danger hidden">حذف المنتج</button></div></form>
 <section id="layoutEditorPanel" class="layout-editor-panel hidden" aria-labelledby="layoutEditorHeading">
-  <div class="layout-editor-heading"><div><h3 id="layoutEditorHeading">محرر تخطيط القالب</h3><div class="muted">اسحب العنصر لتغيير مكانه، واستخدم المقبض الأصفر لتغيير حجمه. المواضع تحفظ ضمن بيانات القالب.</div></div><span class="pill">تحرير مرئي</span></div>
+  <div class="layout-editor-heading"><div><h3 id="layoutEditorHeading">محرر تخطيط القالب</h3><div class="muted">اختر «مساحة الخلفية» لتحديد مكان الصورة وحجمها داخل القالب. اسحب الإطار الأخضر أو غيّر X/Y والعرض والارتفاع، ثم احفظ التخطيط.</div></div><span class="pill">تحرير مرئي</span></div>
   <div class="layout-editor-grid">
     <div class="layout-stage-shell"><div id="layoutStage" class="layout-stage" style="aspect-ratio:2/1"><img id="layoutStageImage" alt="معاينة قالب البروفايل"><div id="layoutOverlayLayer" class="layout-overlay-layer"></div><div id="layoutStageEmpty" class="layout-empty">ارفع صورة للقالب أو اختر قالباً موجوداً لبدء ضبط العناصر.</div></div></div>
     <div class="layout-controls">
