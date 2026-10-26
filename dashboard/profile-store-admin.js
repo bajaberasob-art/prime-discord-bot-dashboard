@@ -7,7 +7,26 @@ function refreshBackgroundPreviewOptions(){const select=$('layoutBackgroundSourc
 function notice(message,error=false){const n=$('notice');n.textContent=message;n.classList.toggle('error',error);n.style.display='block';window.setTimeout(()=>n.style.display='none',6000)}
 async function api(path,opts={}){const headers=new Headers(opts.headers||{});headers.set('X-CSRF-Token',csrf);if(opts.body&&!(opts.body instanceof FormData))headers.set('Content-Type','application/json');const res=await fetch(endpoint(path),{...opts,headers,credentials:'same-origin'});let data={};try{data=await res.json()}catch{}if(!res.ok)throw new Error(data.message||data.error||('HTTP '+res.status));return data}
 function parseItem(i){return {...i,style:i.style||{},metadata:i.metadata||{}}}
-async function load(){try{const data=await api('');items=(data.items||[]).map(parseItem);categories=(data.categories||[]).map(c=>({...c,category_id:Number(c.category_id),parent_id:c.parent_id==null?null:Number(c.parent_id),sort_order:Number(c.sort_order)||0,is_active:!!c.is_active}));settings=data.settings||{};refreshBackgroundPreviewOptions();const sales=data.sales||{};$('salesPurchases').textContent=fmtNumber(sales.purchases);$('salesBuyers').textContent=fmtNumber(sales.buyers);$('salesMoon').textContent=fmtNumber(sales.moon_revenue);$('salesGems').textContent=fmtNumber(sales.gem_revenue);$('storeEnabled').checked=!!Number(settings.enabled);$('customEnabled').checked=!!Number(settings.custom_upload_enabled);$('customPrice').value=settings.custom_upload_price||0;$('customCurrency').value=settings.custom_upload_currency||'moon';$('maxUpload').value=Math.max(0.001,Number(settings.max_custom_upload_bytes||5242880)/1048576).toFixed(3);$('sessionTtl').value=settings.session_ttl_seconds||900;render();}catch(e){notice('تعذر تحميل المتجر: '+e.message,true)}}
+function switchAdminTab(name){
+ const valid=new Set(['overview','products','design','categories','settings']);
+ if(!valid.has(name))name='overview';
+ document.querySelectorAll('[data-admin-pane]').forEach(p=>p.classList.toggle('hidden',p.dataset.adminPane!==name));
+ document.querySelectorAll('[data-admin-tab]').forEach(b=>{const active=b.dataset.adminTab===name;b.classList.toggle('is-active',active);b.setAttribute('aria-selected',active?'true':'false');});
+ if(name==='design')renderLayoutEditor();
+}
+function updateDesignTemplateOptions(){
+ const select=$('designTemplateSelect');if(!select)return;
+ const previous=select.value;
+ const current=items.find(item=>String(item.item_id)===String($('itemId').value||'')&&item.item_type==='card_template');
+ const templates=items.filter(item=>item.item_type==='card_template');
+ select.innerHTML='<option value="">اختر قالبًا محفوظًا</option>'+templates.map(item=>'<option value="'+escape(item.item_id)+'">'+escape(item.name)+' · '+escape(item.slug)+'</option>').join('');
+ if(templates.some(item=>String(item.item_id)===previous))select.value=previous;
+ else if(current)select.value=String(current.item_id);
+ else select.value='';
+ $('designLoadTemplate').disabled=templates.length===0;
+ $('designStatus').textContent=templates.length?'اختر القالب ثم افتحه في الاستوديو. القوالب غير المعدّلة تبقى كما هي حتى تحفظ تغييراتك.':'لا توجد قوالب بطاقات محفوظة بعد. أنشئ قالبًا من قسم المنتجات والقوالب أولًا.';
+}
+async function load(){try{const data=await api('');items=(data.items||[]).map(parseItem);updateDesignTemplateOptions();categories=(data.categories||[]).map(c=>({...c,category_id:Number(c.category_id),parent_id:c.parent_id==null?null:Number(c.parent_id),sort_order:Number(c.sort_order)||0,is_active:!!c.is_active}));settings=data.settings||{};refreshBackgroundPreviewOptions();const sales=data.sales||{};$('salesPurchases').textContent=fmtNumber(sales.purchases);$('salesBuyers').textContent=fmtNumber(sales.buyers);$('salesMoon').textContent=fmtNumber(sales.moon_revenue);$('salesGems').textContent=fmtNumber(sales.gem_revenue);$('storeEnabled').checked=!!Number(settings.enabled);$('customEnabled').checked=!!Number(settings.custom_upload_enabled);$('customPrice').value=settings.custom_upload_price||0;$('customCurrency').value=settings.custom_upload_currency||'moon';$('maxUpload').value=Math.max(0.001,Number(settings.max_custom_upload_bytes||5242880)/1048576).toFixed(3);$('sessionTtl').value=settings.session_ttl_seconds||900;render();}catch(e){notice('تعذر تحميل المتجر: '+e.message,true)}}
 function fmtNumber(value){return Number(value||0).toLocaleString('ar')}
 function localDateTimeValue(value){if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}
 function utcDateTimeValue(value){if(!value)return null;const d=new Date(value);if(Number.isNaN(d.getTime()))throw new Error('تأكد من صحة وقت بداية العرض ونهايته.');return d.toISOString()}
@@ -145,7 +164,11 @@ function writeLayoutBox(key,x,y,width,height){
 }
 function layoutElements(){
  const meta=normalizeLayoutMetadata(),elements=[];
- for(const key of ['background_area','avatar','name','handle','level','xp_bar','badges','flag'])elements.push({key,label:layoutLabels[key],box:getLayoutBox(key),kind:layoutKind(key)});
+ for(const key of ['background_area','avatar','name','handle','level','xp_bar','badges','flag']){
+  const box=getLayoutBox(key);
+  const label=key==='level'?String(box.text_template||'المستوى {level}').replace('{level}','12'):layoutLabels[key];
+  elements.push({key,label,box,kind:layoutKind(key)});
+ }
  for(const stat of meta.stats){if(stat&&stat.key)elements.push({key:'stat:'+stat.key,label:stat.label||layoutLabels[stat.key]||stat.key,box:getLayoutBox('stat:'+stat.key),kind:'stat'})}
  return elements;
 }
@@ -153,6 +176,18 @@ function displayLayoutLeft(box){return box.kind==='text'?(box.anchor==='ra'?box.
 function updateLayoutOverlayStyle(element,key){
  const box=getLayoutBox(key),meta=normalizeLayoutMetadata();
  element.style.left=(displayLayoutLeft(box)/meta.width*100)+'%';element.style.top=(box.y/meta.height*100)+'%';element.style.width=(box.width/meta.width*100)+'%';element.style.height=(box.height/meta.height*100)+'%';
+ const label=element.querySelector('span');
+ if(label&&(box.kind==='text'||box.kind==='stat')){
+  const stage=$('layoutStage'),ratio=stage.clientWidth/Math.max(1,meta.width);
+  label.style.color=box.color||'';
+  label.style.fontSize=Math.max(7,Math.min(22,(Number(box.font_size)||13)*ratio))+'px';
+  label.style.fontWeight=box.bold===false?'500':'800';
+  const family=box.font_family||'modern';
+  label.style.fontFamily=family==='elegant'?'Georgia,serif':family==='tech'?'Arial Narrow,Arial,sans-serif':family==='soft'?'system-ui,sans-serif':'system-ui,sans-serif';
+  const stroke=Math.max(0,Math.min(6,Number(box.stroke_width)||0))*ratio;
+  label.style.webkitTextStrokeWidth=stroke+'px';
+  label.style.webkitTextStrokeColor='rgba(0,0,0,.72)';
+ }
 }
 function renderLayoutEditor(){
  const panel=$('layoutEditorPanel');if(!panel)return;const active=$('type').value==='card_template';panel.classList.toggle('hidden',!active);if(!active)return;
@@ -171,6 +206,14 @@ function renderLayoutEditor(){
 }
 function updateBackgroundPreview(){const preview=$('layoutBackgroundPreview'),select=$('layoutBackgroundSource');if(!preview||!select)return;const id=select.value,item=items.find(value=>String(value.item_id)===String(id)&&value.item_type==='background'&&value.has_asset),meta=normalizeLayoutMetadata(),area=meta.background_area;if(!item){preview.removeAttribute('src');preview.classList.add('hidden');preview.dataset.source='';return}const source=assetUrl(item.item_id);if(preview.dataset.source!==source){preview.dataset.source=source;preview.src=source}preview.classList.remove('hidden');preview.style.left=(area.x/meta.width*100)+'%';preview.style.top=(area.y/meta.height*100)+'%';preview.style.width=(area.width/meta.width*100)+'%';preview.style.height=(area.height/meta.height*100)+'%';preview.style.objectFit=area.fit==='contain'?'contain':'cover';preview.style.background='rgba(8,11,20,.5)'}
 function syncLayoutEditor(force){if(force)layoutImageSource='';renderLayoutEditor()}
+function defaultElementFontSize(key,box,meta){
+ const short=Math.min(meta.width,meta.height);
+ if(key==='name')return Math.max(28,Math.min(64,Math.floor(short*.056)));
+ if(key==='handle')return Math.max(20,Math.min(36,Math.floor(short*.034)));
+ if(key==='level')return Math.max(30,Math.min(60,Math.floor(short*.052)));
+ const height=Number(box.h)||Math.max(28,Math.round(meta.height*.1));
+ return Math.max(32,Math.min(72,Math.floor(height*.43)));
+}
 function updateLayoutControls(){
  const key=$('layoutField').value||'avatar';ensureLayoutField(key);const box=getLayoutBox(key),meta=normalizeLayoutMetadata();
  $('layoutX').max=meta.width;$('layoutY').max=meta.height;$('layoutWidth').max=meta.width;$('layoutHeight').max=meta.height;
@@ -178,7 +221,40 @@ function updateLayoutControls(){
  $('layoutAnchor').disabled=box.kind!=='text';$('layoutAnchor').value=box.anchor==='la'?'la':'ra';
  $('backgroundFit').disabled=key!=='background_area';$('backgroundFit').value=meta.background_area.fit||'cover';
  $('layoutXpEnabled').disabled=key!=='xp_bar';$('layoutXpEnabled').checked=!!(meta.xp_bar&&meta.xp_bar.enabled);
+ const styleable=box.kind==='text'||box.kind==='stat';
+ const editableText=key==='level'||box.kind==='stat';
+ const item=items.find(value=>String(value.item_id)===String($('itemId').value||''));
+ const defaultFamily=item&&item.style&&['modern','tech','elegant','soft'].includes(item.style.font_family)?item.style.font_family:'modern';
+ $('layoutFontSize').value=Number(box.font_size)||defaultElementFontSize(key,box,meta);
+ $('layoutFontFamily').value=['modern','tech','elegant','soft'].includes(box.font_family)?box.font_family:defaultFamily;
+ $('layoutTextColor').value=/^#[0-9a-fA-F]{6}$/.test(String(box.color||''))?box.color:'#FFFFFF';
+ $('layoutAutoColor').checked=!box.color;
+ $('layoutBold').checked=typeof box.bold==='boolean'?box.bold:(box.kind==='stat'||key==='name'||key==='level');
+ $('layoutStrokeWidth').value=Number.isFinite(Number(box.stroke_width))&&box.stroke_width!==''?Math.max(0,Math.min(6,Math.round(Number(box.stroke_width)))):(key==='handle'?1:2);
+ for(const id of ['layoutFontSize','layoutFontFamily','layoutAutoColor','layoutBold','layoutStrokeWidth','applyElementStyle'])$(id).disabled=!styleable;
+ $('layoutTextColor').disabled=!styleable||$('layoutAutoColor').checked;
+ $('layoutTextContent').value=key==='level'?String(box.text_template||'المستوى {level}'):box.kind==='stat'?String(box.label||layoutLabels[key.slice(5)]||''):'';
+ $('layoutTextContent').placeholder=key==='level'?'مثال: المستوى {level}':box.kind==='stat'?'عنوان الإحصائية':'هذا النص ديناميكي ويُجلب من بيانات العضو';
+ $('layoutTextContent').disabled=!editableText;
+ $('layoutStyleHelp').textContent=key==='level'?'يمكنك تخصيص تنسيق المستوى. استخدم {level} مكان رقم مستوى العضو.':box.kind==='stat'?'تتحكم هذه الإعدادات في قيمة الإحصائية؛ ويمكنك أيضًا تغيير عنوانها.':styleable?'تُحفظ إعدادات الخط واللون والحد لهذا العنصر فقط. اضغط تطبيق مظهر العنصر، ثم حفظ التخطيط لتثبيت التغييرات واستخدامها في بطاقة البروفايل.':'إعدادات النص تظهر عند اختيار الاسم أو اسم الحساب أو المستوى أو أحد الإحصاءات النصية.';
  $('layoutHelp').textContent=key==='background_area'?'حدد مساحة ظهور صورة الخلفية داخل القالب بالسحب أو بتعديل X/Y والعرض والارتفاع. تُركّب صورة الخلفية داخل هذا المستطيل فقط، ويبقى إطار القالب فوقها. اختر ملء المساحة للقص المتناسب أو إظهار الصورة كاملة دون قص.':key==='xp_bar'?'يمكن تحديد موضع شريط الخبرة وحجمه. تفعيل الرسم يرسم نسبة XP الحقيقية؛ اتركه متوقفاً إذا كان الشريط مرسوماً داخل صورة القالب.':box.kind==='text'?'يتحكم العرض في المساحة القصوى للنص، وتحدد المحاذاة اتجاه تثبيت نقطة الإحداثيات.':'اسحب العنصر فوق الصورة، أو أدخل قيم X/Y والعرض والارتفاع بدقة.';
+}
+function applyElementStyle(){
+ const key=$('layoutField').value||'avatar',box=ensureLayoutField(key);
+ if(!['text','stat'].includes(layoutKind(key))){notice('اختر عنصرًا نصيًا قبل تعديل مظهره.',true);return}
+ const fontSize=Number($('layoutFontSize').value),strokeWidth=Number($('layoutStrokeWidth').value);
+ if(!Number.isFinite(fontSize)||fontSize<8||fontSize>120||!Number.isFinite(strokeWidth)||strokeWidth<0||strokeWidth>6){notice('حجم الخط يجب أن يكون بين 8 و120، وحد النص بين 0 و6.',true);return}
+ box.font_size=Math.round(fontSize);
+ box.font_family=['modern','tech','elegant','soft'].includes($('layoutFontFamily').value)?$('layoutFontFamily').value:'modern';
+ box.bold=$('layoutBold').checked;
+ box.stroke_width=Math.round(strokeWidth);
+ if($('layoutAutoColor').checked)delete box.color;
+ else box.color=$('layoutTextColor').value;
+ const textContent=$('layoutTextContent').value.trim().slice(0,100);
+ if(key==='level')box.text_template=textContent||'المستوى {level}';
+ else if(box.kind==='stat')box.label=textContent||layoutLabels[key.slice(5)]||key.slice(5);
+ renderLayoutEditor();
+ notice('تم تطبيق المظهر في الاستوديو. اضغط «حفظ التخطيط» لتثبيت التغييرات.');
 }
 function applyLayoutInputs(){
  const key=$('layoutField').value||'avatar',box=getLayoutBox(key);let x=Number($('layoutX').value),y=Number($('layoutY').value),w=Number($('layoutWidth').value),h=Number($('layoutHeight').value);
@@ -207,6 +283,8 @@ function moveLayoutPointer(event){
 function endLayoutPointer(event){if(!layoutDrag||event.pointerId!==layoutDrag.pointerId)return;layoutDrag=null;renderLayoutEditor()}
 $('layoutBackgroundSource').addEventListener('change',updateBackgroundPreview);
 $('layoutField').addEventListener('change',()=>{ensureLayoutField($('layoutField').value);renderLayoutEditor()});
+$('layoutAutoColor').addEventListener('change',()=>{$('layoutTextColor').disabled=$('layoutAutoColor').checked||!['text','stat'].includes(layoutKind($('layoutField').value||'avatar'))});
+$('applyElementStyle').addEventListener('click',applyElementStyle);
 $('applyLayout').addEventListener('click',applyLayoutInputs);
 $('saveLayout').addEventListener('click',async()=>{const id=String($('itemId').value||'');if(!id){notice('احفظ المنتج أولاً، ثم احفظ تخطيط القالب.',true);return}const item=items.find(value=>String(value.item_id)===id);if(!item||item.item_type!=='card_template'){notice('اختر قالباً محفوظاً أولاً.',true);return}const button=$('saveLayout');button.disabled=true;try{const desired=payload();const result=await api('/items/'+id,{method:'PUT',body:JSON.stringify({...desired,is_active:!!item.is_active,is_featured:!!item.is_featured})});const saved=result.item;if(!saved||JSON.stringify(saved.metadata||{})!==JSON.stringify(desired.metadata)){await load();const fresh=items.find(value=>String(value.item_id)===id);if(!fresh||JSON.stringify(fresh.metadata||{})!==JSON.stringify(desired.metadata))throw new Error('لم تتطابق الإعدادات بعد إعادة قراءتها من قاعدة البيانات.')}await load();edit(Number(id));notice('تم حفظ التخطيط والتحقق منه بعد إعادة تحميل بيانات المتجر.')}catch(error){notice('تعذر حفظ التخطيط: '+error.message,true)}finally{button.disabled=false}});
 $('backgroundFit').addEventListener('change',()=>{ensureLayoutField('background_area').fit=$('backgroundFit').value==='contain'?'contain':'cover';renderLayoutEditor()});
@@ -225,6 +303,41 @@ $('layoutStageImage').addEventListener('load',()=>{
  if(img.naturalWidth&&img.naturalHeight&&layoutNeedsDefault){layoutMetadata=defaultLayoutMetadata(img.naturalWidth,img.naturalHeight);layoutNeedsDefault=false;renderLayoutEditor()}
 });
 
+const adminTabs=[...document.querySelectorAll('[data-admin-tab]')];
+function focusAdminTab(index){
+ if(!adminTabs.length)return;
+ const next=(index+adminTabs.length)%adminTabs.length;
+ adminTabs.forEach((tab,i)=>tab.tabIndex=i===next?0:-1);
+ adminTabs[next].focus();
+ switchAdminTab(adminTabs[next].dataset.adminTab);
+}
+adminTabs.forEach((button,index)=>{
+ button.tabIndex=button.dataset.adminTab==='overview'?0:-1;
+ button.addEventListener('click',()=>switchAdminTab(button.dataset.adminTab));
+ button.addEventListener('keydown',event=>{
+  let next=index;
+  if(event.key==='ArrowLeft'||event.key==='ArrowDown')next=index+1;
+  else if(event.key==='ArrowRight'||event.key==='ArrowUp')next=index-1;
+  else if(event.key==='Home')next=0;
+  else if(event.key==='End')next=adminTabs.length-1;
+  else return;
+  event.preventDefault();
+  focusAdminTab(next);
+ });
+});
+$('designLoadTemplate').addEventListener('click',()=>{
+ const selected=items.find(item=>String(item.item_id)===String($('designTemplateSelect').value)&&item.item_type==='card_template');
+ if(!selected){notice('اختر قالب بطاقة محفوظًا أولًا.',true);return}
+ edit(Number(selected.item_id));
+ switchAdminTab('design');
+ $('designStatus').textContent='القالب «'+selected.name+'» مفتوح للتحرير. حرّك العناصر أو اضبط قيمها ثم اضغط حفظ التخطيط.';
+});
+$('designTemplateSelect').addEventListener('change',()=>{
+ const selected=items.find(item=>String(item.item_id)===String($('designTemplateSelect').value)&&item.item_type==='card_template');
+ $('designStatus').textContent=selected?'سيتم فتح «'+selected.name+'» في الاستوديو عند الضغط على زر الفتح.':'اختر قالبًا محفوظًا لبدء التحرير.';
+});
+$('designManageProducts').addEventListener('click',()=>switchAdminTab('products'));
+switchAdminTab('overview');
 updateAssetField();resetCategory();
 load();
 })();

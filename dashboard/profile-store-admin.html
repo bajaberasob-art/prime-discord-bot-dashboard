@@ -29,14 +29,112 @@
 .layout-editor-heading h3{font-size:16px;margin:0 0 4px}
 @media(max-width:850px){.layout-editor-grid{grid-template-columns:1fr}.layout-stage{max-height:380px}}
 @media(max-width:520px){.layout-editor-panel{padding:10px}.layout-stage-shell{padding:5px}.layout-number-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.layout-element{font-size:8px}}
+
+.admin-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin:20px 0 8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:rgba(10,17,29,.88);position:sticky;top:8px;z-index:20;backdrop-filter:blur(14px)}
+.admin-tab{display:flex;justify-content:center;align-items:center;gap:8px;min-height:44px;border:1px solid transparent;background:transparent;color:var(--muted);font-weight:700}
+.admin-tab[aria-selected="true"]{color:var(--text);border-color:rgba(114,220,255,.42);background:linear-gradient(135deg,rgba(33,126,158,.28),rgba(92,78,175,.25));box-shadow:inset 0 0 0 1px rgba(114,220,255,.06)}
+.admin-pane{min-width:0;animation:adminPaneIn .16s ease-out}
+.admin-pane[hidden],.admin-pane.hidden{display:none!important}
+.admin-pane-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:18px 0 8px}
+.admin-pane-title h2{margin:0}
+.admin-pane-intro{color:var(--muted);font-size:13px;margin-top:4px;line-height:1.7}
+#pane-design .layout-editor-panel{margin-top:0}
+#designTemplateSelect{max-width:100%}
+@keyframes adminPaneIn{from{opacity:.72;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){.admin-tabs{grid-template-columns:repeat(3,minmax(0,1fr));position:static}.admin-tab{font-size:13px;padding:9px 6px}}
+@media(max-width:460px){.admin-tabs{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:6px}.admin-tab{min-height:40px}}
+
+
+/* PRIME Creator Studio — premium visual pass */
+:root{--bg:#070b13;--panel:#101827;--line:#26384f;--muted:#91a4bd;--text:#f4f8ff;--accent:#78e2ff;--violet:#a99aff;--ok:#75e6b4;--bad:#ff8298;--gold:#f5d18a;--surface:#0b1220}
+body{background:radial-gradient(ellipse at 8% -10%,rgba(112,76,205,.20),transparent 34%),radial-gradient(ellipse at 95% 4%,rgba(39,175,218,.16),transparent 32%),linear-gradient(180deg,#080d17 0%,#070b13 55%,#090d17 100%);background-attachment:fixed}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;opacity:.16;background-image:linear-gradient(rgba(143,177,218,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(143,177,218,.08) 1px,transparent 1px);background-size:44px 44px;mask-image:linear-gradient(to bottom,black,transparent 75%)}
+.wrap{max-width:1500px;padding:clamp(14px,2.6vw,34px)}
+.top{position:relative;overflow:hidden;padding:clamp(20px,3vw,34px);border:1px solid rgba(120,226,255,.2);border-radius:24px;background:linear-gradient(118deg,rgba(15,29,48,.97),rgba(17,20,42,.94) 62%,rgba(31,25,62,.92));box-shadow:0 22px 70px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.045)}
+.top:after{content:"";position:absolute;left:-45px;top:-130px;width:340px;height:340px;border-radius:50%;border:1px solid rgba(120,226,255,.11);box-shadow:0 0 0 26px rgba(120,226,255,.025),0 0 0 54px rgba(169,154,255,.025);pointer-events:none}
+.top>div{position:relative;z-index:1}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid rgba(120,226,255,.24);border-radius:999px;background:rgba(120,226,255,.07);font-size:10px;font-weight:800;letter-spacing:.15em}
+.eyebrow:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+h1{font-size:clamp(28px,4.2vw,44px);letter-spacing:-.04em;line-height:1.2;margin:13px 0 9px}
+.top .muted{max-width:660px;font-size:14px;line-height:1.9}
+.top .actions{margin-top:0}
+button,a{transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease}
+button{border-color:#344b67;background:linear-gradient(180deg,#1a2a40,#132034);box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+button:hover:not(:disabled){transform:translateY(-1px);border-color:rgba(120,226,255,.55);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+button.primary{background:linear-gradient(115deg,#1b91ad 0%,#426fc0 48%,#7058c5 100%);box-shadow:0 8px 24px rgba(60,113,193,.22),inset 0 1px 0 rgba(255,255,255,.18)}
+.admin-tabs{margin:18px 0 10px;padding:7px;border-radius:18px;border-color:rgba(132,163,202,.17);background:rgba(9,15,26,.88);box-shadow:0 12px 35px rgba(0,0,0,.16);gap:7px}
+.admin-tab{position:relative;overflow:hidden;border-radius:12px;min-height:48px;color:#a9bad0}
+.admin-tab:before{content:"";position:absolute;inset:0;background:linear-gradient(110deg,rgba(120,226,255,.07),rgba(169,154,255,.07));opacity:0;transition:opacity .18s}
+.admin-tab:hover:before,.admin-tab[aria-selected="true"]:before{opacity:1}
+.admin-tab[aria-selected="true"]{color:#f6fbff;border-color:rgba(120,226,255,.3);background:linear-gradient(120deg,rgba(24,119,149,.24),rgba(95,74,159,.25));box-shadow:inset 0 0 0 1px rgba(120,226,255,.04),0 6px 20px rgba(0,0,0,.13)}
+.admin-tab[aria-selected="true"]:after{content:"";position:absolute;bottom:0;left:25%;right:25%;height:2px;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--violet));box-shadow:0 0 12px rgba(120,226,255,.55)}
+.panel{position:relative;border-color:rgba(132,163,202,.17);border-radius:20px;padding:clamp(15px,2vw,23px);margin-top:16px;background:linear-gradient(145deg,rgba(17,27,44,.96),rgba(11,17,29,.97));box-shadow:0 16px 48px rgba(0,0,0,.17),inset 0 1px 0 rgba(255,255,255,.025)}
+.panel h2{letter-spacing:-.02em;font-size:18px}
+.sectionhead{margin-bottom:14px}
+.sectionhead .muted{font-size:12px;line-height:1.75;max-width:760px}
+.stats{gap:10px;margin-top:16px}
+.stat{position:relative;overflow:hidden;border-radius:16px;border-color:rgba(132,163,202,.16);background:linear-gradient(145deg,rgba(19,32,51,.95),rgba(12,20,33,.95));padding:16px;box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}
+.stat:after{content:"";position:absolute;top:-24px;left:-22px;width:78px;height:78px;border-radius:50%;background:rgba(120,226,255,.045);filter:blur(2px)}
+.stat strong{font-size:clamp(23px,2vw,29px);letter-spacing:-.035em;margin-top:5px}
+.stat .muted{font-size:12px}
+.items{gap:14px}
+.item{border-color:rgba(132,163,202,.19);border-radius:17px;background:linear-gradient(150deg,#101b2c,#0a111d);box-shadow:0 8px 24px rgba(0,0,0,.12);transition:transform .18s,border-color .18s,box-shadow .18s}
+.item:hover{transform:translateY(-3px);border-color:rgba(120,226,255,.35);box-shadow:0 16px 35px rgba(0,0,0,.22)}
+.thumb{height:160px;background:radial-gradient(ellipse at 20% 0,rgba(120,226,255,.15),transparent 55%),linear-gradient(135deg,#17263a,#211e42)}
+.itembody{padding:15px}
+.itemtitle strong{font-size:14px;line-height:1.6}
+.pill{border:1px solid rgba(120,226,255,.13);background:rgba(120,226,255,.08);color:#c8f2ff;padding:4px 9px}
+input,select,textarea{border-color:#2a3c55;border-radius:12px;background:linear-gradient(180deg,#080f1b,#0a111d);padding:12px;outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:rgba(120,226,255,.65);box-shadow:0 0 0 3px rgba(120,226,255,.09)}
+input[type="checkbox"]{accent-color:#78e2ff}
+label{font-weight:650;color:#c5d4e8}
+.field{gap:8px}
+.fields{gap:14px}
+textarea{line-height:1.7}
+.layout-editor-panel{border-color:rgba(120,226,255,.22);border-radius:19px;background:linear-gradient(145deg,rgba(9,19,32,.96),rgba(13,15,30,.96));box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+.layout-stage-shell{border-radius:16px;border-color:rgba(132,163,202,.18);background:#070c15;box-shadow:inset 0 0 35px rgba(0,0,0,.22)}
+.layout-controls{padding:2px}
+.layout-help{border-radius:12px;border-color:rgba(120,226,255,.17);background:rgba(120,226,255,.045)}
+#designTemplatePicker{border-color:rgba(169,154,255,.23);background:linear-gradient(120deg,rgba(19,28,47,.98),rgba(20,18,42,.96))}
+#designStatus{margin-bottom:0;line-height:1.8}
+#notice{position:sticky;top:10px;z-index:30;box-shadow:0 10px 30px rgba(0,0,0,.25);backdrop-filter:blur(12px)}
+.category-card{border-color:rgba(132,163,202,.17);border-radius:15px;background:linear-gradient(145deg,#111d2e,#0a111d)}
+.foot{border-top:1px solid rgba(132,163,202,.12);padding-top:18px}
+@media(max-width:760px){.top{padding:20px;border-radius:19px}.top .actions{width:100%}.top .actions button{flex:1}.admin-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}.admin-tab{font-size:12px;line-height:1.4}}
+@media(max-width:460px){.admin-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.stat{padding:13px}.itembody{padding:12px}.thumb{height:145px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+.layout-style-panel{padding:13px;border:1px solid rgba(169,154,255,.2);border-radius:14px;background:linear-gradient(145deg,rgba(20,23,43,.72),rgba(10,17,29,.8));display:grid;gap:10px}
+.layout-style-panel h4{margin:0;font-size:14px;color:#e8e5ff}
+.layout-style-panel .layout-number-grid{gap:10px}
+.layout-style-panel .layout-style-content{display:grid;gap:5px}
+.layout-style-panel input[type="color"]{height:42px;padding:4px;cursor:pointer}
+.layout-style-panel .checks{align-items:center}
+.layout-style-panel .checks span{display:flex;align-items:center;gap:8px}
+.layout-style-panel button{width:100%}
+.layout-style-help{font-size:12px;color:var(--muted);line-height:1.75}
+.layout-style-panel :disabled{opacity:.48;cursor:not-allowed}
+
+
 </style></head>
 <body><main class="wrap" id="app" data-guild-id="" data-csrf="">
-<header class="top"><div><div class="eyebrow">PRIME CONTROL / CREATOR STUDIO</div><h1>إدارة متجر البروفايل</h1><div class="muted">أنشئ الأقسام والمنتجات، ارفع صورك، وحدد السعر والظهور من مكان واحد.</div></div><div class="actions"><a href="/" style="color:var(--accent);align-self:center">العودة للوحة</a><button id="refresh">تحديث البيانات ↻</button></div></header>
+<header class="top"><div><div class="eyebrow">PRIME CONTROL / CREATOR STUDIO</div><h1>إدارة متجر البروفايل</h1><div class="muted">مساحة إدارة متكاملة لقوالب البروفايل وأصول المتجر — نظّم منتجاتك، واضبط تخطيطاتك، وراجع إعدادات البيع من واجهة واحدة مرتبة.</div></div><div class="actions"><a href="/" style="color:var(--accent);align-self:center">العودة للوحة</a><button id="refresh">تحديث البيانات ↻</button></div></header>
+<nav class="admin-tabs" role="tablist" aria-label="أقسام إدارة متجر البروفايل">
+<button type="button" class="admin-tab" role="tab" data-admin-tab="overview" aria-controls="pane-overview" aria-selected="true">نظرة عامة</button>
+<button type="button" class="admin-tab" role="tab" data-admin-tab="products" aria-controls="pane-products" aria-selected="false">المنتجات والقوالب</button>
+<button type="button" class="admin-tab" role="tab" data-admin-tab="design" aria-controls="pane-design" aria-selected="false">استوديو التصميم</button>
+<button type="button" class="admin-tab" role="tab" data-admin-tab="categories" aria-controls="pane-categories" aria-selected="false">الأقسام</button>
+<button type="button" class="admin-tab" role="tab" data-admin-tab="settings" aria-controls="pane-settings" aria-selected="false">الإعدادات</button>
+</nav>
+<div id="pane-overview" class="admin-pane" data-admin-pane="overview">
 <div class="stats"><div class="stat"><span class="muted">كل المنتجات</span><strong id="countAll">—</strong></div><div class="stat"><span class="muted">ظاهرة في المتجر</span><strong id="countActive">—</strong></div><div class="stat"><span class="muted">مجانية</span><strong id="countFree">—</strong></div><div class="stat"><span class="muted">مدفوعة</span><strong id="countPaid">—</strong></div><div class="stat"><span class="muted">مخفية</span><strong id="countHidden">—</strong></div><div class="stat"><span class="muted">تحتاج صورة</span><strong id="countMissing">—</strong></div></div>
 <section class="panel"><div class="sectionhead"><div><h2>ملخص المبيعات</h2><div class="muted">الإيرادات محسوبة من سجلات عمليات الشراء لهذا السيرفر، وكل عملة معروضة بشكل مستقل.</div></div><button type="button" id="refreshSales">تحديث التقارير</button></div><div class="sales-stats"><div class="stat"><span class="muted">عمليات الشراء</span><strong id="salesPurchases">—</strong></div><div class="stat"><span class="muted">المشترون</span><strong id="salesBuyers">—</strong></div><div class="stat"><span class="muted">إيرادات عملات PRIME</span><strong id="salesMoon">—</strong></div><div class="stat"><span class="muted">إيرادات البلورات</span><strong id="salesGems">—</strong></div></div></section>
+</div>
 <div id="notice" class="notice" role="status"></div>
+<div id="pane-settings" class="admin-pane hidden" data-admin-pane="settings">
 <section class="panel"><div class="sectionhead"><div><h2>إعدادات المتجر</h2><div class="muted">تشغيل المتجر، ورفع صور العملاء المدفوعة، والحد الأقصى لحجم الملف.</div></div></div>
 <div class="fields" id="settingsForm"><label class="checks"><span><input type="checkbox" id="storeEnabled"> المتجر مفعّل</span></label><label class="checks"><span><input type="checkbox" id="customEnabled"> السماح برفع صور مخصصة للعميل</span></label><div class="field"><label for="customPrice">سعر رفع العميل</label><input id="customPrice" type="number" min="0" max="1000000000" value="0" required></div><div class="field"><label for="customCurrency">العملة</label><select id="customCurrency"><option value="moon">عملات PRIME</option><option value="gem">جواهر</option></select></div><div class="field"><label for="maxUpload">الحد الأقصى للرفع (MB)</label><input id="maxUpload" type="number" min="0.001" max="5" step="0.001" value="5" required></div><div class="field"><label for="sessionTtl">مدة صلاحية رابط المتجر (ثانية)</label><input id="sessionTtl" type="number" min="60" max="900" step="1" value="900" required></div></div><div class="actions"><button class="primary" id="saveSettings">حفظ إعدادات المتجر</button></div></section>
+</div>
+<div id="pane-categories" class="admin-pane hidden" data-admin-pane="categories">
 <section class="panel"><div class="sectionhead"><div><h2>أقسام المتجر</h2><div class="muted">القسم يجمع المنتجات المتشابهة ويظهر كفلتر مستقل للزبائن في متجر الشراء.</div></div><button type="button" id="clearSectionFilter">عرض كل الأقسام</button></div><div id="sections" class="toolbar"><span class="muted">جارٍ حساب الأقسام...</span></div><p class="muted">لإنشاء قسم جديد، اكتب اسمه في حقل «القسم في المتجر» عند إضافة أول منتج. عند استخدام الاسم نفسه لعدة منتجات ستظهر مجتمعة تحت القسم نفسه.</p></section>
 <section class="panel">
 <div class="sectionhead"><div><h2>إدارة الأقسام والفئات الفرعية</h2><div class="muted">أنشئ الأقسام، عدّل أسماءها، أخفها عن متجر العملاء، ورتّبها دون حذف المنتجات أو المشتريات.</div></div></div>
@@ -48,6 +146,57 @@
 </div><div class="actions"><button class="primary" id="saveCategory" type="submit">حفظ القسم</button><button id="resetCategory" type="button">قسم جديد</button></div></form>
 <div id="categoryList" class="items" style="margin-top:14px"><p class="muted">جارٍ تحميل الأقسام...</p></div>
 </section>
+</div>
+<div id="pane-design" class="admin-pane hidden" data-admin-pane="design">
+<section class="panel" id="designTemplatePicker">
+<div class="sectionhead"><div><h2>استوديو تصميم القالب</h2><div class="muted">اختر قالبًا محفوظًا لفتح عناصره وتعديل مواضعها. إعدادات الخطوط والألوان المتقدمة ستضاف في مرحلة محرر العناصر.</div></div></div>
+<div class="fields">
+<div class="field full"><label for="designTemplateSelect">القالب المراد تعديله</label><select id="designTemplateSelect"><option value="">اختر قالبًا محفوظًا</option></select></div>
+</div>
+<div class="actions"><button type="button" class="primary" id="designLoadTemplate">فتح القالب في الاستوديو</button><button type="button" id="designManageProducts">إدارة المنتجات والقوالب</button></div>
+<p class="muted" id="designStatus" aria-live="polite">اختر قالبًا ثم اضغط «فتح القالب في الاستوديو» لعرض محرر التخطيط.</p>
+</section>
+<section id="layoutEditorPanel" class="layout-editor-panel hidden" aria-labelledby="layoutEditorHeading">
+  <div class="layout-editor-heading"><div><h3 id="layoutEditorHeading">محرر تخطيط القالب</h3><div class="muted">اختر «مساحة الخلفية» لتحديد مكان الصورة وحجمها داخل القالب. اسحب الإطار الأخضر أو غيّر X/Y والعرض والارتفاع، ثم احفظ التخطيط.</div></div><span class="pill">تحرير مرئي</span></div>
+  <div class="layout-editor-grid">
+    <div class="layout-stage-shell"><div id="layoutStage" class="layout-stage" style="aspect-ratio:2/1"><img id="layoutBackgroundPreview" class="layout-background-preview hidden" alt="معاينة صورة الخلفية داخل المساحة المحددة"><img id="layoutStageImage" alt="معاينة قالب البروفايل"><div id="layoutOverlayLayer" class="layout-overlay-layer"></div><div id="layoutStageEmpty" class="layout-empty">ارفع صورة للقالب أو اختر قالباً موجوداً لبدء ضبط العناصر.</div></div></div>
+    <div class="layout-controls">
+      <label for="layoutField">العنصر المراد ضبطه</label>
+      <select id="layoutField">
+        <option value="background_area">مساحة الخلفية</option><option value="avatar">صورة المستخدم</option><option value="name">اسم المستخدم المعروض</option><option value="handle">اسم الحساب</option><option value="level">المستوى</option><option value="xp_bar">شريط الخبرة XP</option><option value="badges">الشارات والاستكرات</option><option value="flag">العلم</option><option value="stat:balance">الرصيد</option><option value="stat:messages">الرسائل</option><option value="stat:rank">الترتيب</option><option value="stat:voice">وقت الصوت</option><option value="stat:streak">الأيام / سلسلة النشاط</option>
+      </select>
+      <div class="layout-number-grid">
+        <label for="layoutX">الموضع X (بكسل)<input id="layoutX" type="number" min="0" max="2048" step="1" value="0"></label>
+        <label for="layoutY">الموضع Y (بكسل)<input id="layoutY" type="number" min="0" max="1600" step="1" value="0"></label>
+        <label for="layoutWidth">العرض / الحجم<input id="layoutWidth" type="number" min="1" max="2048" step="1" value="120"></label>
+        <label for="layoutHeight">الارتفاع<input id="layoutHeight" type="number" min="1" max="1600" step="1" value="40"></label>
+      </div>
+      <label for="layoutAnchor">محاذاة النص</label>
+      <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="la">محاذاة من اليسار</option></select>
+      <section class="layout-style-panel" id="layoutStylePanel" aria-labelledby="layoutStyleHeading">
+        <h4 id="layoutStyleHeading">مظهر العنصر المحدد</h4>
+        <div class="layout-number-grid">
+          <label for="layoutFontSize">حجم الخط (px)<input id="layoutFontSize" type="number" min="8" max="120" step="1" value="32"></label>
+          <label for="layoutFontFamily">نوع الخط<select id="layoutFontFamily"><option value="modern">حديث</option><option value="tech">تقني</option><option value="elegant">أنيق</option><option value="soft">ناعم</option></select></label>
+          <label for="layoutTextColor">لون النص<input id="layoutTextColor" type="color" value="#FFFFFF"></label>
+          <label for="layoutStrokeWidth">سُمك الحد حول النص<input id="layoutStrokeWidth" type="number" min="0" max="6" step="1" value="2"></label>
+        </div>
+        <label class="layout-style-content" for="layoutTextContent">النص / عنوان العنصر<input id="layoutTextContent" type="text" maxlength="100" placeholder="المستوى {level}"></label>
+        <label class="checks"><span><input id="layoutAutoColor" type="checkbox" checked> تباين تلقائي للون النص</span></label>
+        <label class="checks"><span><input id="layoutBold" type="checkbox" checked> خط عريض</span></label>
+        <div class="layout-style-help" id="layoutStyleHelp">تُحفظ هذه الخيارات لهذا العنصر فقط، وتُستخدم عند إنشاء بطاقة البروفايل الفعلية.</div>
+        <button type="button" id="applyElementStyle" class="primary">تطبيق مظهر العنصر</button>
+      </section>
+      <label for="layoutBackgroundSource">صورة تجريبية للمعاينة</label><select id="layoutBackgroundSource"><option value="">بدون صورة تجريبية</option></select><div class="muted">اختر منتج خلفية محفوظًا في المتجر لتشاهد كيف يظهر داخل المساحة المحددة. هذا الاختيار للمعاينة فقط ولا يغيّر خلفية العميل.</div><label for="backgroundFit">طريقة ملاءمة صورة الخلفية</label>
+      <select id="backgroundFit"><option value="cover">ملء المساحة المحددة مع قص الأطراف الزائدة</option><option value="contain">إظهار الصورة كاملة دون قص</option></select>
+      <label class="checks"><span><input id="layoutXpEnabled" type="checkbox"> رسم شريط خبرة فعلي في هذا الموضع</span></label>
+      <div class="actions"><button type="button" class="primary" id="applyLayout">تطبيق الموضع والحجم</button><button type="button" id="saveLayout">حفظ التخطيط</button><button type="button" id="resetLayout">إعادة التخطيط الافتراضي</button></div>
+      <div id="layoutHelp" class="layout-help" role="status">حدد العنصر واسحبه داخل القالب. القيم بوحدات بكسل الصورة الأصلية، وليس حجم المعاينة على الشاشة.</div>
+    </div>
+  </div>
+</section>
+</div>
+<div id="pane-products" class="admin-pane hidden" data-admin-pane="products">
 <div class="layout"><section class="panel"><div class="sectionhead"><div><h2 id="editorTitle">إضافة منتج جديد</h2><div class="muted">القوالب والخلفيات والبانرات والملصقات والأعلام والشعارات.</div></div><button id="resetForm">منتج جديد ＋</button></div>
 <form id="itemForm"><input type="hidden" id="itemId"><div class="fields">
 <div class="field"><label for="name">اسم المنتج</label><input id="name" required maxlength="100" placeholder="مثال: خلفية مجرّة بنفسجية"></div>
@@ -67,32 +216,9 @@
 <div class="field full"><label for="asset">صورة المنتج (PNG / JPG / WEBP أو GIF متحرك)</label><input id="asset" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="muted" id="assetNote">حد أقصى 5MB و16 مليون بكسل للصورة. GIF المتحرك حتى 60 إطارًا و32 مليون بكسل إجماليًا. للبنرات العريضة اختر نوع «خلفية» واكتب «البانرات» في خانة القسم.</div><div id="assetPreview" class="preview hidden" aria-live="polite"></div></div>
 <div class="field full"><label for="accent">لون التمييز (اختياري)</label><input id="accent" type="text" maxlength="7" value="#72DCFF" pattern="#[0-9a-fA-F]{6}"></div>
 <div class="field full checks"><label><input id="active" type="checkbox" checked> ظاهر وقابل للشراء</label><label><input id="featured" type="checkbox"> منتج مميز</label></div></div><div class="actions"><button class="primary" type="submit" id="saveItem">حفظ المنتج</button><button type="button" id="deleteItem" class="danger hidden">حذف المنتج</button></div></form>
-<section id="layoutEditorPanel" class="layout-editor-panel hidden" aria-labelledby="layoutEditorHeading">
-  <div class="layout-editor-heading"><div><h3 id="layoutEditorHeading">محرر تخطيط القالب</h3><div class="muted">اختر «مساحة الخلفية» لتحديد مكان الصورة وحجمها داخل القالب. اسحب الإطار الأخضر أو غيّر X/Y والعرض والارتفاع، ثم احفظ التخطيط.</div></div><span class="pill">تحرير مرئي</span></div>
-  <div class="layout-editor-grid">
-    <div class="layout-stage-shell"><div id="layoutStage" class="layout-stage" style="aspect-ratio:2/1"><img id="layoutBackgroundPreview" class="layout-background-preview hidden" alt="معاينة صورة الخلفية داخل المساحة المحددة"><img id="layoutStageImage" alt="معاينة قالب البروفايل"><div id="layoutOverlayLayer" class="layout-overlay-layer"></div><div id="layoutStageEmpty" class="layout-empty">ارفع صورة للقالب أو اختر قالباً موجوداً لبدء ضبط العناصر.</div></div></div>
-    <div class="layout-controls">
-      <label for="layoutField">العنصر المراد ضبطه</label>
-      <select id="layoutField">
-        <option value="background_area">مساحة الخلفية</option><option value="avatar">صورة المستخدم</option><option value="name">اسم المستخدم المعروض</option><option value="handle">اسم الحساب</option><option value="level">المستوى</option><option value="xp_bar">شريط الخبرة XP</option><option value="badges">الشارات والاستكرات</option><option value="flag">العلم</option><option value="stat:balance">الرصيد</option><option value="stat:messages">الرسائل</option><option value="stat:rank">الترتيب</option><option value="stat:voice">وقت الصوت</option><option value="stat:streak">الأيام / سلسلة النشاط</option>
-      </select>
-      <div class="layout-number-grid">
-        <label for="layoutX">الموضع X (بكسل)<input id="layoutX" type="number" min="0" max="2048" step="1" value="0"></label>
-        <label for="layoutY">الموضع Y (بكسل)<input id="layoutY" type="number" min="0" max="1600" step="1" value="0"></label>
-        <label for="layoutWidth">العرض / الحجم<input id="layoutWidth" type="number" min="1" max="2048" step="1" value="120"></label>
-        <label for="layoutHeight">الارتفاع<input id="layoutHeight" type="number" min="1" max="1600" step="1" value="40"></label>
-      </div>
-      <label for="layoutAnchor">محاذاة النص</label>
-      <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="la">محاذاة من اليسار</option></select>
-      <label for="layoutBackgroundSource">صورة تجريبية للمعاينة</label><select id="layoutBackgroundSource"><option value="">بدون صورة تجريبية</option></select><div class="muted">اختر منتج خلفية محفوظًا في المتجر لتشاهد كيف يظهر داخل المساحة المحددة. هذا الاختيار للمعاينة فقط ولا يغيّر خلفية العميل.</div><label for="backgroundFit">طريقة ملاءمة صورة الخلفية</label>
-      <select id="backgroundFit"><option value="cover">ملء المساحة المحددة مع قص الأطراف الزائدة</option><option value="contain">إظهار الصورة كاملة دون قص</option></select>
-      <label class="checks"><span><input id="layoutXpEnabled" type="checkbox"> رسم شريط خبرة فعلي في هذا الموضع</span></label>
-      <div class="actions"><button type="button" class="primary" id="applyLayout">تطبيق الموضع والحجم</button><button type="button" id="saveLayout">حفظ التخطيط</button><button type="button" id="resetLayout">إعادة التخطيط الافتراضي</button></div>
-      <div id="layoutHelp" class="layout-help" role="status">حدد العنصر واسحبه داخل القالب. القيم بوحدات بكسل الصورة الأصلية، وليس حجم المعاينة على الشاشة.</div>
-    </div>
-  </div>
-</section></section>
+</section>
 <aside class="panel"><h2>خطوات إدارة المنتج</h2><div class="preview"><div><strong>1. أضف التفاصيل</strong><p class="muted">حدد الاسم والنوع والقسم والسعر. اختر صفرًا لجعله مجانيًا.</p><strong>2. ارفع الصورة</strong><p class="muted">ترفع الصورة بعد حفظ المنتج، ويجري فحص نوعها وأبعادها وتنظيف بياناتها قبل التخزين.</p><strong>3. انشر أو أخفِ</strong><p class="muted">إلغاء خيار «ظاهر وقابل للشراء» يخفيه عن العملاء دون حذف سجلات الشراء.</p></div></div><hr style="border-color:var(--line);margin:18px 0"><h2>تنبيه حول الصور</h2><p class="muted">يدعم الرفع PNG وJPG وWebP وGIF المتحرك ضمن حدود التحقق. ناتج بطاقة المستوى النهائي PNG ثابت، لذلك يظهر الإطار الأول من GIF داخل البطاقة.</p></aside></div>
 <section class="panel"><div class="sectionhead"><div><h2>كتالوج المنتجات</h2><div class="muted">ابحث بالاسم أو صفِّ حسب النوع والحالة.</div></div><div class="toolbar"><input id="search" placeholder="ابحث عن منتج..."><select id="filterType"><option value="">كل الأنواع</option><option value="background">خلفيات</option><option value="card_template">قوالب</option><option value="badge">استكرات / شارات</option><option value="flag">أعلام</option><option value="shape">إطارات</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان</option></select><select id="filterCategory"><option value="">كل الأقسام</option></select><select id="filterStatus"><option value="">كل الحالات</option><option value="active">معروض</option><option value="inactive">مخفي</option><option value="free">مجاني</option><option value="paid">مدفوع</option></select></div></div><div id="items" class="items"><p class="muted">جارٍ تحميل المنتجات...</p></div></section>
+</div>
 <div class="foot">PRIME Store Studio · الإدارة محمية بصلاحيات المالك. كل التغييرات تُحفظ في قاعدة بيانات المتجر الحالية.</div>
-</main><script src="/static/profile-store-admin.js?v=profile-background-preview-persistence-1" defer></script></body></html>
+</main><script src="/static/profile-store-admin.js?v=element-style-studio-2" defer></script></body></html>

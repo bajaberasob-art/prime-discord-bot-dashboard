@@ -276,6 +276,7 @@ def _fit_font(
     minimum_size: int = 8,
     bold: bool = False,
     font_family: str = "modern",
+    use_family_for_arabic: bool = False,
 ) -> ImageFont.ImageFont:
     """Return the largest available font that fits the rendered text in its box."""
     shown = _display_text(text)
@@ -283,7 +284,11 @@ def _fit_font(
     size = max(minimum_size, int(preferred_size))
     # Use bundled DejaVu Sans Arabic glyphs for consistent readability while retaining
     # each template's selected family for Latin names and values.
-    resolved_family = "modern" if _contains_arabic(text) else font_family
+    resolved_family = (
+        font_family
+        if use_family_for_arabic or not _contains_arabic(text)
+        else "modern"
+    )
     probe = ImageDraw.Draw(Image.new("L", (1, 1)))
     while True:
         font = _load_font(size, bold=bold, font_family=resolved_family)
@@ -889,31 +894,60 @@ def _draw_stat_text(
     available_width = max(1, width - 2 * padding)
     center_x = x + width // 2
     label = str(stat.get("label", ""))
+    selected_family = stat.get("font_family")
+    element_family_is_explicit = (
+        isinstance(selected_family, str) and selected_family in _FONT_FAMILY_FILES
+    )
+    if not element_family_is_explicit:
+        selected_family = font_family
+    label_size = max(8, min(120, _clamp(
+        stat.get("label_font_size"),
+        8,
+        120,
+        max(28, min(64, int(height * .36))),
+    )))
+    value_size = _clamp(
+        stat.get("font_size"),
+        8,
+        120,
+        max(32, min(72, int(height * .43))),
+    )
     label_font = _fit_font(
-        label, available_width, max(28, min(64, int(height * .36))),
-        minimum_size=15, font_family=font_family,
+        label, available_width, label_size,
+        minimum_size=8 if stat.get("label_font_size") is not None else 15,
+        font_family=selected_family,
+        use_family_for_arabic=element_family_is_explicit,
     )
     value_text = str(value)
+    value_bold = stat.get("bold") if isinstance(stat.get("bold"), bool) else True
     value_font = _fit_font(
-        value_text, available_width, max(32, min(72, int(height * .43))),
-        minimum_size=14, bold=True, font_family=font_family,
+        value_text, available_width, value_size,
+        minimum_size=8 if stat.get("font_size") is not None else 14,
+        bold=value_bold, font_family=selected_family,
+        use_family_for_arabic=element_family_is_explicit,
     )
     can_sample = image is not None and auto_contrast
     label_color = (
         _contrast_text_color(image, stat, muted, dark_text, stat_cell=True)
         if can_sample else muted
     )
+    selected_color = stat.get("color")
     value_color = (
-        _contrast_text_color(image, stat, text_color, dark_text, stat_cell=True)
-        if can_sample else text_color
+        _safe_color(selected_color, text_color)
+        if selected_color
+        else (
+            _contrast_text_color(image, stat, text_color, dark_text, stat_cell=True)
+            if can_sample else text_color
+        )
     )
+    stroke_width = _clamp(stat.get("stroke_width"), 0, 6, 2)
     _draw_display_text(draw, (center_x, y + int(height * .27)), label,
                        font=label_font, fill=label_color, anchor="mm",
                        stroke_width=2, stroke_fill=(0, 0, 0, 175))
     # Never replace a wallet/message/rank value with an ellipsis: fit the font instead.
     _draw_display_text(draw, (center_x, y + int(height * .74)), value_text,
                        font=value_font, fill=value_color, anchor="mm",
-                       stroke_width=2, stroke_fill=(0, 0, 0, 190))
+                       stroke_width=stroke_width, stroke_fill=(0, 0, 0, 190))
 
 
 def render_profile_card(
@@ -1058,56 +1092,105 @@ def render_profile_card(
     name = str(profile.get("display_name") or profile.get("name") or "Member").strip()[:48]
     handle = "@" + str(profile.get("username") or "member").strip()[:42].lstrip("@")
     name_available = _clamp(name_box.get("max_width"), 120, width, int(width * .42))
+    name_default_size = max(28, min(64, int(min(width, height) * .056)))
+    name_font_size = _clamp(name_box.get("font_size"), 8, 120, name_default_size)
+    name_family = name_box.get("font_family")
+    name_family_is_explicit = (
+        isinstance(name_family, str) and name_family in _FONT_FAMILY_FILES
+    )
+    if not name_family_is_explicit:
+        name_family = font_family
+    name_bold = name_box.get("bold") if isinstance(name_box.get("bold"), bool) else True
     name_font = _fit_font(
-        name, name_available, max(28, min(64, int(min(width, height) * .056))),
-        minimum_size=18, bold=True, font_family=font_family,
+        name, name_available, name_font_size,
+        minimum_size=8 if name_box.get("font_size") is not None else 18,
+        bold=name_bold, font_family=name_family,
+        use_family_for_arabic=name_family_is_explicit,
     )
     handle_text = handle
     handle_available = _clamp(handle_box.get("max_width"), 100, width, name_available)
+    handle_default_size = max(20, min(36, int(min(width, height) * .034)))
+    handle_font_size = _clamp(handle_box.get("font_size"), 8, 120, handle_default_size)
+    handle_family = handle_box.get("font_family")
+    handle_family_is_explicit = (
+        isinstance(handle_family, str) and handle_family in _FONT_FAMILY_FILES
+    )
+    if not handle_family_is_explicit:
+        handle_family = font_family
+    handle_bold = handle_box.get("bold") if isinstance(handle_box.get("bold"), bool) else False
     handle_font = _fit_font(
-        handle_text, handle_available, max(20, min(36, int(min(width, height) * .034))),
-        minimum_size=13, font_family=font_family,
+        handle_text, handle_available, handle_font_size,
+        minimum_size=8 if handle_box.get("font_size") is not None else 13,
+        bold=handle_bold, font_family=handle_family,
+        use_family_for_arabic=handle_family_is_explicit,
     )
     name_color = (
-        light_text if not auto_contrast else _contrast_text_color(
-            canvas, name_box, light_text, dark_text,
-            line_height=max(18, int(min(width, height) * .065)),
+        _safe_color(name_box.get("color"), light_text)
+        if name_box.get("color")
+        else (
+            light_text if not auto_contrast else _contrast_text_color(
+                canvas, name_box, light_text, dark_text,
+                line_height=max(18, int(min(width, height) * .065)),
+            )
         )
     )
     handle_color = (
-        muted_light if not auto_contrast else _contrast_text_color(
-            canvas, handle_box, muted_light, dark_text,
-            line_height=max(14, int(min(width, height) * .045)),
+        _safe_color(handle_box.get("color"), muted_light)
+        if handle_box.get("color")
+        else (
+            muted_light if not auto_contrast else _contrast_text_color(
+                canvas, handle_box, muted_light, dark_text,
+                line_height=max(14, int(min(width, height) * .045)),
+            )
         )
     )
     name_stroke = (0, 0, 0, 175) if name_color == light_text else (255, 255, 255, 125)
+    name_stroke_width = _clamp(name_box.get("stroke_width"), 0, 6, 2)
+    handle_stroke_width = _clamp(handle_box.get("stroke_width"), 0, 6, 1)
     _draw_display_text(draw, (name_x, name_y), name, font=name_font, fill=name_color,
-                        anchor=str(name_box.get("anchor") or "ra"), stroke_width=2,
-                        stroke_fill=name_stroke)
+                        anchor=str(name_box.get("anchor") or "ra"),
+                        stroke_width=name_stroke_width, stroke_fill=name_stroke)
     _draw_display_text(draw, (handle_x, handle_y), handle_text, font=handle_font, fill=handle_color,
-                        anchor=str(handle_box.get("anchor") or "ra"), stroke_width=1,
-                        stroke_fill=(0, 0, 0, 135))
+                        anchor=str(handle_box.get("anchor") or "ra"),
+                        stroke_width=handle_stroke_width, stroke_fill=(0, 0, 0, 135))
 
     level_box = metadata.get("level") or {}
     level_x = _scale_position(level_box, "x", inset * 3, width)
     level_y = _scale_position(level_box, "y", int(height * .48), height)
     level = _number(profile.get("level"), 0)
-    level_text = f"المستوى {level}"
+    level_template = str(level_box.get("text_template") or "المستوى {level}")[:100]
+    level_text = level_template.replace("{level}", str(level))
     level_available = _clamp(level_box.get("max_width"), 100, width, int(width * .44))
+    level_default_size = max(30, min(60, int(min(width, height) * .052)))
+    level_font_size = _clamp(level_box.get("font_size"), 8, 120, level_default_size)
+    level_family = level_box.get("font_family")
+    level_family_is_explicit = (
+        isinstance(level_family, str) and level_family in _FONT_FAMILY_FILES
+    )
+    if not level_family_is_explicit:
+        level_family = font_family
+    level_bold = level_box.get("bold") if isinstance(level_box.get("bold"), bool) else True
     progress_font = _fit_font(
-        level_text, level_available, max(30, min(60, int(min(width, height) * .052))),
-        minimum_size=18, bold=True, font_family=font_family,
+        level_text, level_available, level_font_size,
+        minimum_size=8 if level_box.get("font_size") is not None else 18,
+        bold=level_bold, font_family=level_family,
+        use_family_for_arabic=level_family_is_explicit,
     )
     level_color = (
-        light_text if not auto_contrast else _contrast_text_color(
-            canvas, level_box, light_text, dark_text,
-            line_height=max(22, int(min(width, height) * .065)),
+        _safe_color(level_box.get("color"), light_text)
+        if level_box.get("color")
+        else (
+            light_text if not auto_contrast else _contrast_text_color(
+                canvas, level_box, light_text, dark_text,
+                line_height=max(22, int(min(width, height) * .065)),
+            )
         )
     )
     _draw_display_text(
         draw, (level_x, level_y), level_text,
         font=progress_font, fill=level_color,
-        anchor=str(level_box.get("anchor") or "ra"), stroke_width=2,
+        anchor=str(level_box.get("anchor") or "ra"),
+        stroke_width=_clamp(level_box.get("stroke_width"), 0, 6, 2),
         stroke_fill=(0, 0, 0, 190),
     )
 
