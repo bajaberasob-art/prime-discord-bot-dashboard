@@ -29,14 +29,41 @@
 .layout-editor-heading h3{font-size:16px;margin:0 0 4px}
 @media(max-width:850px){.layout-editor-grid{grid-template-columns:1fr}.layout-stage{max-height:380px}}
 @media(max-width:520px){.layout-editor-panel{padding:10px}.layout-stage-shell{padding:5px}.layout-number-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.layout-element{font-size:8px}}
+
+.admin-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin:20px 0 8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:rgba(10,17,29,.88);position:sticky;top:8px;z-index:20;backdrop-filter:blur(14px)}
+.admin-tab{display:flex;justify-content:center;align-items:center;gap:8px;min-height:44px;border:1px solid transparent;background:transparent;color:var(--muted);font-weight:700}
+.admin-tab[aria-selected="true"]{color:var(--text);border-color:rgba(114,220,255,.42);background:linear-gradient(135deg,rgba(33,126,158,.28),rgba(92,78,175,.25));box-shadow:inset 0 0 0 1px rgba(114,220,255,.06)}
+.admin-pane{min-width:0;animation:adminPaneIn .16s ease-out}
+.admin-pane[hidden],.admin-pane.hidden{display:none!important}
+.admin-pane-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:18px 0 8px}
+.admin-pane-title h2{margin:0}
+.admin-pane-intro{color:var(--muted);font-size:13px;margin-top:4px;line-height:1.7}
+#pane-design .layout-editor-panel{margin-top:0}
+#designTemplateSelect{max-width:100%}
+@keyframes adminPaneIn{from{opacity:.72;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){.admin-tabs{grid-template-columns:repeat(3,minmax(0,1fr));position:static}.admin-tab{font-size:13px;padding:9px 6px}}
+@media(max-width:460px){.admin-tabs{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:6px}.admin-tab{min-height:40px}}
+
 </style></head>
 <body><main class="wrap" id="app" data-guild-id="" data-csrf="">
 <header class="top"><div><div class="eyebrow">PRIME CONTROL / CREATOR STUDIO</div><h1>إدارة متجر البروفايل</h1><div class="muted">أنشئ الأقسام والمنتجات، ارفع صورك، وحدد السعر والظهور من مكان واحد.</div></div><div class="actions"><a href="/" style="color:var(--accent);align-self:center">العودة للوحة</a><button id="refresh">تحديث البيانات ↻</button></div></header>
+<nav class="admin-tabs" role="tablist" aria-label="أقسام إدارة متجر البروفايل">
+<button type="button" class="admin-tab" role="tab" data-admin-tab="overview" aria-controls="pane-overview" aria-selected="true">نظرة عامة</button>
+<button type="button" class="admin-tab" role="tab" data-admin-tab="products" aria-controls="pane-products" aria-selected="false">المنتجات والقوالب</button>
+<button type="button" class="admin-tab" role="tab" data-admin-tab="design" aria-controls="pane-design" aria-selected="false">استوديو التصميم</button>
+<button type="button" class="admin-tab" role="tab" data-admin-tab="categories" aria-controls="pane-categories" aria-selected="false">الأقسام</button>
+<button type="button" class="admin-tab" role="tab" data-admin-tab="settings" aria-controls="pane-settings" aria-selected="false">الإعدادات</button>
+</nav>
+<div id="pane-overview" class="admin-pane" data-admin-pane="overview">
 <div class="stats"><div class="stat"><span class="muted">كل المنتجات</span><strong id="countAll">—</strong></div><div class="stat"><span class="muted">ظاهرة في المتجر</span><strong id="countActive">—</strong></div><div class="stat"><span class="muted">مجانية</span><strong id="countFree">—</strong></div><div class="stat"><span class="muted">مدفوعة</span><strong id="countPaid">—</strong></div><div class="stat"><span class="muted">مخفية</span><strong id="countHidden">—</strong></div><div class="stat"><span class="muted">تحتاج صورة</span><strong id="countMissing">—</strong></div></div>
 <section class="panel"><div class="sectionhead"><div><h2>ملخص المبيعات</h2><div class="muted">الإيرادات محسوبة من سجلات عمليات الشراء لهذا السيرفر، وكل عملة معروضة بشكل مستقل.</div></div><button type="button" id="refreshSales">تحديث التقارير</button></div><div class="sales-stats"><div class="stat"><span class="muted">عمليات الشراء</span><strong id="salesPurchases">—</strong></div><div class="stat"><span class="muted">المشترون</span><strong id="salesBuyers">—</strong></div><div class="stat"><span class="muted">إيرادات عملات PRIME</span><strong id="salesMoon">—</strong></div><div class="stat"><span class="muted">إيرادات البلورات</span><strong id="salesGems">—</strong></div></div></section>
+</div>
 <div id="notice" class="notice" role="status"></div>
+<div id="pane-settings" class="admin-pane hidden" data-admin-pane="settings">
 <section class="panel"><div class="sectionhead"><div><h2>إعدادات المتجر</h2><div class="muted">تشغيل المتجر، ورفع صور العملاء المدفوعة، والحد الأقصى لحجم الملف.</div></div></div>
 <div class="fields" id="settingsForm"><label class="checks"><span><input type="checkbox" id="storeEnabled"> المتجر مفعّل</span></label><label class="checks"><span><input type="checkbox" id="customEnabled"> السماح برفع صور مخصصة للعميل</span></label><div class="field"><label for="customPrice">سعر رفع العميل</label><input id="customPrice" type="number" min="0" max="1000000000" value="0" required></div><div class="field"><label for="customCurrency">العملة</label><select id="customCurrency"><option value="moon">عملات PRIME</option><option value="gem">جواهر</option></select></div><div class="field"><label for="maxUpload">الحد الأقصى للرفع (MB)</label><input id="maxUpload" type="number" min="0.001" max="5" step="0.001" value="5" required></div><div class="field"><label for="sessionTtl">مدة صلاحية رابط المتجر (ثانية)</label><input id="sessionTtl" type="number" min="60" max="900" step="1" value="900" required></div></div><div class="actions"><button class="primary" id="saveSettings">حفظ إعدادات المتجر</button></div></section>
+</div>
+<div id="pane-categories" class="admin-pane hidden" data-admin-pane="categories">
 <section class="panel"><div class="sectionhead"><div><h2>أقسام المتجر</h2><div class="muted">القسم يجمع المنتجات المتشابهة ويظهر كفلتر مستقل للزبائن في متجر الشراء.</div></div><button type="button" id="clearSectionFilter">عرض كل الأقسام</button></div><div id="sections" class="toolbar"><span class="muted">جارٍ حساب الأقسام...</span></div><p class="muted">لإنشاء قسم جديد، اكتب اسمه في حقل «القسم في المتجر» عند إضافة أول منتج. عند استخدام الاسم نفسه لعدة منتجات ستظهر مجتمعة تحت القسم نفسه.</p></section>
 <section class="panel">
 <div class="sectionhead"><div><h2>إدارة الأقسام والفئات الفرعية</h2><div class="muted">أنشئ الأقسام، عدّل أسماءها، أخفها عن متجر العملاء، ورتّبها دون حذف المنتجات أو المشتريات.</div></div></div>
@@ -48,25 +75,16 @@
 </div><div class="actions"><button class="primary" id="saveCategory" type="submit">حفظ القسم</button><button id="resetCategory" type="button">قسم جديد</button></div></form>
 <div id="categoryList" class="items" style="margin-top:14px"><p class="muted">جارٍ تحميل الأقسام...</p></div>
 </section>
-<div class="layout"><section class="panel"><div class="sectionhead"><div><h2 id="editorTitle">إضافة منتج جديد</h2><div class="muted">القوالب والخلفيات والبانرات والملصقات والأعلام والشعارات.</div></div><button id="resetForm">منتج جديد ＋</button></div>
-<form id="itemForm"><input type="hidden" id="itemId"><div class="fields">
-<div class="field"><label for="name">اسم المنتج</label><input id="name" required maxlength="100" placeholder="مثال: خلفية مجرّة بنفسجية"></div>
-<div class="field"><label for="slug">معرّف فريد (Slug)</label><input id="slug" required maxlength="80" pattern="[a-zA-Z0-9_-]+" placeholder="purple-galaxy"></div>
-<div class="field"><label for="type">نوع العنصر</label><select id="type"><option value="background">خلفية</option><option value="card_template">قالب بطاقة</option><option value="badge">استكر / شارة</option><option value="flag">علم</option><option value="shape">إطار / شكل</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان البطاقة</option></select></div>
-<div class="field"><label for="category">القسم في المتجر</label><input id="category" list="categories" maxlength="80" value="الخلفيات" placeholder="الخلفيات، القوالب، الأعلام..."><datalist id="categories"><option value="الخلفيات"><option value="القوالب"><option value="البانرات"><option value="الاستكرات"><option value="الأعلام"><option value="الإطارات"><option value="الشعارات"></datalist></div>
-<div class="field"><label for="subcategory">قسم فرعي (اختياري)</label><input id="subcategory" list="subcategorySuggestions" maxlength="80" placeholder="فضائي، نيون، موسمي"><datalist id="subcategorySuggestions"></datalist></div>
-<div class="field"><label for="rarity">الندرة</label><select id="rarity"><option value="common">عادي</option><option value="silver">فضي</option><option value="gold">ذهبي</option><option value="legendary">أسطوري</option></select></div>
-<div class="field"><label for="price">السعر (0 = مجاني)</label><input id="price" type="number" min="0" max="1000000000" value="0" required></div>
-<div class="field"><label for="currency">عملة الشراء</label><select id="currency"><option value="moon">عملات PRIME</option><option value="gem">جواهر</option></select></div>
-<div class="field"><label for="sortOrder">ترتيب المنتج داخل المتجر</label><input id="sortOrder" type="number" min="0" max="1000000000" step="1" value="0"></div>
-<div class="field"><label for="salePrice">السعر الترويجي (اختياري)</label><input id="salePrice" type="number" min="0" max="1000000000" step="1" placeholder="فارغ = بدون عرض"></div>
-<div class="field"><label for="saleStart">بداية العرض (اختياري)</label><input id="saleStart" type="datetime-local"></div>
-<div class="field"><label for="saleEnd">نهاية العرض (اختياري)</label><input id="saleEnd" type="datetime-local"></div>
-<div class="field full muted">اترك السعر الترويجي فارغاً لإيقاف العرض. اكتب 0 لجعل المنتج مجانياً أثناء فترة العرض. الأوقات تُحوّل إلى UTC قبل الحفظ.</div>
-<div class="field full"><label for="description">الوصف</label><textarea id="description" maxlength="1000" placeholder="وصف قصير يظهر للعميل في المتجر"></textarea></div>
-<div class="field full"><label for="asset">صورة المنتج (PNG / JPG / WEBP أو GIF متحرك)</label><input id="asset" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="muted" id="assetNote">حد أقصى 5MB و16 مليون بكسل للصورة. GIF المتحرك حتى 60 إطارًا و32 مليون بكسل إجماليًا. للبنرات العريضة اختر نوع «خلفية» واكتب «البانرات» في خانة القسم.</div><div id="assetPreview" class="preview hidden" aria-live="polite"></div></div>
-<div class="field full"><label for="accent">لون التمييز (اختياري)</label><input id="accent" type="text" maxlength="7" value="#72DCFF" pattern="#[0-9a-fA-F]{6}"></div>
-<div class="field full checks"><label><input id="active" type="checkbox" checked> ظاهر وقابل للشراء</label><label><input id="featured" type="checkbox"> منتج مميز</label></div></div><div class="actions"><button class="primary" type="submit" id="saveItem">حفظ المنتج</button><button type="button" id="deleteItem" class="danger hidden">حذف المنتج</button></div></form>
+</div>
+<div id="pane-design" class="admin-pane hidden" data-admin-pane="design">
+<section class="panel" id="designTemplatePicker">
+<div class="sectionhead"><div><h2>استوديو تصميم القالب</h2><div class="muted">اختر قالبًا محفوظًا لفتح عناصره وتعديل مواضعها. إعدادات الخطوط والألوان المتقدمة ستضاف في مرحلة محرر العناصر.</div></div></div>
+<div class="fields">
+<div class="field full"><label for="designTemplateSelect">القالب المراد تعديله</label><select id="designTemplateSelect"><option value="">اختر قالبًا محفوظًا</option></select></div>
+</div>
+<div class="actions"><button type="button" class="primary" id="designLoadTemplate">فتح القالب في الاستوديو</button><button type="button" id="designManageProducts">إدارة المنتجات والقوالب</button></div>
+<p class="muted" id="designStatus" aria-live="polite">اختر قالبًا ثم اضغط «فتح القالب في الاستوديو» لعرض محرر التخطيط.</p>
+</section>
 <section id="layoutEditorPanel" class="layout-editor-panel hidden" aria-labelledby="layoutEditorHeading">
   <div class="layout-editor-heading"><div><h3 id="layoutEditorHeading">محرر تخطيط القالب</h3><div class="muted">اختر «مساحة الخلفية» لتحديد مكان الصورة وحجمها داخل القالب. اسحب الإطار الأخضر أو غيّر X/Y والعرض والارتفاع، ثم احفظ التخطيط.</div></div><span class="pill">تحرير مرئي</span></div>
   <div class="layout-editor-grid">
@@ -91,8 +109,31 @@
       <div id="layoutHelp" class="layout-help" role="status">حدد العنصر واسحبه داخل القالب. القيم بوحدات بكسل الصورة الأصلية، وليس حجم المعاينة على الشاشة.</div>
     </div>
   </div>
-</section></section>
+</section>
+</div>
+<div id="pane-products" class="admin-pane hidden" data-admin-pane="products">
+<div class="layout"><section class="panel"><div class="sectionhead"><div><h2 id="editorTitle">إضافة منتج جديد</h2><div class="muted">القوالب والخلفيات والبانرات والملصقات والأعلام والشعارات.</div></div><button id="resetForm">منتج جديد ＋</button></div>
+<form id="itemForm"><input type="hidden" id="itemId"><div class="fields">
+<div class="field"><label for="name">اسم المنتج</label><input id="name" required maxlength="100" placeholder="مثال: خلفية مجرّة بنفسجية"></div>
+<div class="field"><label for="slug">معرّف فريد (Slug)</label><input id="slug" required maxlength="80" pattern="[a-zA-Z0-9_-]+" placeholder="purple-galaxy"></div>
+<div class="field"><label for="type">نوع العنصر</label><select id="type"><option value="background">خلفية</option><option value="card_template">قالب بطاقة</option><option value="badge">استكر / شارة</option><option value="flag">علم</option><option value="shape">إطار / شكل</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان البطاقة</option></select></div>
+<div class="field"><label for="category">القسم في المتجر</label><input id="category" list="categories" maxlength="80" value="الخلفيات" placeholder="الخلفيات، القوالب، الأعلام..."><datalist id="categories"><option value="الخلفيات"><option value="القوالب"><option value="البانرات"><option value="الاستكرات"><option value="الأعلام"><option value="الإطارات"><option value="الشعارات"></datalist></div>
+<div class="field"><label for="subcategory">قسم فرعي (اختياري)</label><input id="subcategory" list="subcategorySuggestions" maxlength="80" placeholder="فضائي، نيون، موسمي"><datalist id="subcategorySuggestions"></datalist></div>
+<div class="field"><label for="rarity">الندرة</label><select id="rarity"><option value="common">عادي</option><option value="silver">فضي</option><option value="gold">ذهبي</option><option value="legendary">أسطوري</option></select></div>
+<div class="field"><label for="price">السعر (0 = مجاني)</label><input id="price" type="number" min="0" max="1000000000" value="0" required></div>
+<div class="field"><label for="currency">عملة الشراء</label><select id="currency"><option value="moon">عملات PRIME</option><option value="gem">جواهر</option></select></div>
+<div class="field"><label for="sortOrder">ترتيب المنتج داخل المتجر</label><input id="sortOrder" type="number" min="0" max="1000000000" step="1" value="0"></div>
+<div class="field"><label for="salePrice">السعر الترويجي (اختياري)</label><input id="salePrice" type="number" min="0" max="1000000000" step="1" placeholder="فارغ = بدون عرض"></div>
+<div class="field"><label for="saleStart">بداية العرض (اختياري)</label><input id="saleStart" type="datetime-local"></div>
+<div class="field"><label for="saleEnd">نهاية العرض (اختياري)</label><input id="saleEnd" type="datetime-local"></div>
+<div class="field full muted">اترك السعر الترويجي فارغاً لإيقاف العرض. اكتب 0 لجعل المنتج مجانياً أثناء فترة العرض. الأوقات تُحوّل إلى UTC قبل الحفظ.</div>
+<div class="field full"><label for="description">الوصف</label><textarea id="description" maxlength="1000" placeholder="وصف قصير يظهر للعميل في المتجر"></textarea></div>
+<div class="field full"><label for="asset">صورة المنتج (PNG / JPG / WEBP أو GIF متحرك)</label><input id="asset" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="muted" id="assetNote">حد أقصى 5MB و16 مليون بكسل للصورة. GIF المتحرك حتى 60 إطارًا و32 مليون بكسل إجماليًا. للبنرات العريضة اختر نوع «خلفية» واكتب «البانرات» في خانة القسم.</div><div id="assetPreview" class="preview hidden" aria-live="polite"></div></div>
+<div class="field full"><label for="accent">لون التمييز (اختياري)</label><input id="accent" type="text" maxlength="7" value="#72DCFF" pattern="#[0-9a-fA-F]{6}"></div>
+<div class="field full checks"><label><input id="active" type="checkbox" checked> ظاهر وقابل للشراء</label><label><input id="featured" type="checkbox"> منتج مميز</label></div></div><div class="actions"><button class="primary" type="submit" id="saveItem">حفظ المنتج</button><button type="button" id="deleteItem" class="danger hidden">حذف المنتج</button></div></form>
+</section>
 <aside class="panel"><h2>خطوات إدارة المنتج</h2><div class="preview"><div><strong>1. أضف التفاصيل</strong><p class="muted">حدد الاسم والنوع والقسم والسعر. اختر صفرًا لجعله مجانيًا.</p><strong>2. ارفع الصورة</strong><p class="muted">ترفع الصورة بعد حفظ المنتج، ويجري فحص نوعها وأبعادها وتنظيف بياناتها قبل التخزين.</p><strong>3. انشر أو أخفِ</strong><p class="muted">إلغاء خيار «ظاهر وقابل للشراء» يخفيه عن العملاء دون حذف سجلات الشراء.</p></div></div><hr style="border-color:var(--line);margin:18px 0"><h2>تنبيه حول الصور</h2><p class="muted">يدعم الرفع PNG وJPG وWebP وGIF المتحرك ضمن حدود التحقق. ناتج بطاقة المستوى النهائي PNG ثابت، لذلك يظهر الإطار الأول من GIF داخل البطاقة.</p></aside></div>
 <section class="panel"><div class="sectionhead"><div><h2>كتالوج المنتجات</h2><div class="muted">ابحث بالاسم أو صفِّ حسب النوع والحالة.</div></div><div class="toolbar"><input id="search" placeholder="ابحث عن منتج..."><select id="filterType"><option value="">كل الأنواع</option><option value="background">خلفيات</option><option value="card_template">قوالب</option><option value="badge">استكرات / شارات</option><option value="flag">أعلام</option><option value="shape">إطارات</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان</option></select><select id="filterCategory"><option value="">كل الأقسام</option></select><select id="filterStatus"><option value="">كل الحالات</option><option value="active">معروض</option><option value="inactive">مخفي</option><option value="free">مجاني</option><option value="paid">مدفوع</option></select></div></div><div id="items" class="items"><p class="muted">جارٍ تحميل المنتجات...</p></div></section>
+</div>
 <div class="foot">PRIME Store Studio · الإدارة محمية بصلاحيات المالك. كل التغييرات تُحفظ في قاعدة بيانات المتجر الحالية.</div>
-</main><script src="/static/profile-store-admin.js?v=profile-background-preview-persistence-1" defer></script></body></html>
+</main><script src="/static/profile-store-admin.js?v=admin-tabs-studio-1" defer></script></body></html>
