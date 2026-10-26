@@ -1,11 +1,13 @@
+import io
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from aiohttp import CookieJar, web
+from aiohttp import CookieJar, FormData, web
 from aiohttp.test_utils import TestClient, TestServer
+from PIL import Image
 
 import aiosqlite
 import database
@@ -57,6 +59,72 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             )
             await db.commit()
             return int(cursor.lastrowid)
+
+    async def test_admin_asset_upload_route_sanitizes_image_and_rejects_invalid_content(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            created = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "asset-upload-test", "name": "Upload test",
+                    "item_type": "background", "category": "upload-tests",
+                    "price": 0, "currency": "moon", "is_active": False,
+                    "is_featured": False,
+                },
+            )
+            self.assertEqual(created.status, 201, await created.text())
+            item_id = (await created.json())["item"]["item_id"]
+
+            buffer = io.BytesIO()
+            Image.new("RGBA", (72, 48), (36, 180, 220, 180)).save(buffer, format="PNG")
+            form = FormData()
+            form.add_field("file", buffer.getvalue(), filename="test.png", content_type="image/png")
+            uploaded = await client.post(
+                f"/api/guild/99/profile-store/items/{item_id}/asset", data=form,
+            )
+            self.assertEqual(uploaded.status, 201, await uploaded.text())
+            payload = await uploaded.json()
+            self.assertTrue(payload["has_asset"])
+            self.assertEqual(payload["format"], "PNG")
+
+            preview = await client.get(
+                f"/api/guild/99/profile-store/items/{item_id}/asset",
+            )
+            self.assertEqual(preview.status, 200)
+            self.assertEqual(preview.headers.get("Content-Type"), "image/png")
+            with Image.open(io.BytesIO(await preview.read())) as image:
+                self.assertEqual(image.size, (72, 48))
+
+            invalid = FormData()
+            invalid.add_field("file", b"not an image", filename="bad.png", content_type="image/png")
+            rejected = await client.post(
+                f"/api/guild/99/profile-store/items/{item_id}/asset", data=invalid,
+            )
+            self.assertEqual(rejected.status, 400)
+            self.assertFalse((await rejected.json()).get("has_asset", False))
+
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT action, entity_type FROM profile_store_catalog_audit WHERE entity_id = ?",
+                    (item_id,),
+                ) as cursor:
+                    audit = await cursor.fetchall()
+            self.assertTrue(any(row["action"] == "asset_uploaded" and row["entity_type"] == "asset" for row in audit))
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
 
     async def test_admin_category_crud_audits_changes_and_hidden_sections_disappear_from_store(self):
         original_registered = profile_store_admin._registered
