@@ -272,7 +272,7 @@ _SCHEMA_STATEMENTS = (
         guild_id INTEGER NOT NULL CHECK (guild_id > 0),
         actor_user_id INTEGER CHECK (actor_user_id IS NULL OR actor_user_id > 0),
         action TEXT NOT NULL CHECK (length(trim(action)) BETWEEN 1 AND 48),
-        entity_type TEXT NOT NULL CHECK (entity_type IN ('item', 'category', 'asset')),
+        entity_type TEXT NOT NULL CHECK (entity_type IN ('item', 'category', 'asset', 'settings')),
         entity_id INTEGER,
         before_json TEXT NOT NULL DEFAULT '{}',
         after_json TEXT NOT NULL DEFAULT '{}',
