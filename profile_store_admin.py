@@ -251,6 +251,90 @@ def _payload_text(payload: dict, key: str, default: str, max_length: int, *, req
     return value
 
 
+def validate_category_payload(payload: dict, *, allow_parent: bool = True) -> dict:
+    """Validate a top-level store section or a child section without trusting the UI."""
+    if not isinstance(payload, dict):
+        raise ValueError("category_must_be_object")
+    name = _payload_text(payload, "name", "", 80, required=True)
+    if not _CATEGORY_RE.fullmatch(name) or name.strip().lower() == "all":
+        raise ValueError("invalid_category_name")
+    parent_id = payload.get("parent_id")
+    if not allow_parent and parent_id is not None:
+        raise ValueError("nested_subcategories_not_supported")
+    if parent_id in ("", 0, "0"):
+        parent_id = None
+    if parent_id is not None:
+        if isinstance(parent_id, bool) or not str(parent_id).isdigit() or int(parent_id) <= 0:
+            raise ValueError("invalid_parent_category")
+        parent_id = int(parent_id)
+    sort_order = payload.get("sort_order", 0)
+    if isinstance(sort_order, bool) or not isinstance(sort_order, int) or not 0 <= sort_order <= 1_000_000:
+        raise ValueError("invalid_category_order")
+    is_active = payload.get("is_active", True)
+    if not isinstance(is_active, bool):
+        raise ValueError("category_active_must_be_boolean")
+    return {"name": name.strip(), "parent_id": parent_id,
+            "sort_order": sort_order, "is_active": int(is_active)}
+
+
+async def _record_catalog_audit(
+    db, *, guild_id: int, actor_id: int | None, action: str,
+    entity_type: str, entity_id: int | None, before: dict | None, after: dict | None,
+) -> None:
+    """Persist an audit event in the same transaction as the catalog mutation."""
+    await db.execute(
+        """
+        INSERT INTO profile_store_catalog_audit
+            (guild_id, actor_user_id, action, entity_type, entity_id, before_json, after_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (int(guild_id), actor_id if actor_id and actor_id > 0 else None,
+         action[:48], entity_type, entity_id,
+         json.dumps(before or {}, ensure_ascii=False, separators=(",", ":")),
+         json.dumps(after or {}, ensure_ascii=False, separators=(",", ":"))),
+    )
+
+
+async def _ensure_category_rows(db, category: str, subcategory: str, actor_id: int | None = None) -> None:
+    """Keep the legacy item category strings backed by canonical manageable rows."""
+    category = str(category or "").strip()
+    subcategory = str(subcategory or "").strip()
+    if not category or category.lower() == "all":
+        return
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO profile_store_categories (name, parent_id, sort_order, is_active, created_by)
+        VALUES (?, NULL, 0, 1, ?)
+        """,
+        (category, actor_id),
+    )
+    async with db.execute(
+        "SELECT category_id FROM profile_store_categories WHERE parent_id IS NULL AND name = ? COLLATE NOCASE",
+        (category,),
+    ) as cursor:
+        parent = await cursor.fetchone()
+    if parent and subcategory:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO profile_store_categories (name, parent_id, sort_order, is_active, created_by)
+            VALUES (?, ?, 0, 1, ?)
+            """,
+            (subcategory, int(parent["category_id"]), actor_id),
+        )
+
+
+def _public_category(row) -> dict:
+    return {
+        "category_id": int(row["category_id"]),
+        "name": str(row["name"]),
+        "parent_id": int(row["parent_id"]) if row["parent_id"] is not None else None,
+        "sort_order": int(row["sort_order"]),
+        "is_active": bool(row["is_active"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
 def validate_catalog_item_payload(payload: dict) -> dict:
     """Validate all admin-supplied item metadata; asset_path is server-controlled."""
     if not isinstance(payload, dict):
@@ -597,6 +681,14 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 (MAX_CATALOG_ITEMS,),
             ) as cursor:
                 rows = await cursor.fetchall()
+            async with db.execute(
+                """
+                SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at
+                FROM profile_store_categories
+                ORDER BY COALESCE(parent_id, 0), sort_order, category_id
+                """
+            ) as cursor:
+                category_rows = await cursor.fetchall()
 
         settings = dict(settings_row) if settings_row else {
             "enabled": 1,
@@ -607,7 +699,11 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             "session_ttl_seconds": profile_store_db.DEFAULT_SESSION_TTL_SECONDS,
         }
         items = [_public_item(row) for row in rows]
-        return web.json_response({"guild_id": str(guild.id), "settings": settings, "items": items})
+        categories = [_public_category(row) for row in category_rows]
+        return web.json_response({
+            "guild_id": str(guild.id), "settings": settings,
+            "items": items, "categories": categories,
+        })
 
     @routes.post("/api/guild/{guild_id}/profile-store/settings")
     async def profile_store_admin_settings_save(request):
@@ -710,6 +806,26 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     ),
                 )
                 item_id = int(cursor.lastrowid)
+                await _ensure_category_rows(db, item["category"], item["subcategory"],
+                                            int(session.get("id", 0) or 0))
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="item_created", entity_type="item", entity_id=item_id,
+                    before=None, after={k: item[k] for k in (
+                        "slug", "name", "item_type", "category", "subcategory",
+                        "price", "currency", "is_active", "is_featured",
+                    )},
+                )
+                await _ensure_category_rows(db, item["category"], item["subcategory"],
+                                            int(_session.get("id", 0) or 0))
+                await _record_catalog_audit(
+                    db, guild_id=int(_guild.id), actor_id=int(_session.get("id", 0) or 0),
+                    action="item_updated", entity_type="item", entity_id=item_id,
+                    before=before_item, after={k: item[k] for k in (
+                        "slug", "name", "item_type", "category", "subcategory",
+                        "price", "currency", "is_active", "is_featured",
+                    )},
+                )
                 await db.commit()
                 async with db.execute(
                     "SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)
@@ -739,6 +855,12 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     exists = await cursor.fetchone()
                 if not exists:
                     return _json_error(404, "item_not_found")
+                async with db.execute(
+                    "SELECT slug, name, item_type, category, subcategory, price, currency, is_active, is_featured FROM profile_store_items WHERE item_id = ?",
+                    (item_id,),
+                ) as cursor:
+                    before_row = await cursor.fetchone()
+                before_item = dict(before_row) if before_row else {}
                 await db.execute(
                     """
                     UPDATE profile_store_items SET
@@ -774,6 +896,14 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             return _json_error(404, "item_not_found")
         item_id = int(raw_id)
         async with database.connect() as db:
+            async with db.execute(
+                "SELECT slug, name, item_type, category, subcategory, price, currency, is_active, is_featured FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
+                (item_id,),
+            ) as cursor:
+                before_row = await cursor.fetchone()
+            if not before_row:
+                return _json_error(404, "item_not_found")
+            before_item = dict(before_row)
             cursor = await db.execute(
                 """
                 UPDATE profile_store_items
@@ -782,6 +912,11 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 WHERE item_id = ? AND deleted_at IS NULL
                 """,
                 (item_id,),
+            )
+            await _record_catalog_audit(
+                db, guild_id=int(_guild.id), actor_id=int(_session.get("id", 0) or 0),
+                action="item_deleted", entity_type="item", entity_id=item_id,
+                before=before_item, after={"is_active": 0, "deleted": True},
             )
             await db.commit()
         if cursor.rowcount <= 0:
@@ -904,6 +1039,194 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox",
         })
+
+    @routes.post("/api/guild/{guild_id}/profile-store/categories")
+    async def profile_store_category_create(request):
+        session, guild = await store_authorize(request, write=True)
+        try:
+            body = await _read_item_payload(request)
+            item = validate_category_payload(body)
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                if item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT category_id FROM profile_store_categories WHERE category_id = ? AND parent_id IS NULL",
+                        (item["parent_id"],),
+                    ) as cursor:
+                        parent = await cursor.fetchone()
+                    if not parent:
+                        await db.rollback()
+                        return _json_error(400, "invalid_parent_category")
+                cursor = await db.execute(
+                    """
+                    INSERT INTO profile_store_categories (name, parent_id, sort_order, is_active, created_by)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (item["name"], item["parent_id"], item["sort_order"], item["is_active"],
+                     int(session.get("id", 0) or 0)),
+                )
+                category_id = int(cursor.lastrowid)
+                async with db.execute(
+                    "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
+                    (category_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                category = _public_category(row)
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="category_created", entity_type="category", entity_id=category_id,
+                    before=None, after=category,
+                )
+                await db.commit()
+            return web.json_response({"category": category}, status=201)
+        except ValueError as error:
+            return _validation_response(error)
+        except aiosqlite.IntegrityError:
+            return _json_error(409, "duplicate_category")
+
+    @routes.put("/api/guild/{guild_id}/profile-store/categories/reorder")
+    async def profile_store_category_reorder(request):
+        session, guild = await store_authorize(request, write=True)
+        try:
+            body = await _read_item_payload(request)
+            ids = body.get("category_ids")
+            if not isinstance(ids, list) or len(ids) > 500 or any(
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in ids
+            ) or len(ids) != len(set(ids)):
+                raise ValueError("invalid_category_order")
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                async with db.execute(
+                    "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                existing = {int(row["category_id"]): dict(row) for row in rows}
+                if set(ids) != set(existing):
+                    await db.rollback()
+                    return _json_error(409, "category_order_stale")
+                before = [{"category_id": key, "sort_order": row["sort_order"]} for key, row in existing.items()]
+                for order, category_id in enumerate(ids):
+                    await db.execute(
+                        "UPDATE profile_store_categories SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE category_id = ?",
+                        (order, category_id),
+                    )
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="categories_reordered", entity_type="category", entity_id=None,
+                    before={"categories": before},
+                    after={"category_ids": ids},
+                )
+                await db.commit()
+            return web.json_response({"ok": True, "category_ids": ids})
+        except ValueError as error:
+            return _validation_response(error)
+
+    @routes.put("/api/guild/{guild_id}/profile-store/categories/{category_id}")
+    async def profile_store_category_update(request):
+        session, guild = await store_authorize(request, write=True)
+        raw_id = str(request.match_info.get("category_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "category_not_found")
+        category_id = int(raw_id)
+        try:
+            body = await _read_item_payload(request)
+            item = validate_category_payload(body)
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                async with db.execute(
+                    "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
+                    (category_id,),
+                ) as cursor:
+                    before_row = await cursor.fetchone()
+                if not before_row:
+                    await db.rollback()
+                    return _json_error(404, "category_not_found")
+                if item["parent_id"] == category_id:
+                    await db.rollback()
+                    return _json_error(400, "invalid_parent_category")
+                if item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT category_id FROM profile_store_categories WHERE category_id = ? AND parent_id IS NULL",
+                        (item["parent_id"],),
+                    ) as cursor:
+                        parent = await cursor.fetchone()
+                    if not parent:
+                        await db.rollback()
+                        return _json_error(400, "invalid_parent_category")
+                before = dict(before_row)
+                await db.execute(
+                    """
+                    UPDATE profile_store_categories
+                    SET name = ?, parent_id = ?, sort_order = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE category_id = ?
+                    """,
+                    (item["name"], item["parent_id"], item["sort_order"], item["is_active"], category_id),
+                )
+                # Keep existing item text fields aligned when a category is renamed.
+                if before["parent_id"] is None and item["parent_id"] is None:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, updated_at = CURRENT_TIMESTAMP WHERE category = ? COLLATE NOCASE",
+                        (item["name"], before["name"]),
+                    )
+                elif before["parent_id"] is not None and item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT name FROM profile_store_categories WHERE category_id = ?",
+                        (item["parent_id"],),
+                    ) as cursor:
+                        parent_row = await cursor.fetchone()
+                    if parent_row:
+                        await db.execute(
+                            "UPDATE profile_store_items SET subcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE subcategory = ? COLLATE NOCASE AND category = ? COLLATE NOCASE",
+                            (item["name"], before["name"], parent_row["name"]),
+                        )
+                async with db.execute(
+                    "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
+                    (category_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                category = _public_category(row)
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="category_updated", entity_type="category", entity_id=category_id,
+                    before=before, after=category,
+                )
+                await db.commit()
+            return web.json_response({"category": category})
+        except ValueError as error:
+            return _validation_response(error)
+        except aiosqlite.IntegrityError:
+            return _json_error(409, "duplicate_category")
+
+    @routes.delete("/api/guild/{guild_id}/profile-store/categories/{category_id}")
+    async def profile_store_category_delete(request):
+        session, guild = await store_authorize(request, write=True)
+        raw_id = str(request.match_info.get("category_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "category_not_found")
+        category_id = int(raw_id)
+        async with database.connect(aiosqlite.Row) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            async with db.execute(
+                "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
+                (category_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                await db.rollback()
+                return _json_error(404, "category_not_found")
+            before = dict(row)
+            # Categories are archived rather than hard-deleted to preserve product references.
+            await db.execute(
+                "UPDATE profile_store_categories SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE category_id = ?",
+                (category_id,),
+            )
+            await _record_catalog_audit(
+                db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                action="category_hidden", entity_type="category", entity_id=category_id,
+                before=before, after={**before, "is_active": False},
+            )
+            await db.commit()
+        return web.json_response({"category_id": category_id, "is_active": False})
 
     @routes.post("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
     async def profile_store_item_upload(request):
