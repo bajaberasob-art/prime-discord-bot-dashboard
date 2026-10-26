@@ -226,6 +226,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .product-price { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; color: var(--gold); font: 900 12px system-ui, sans-serif; font-variant-numeric: tabular-nums; }
 .product-price .price-gem { color: var(--violet); }
 .product-price .price-free { color: var(--mint); font: 900 12px "Cairo", sans-serif; }
+.product-price .price-original { color: var(--muted); font: 700 10px system-ui, sans-serif; text-decoration: line-through; }
+.product-price .price-current-sale { color: var(--sale, #ffcf75); }
+.product-price .price-current-free { color: var(--mint); font: 900 12px "Cairo", sans-serif; }
 .product-kind { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted-2); font-size: 9px; font-weight: 700; }
 .notice { margin: 0 0 14px; padding: 13px 15px; border: 1px solid rgba(255,207,112,.23); border-radius: 14px; color: #f9dca3; background: rgba(255,207,112,.07); font-size: 12px; line-height: 1.7; }
 .empty-state { padding: 48px 20px; text-align: center; border: 1px dashed var(--line-strong); border-radius: 22px; background: rgba(13,21,35,.5); }

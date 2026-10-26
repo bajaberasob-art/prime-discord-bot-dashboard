@@ -1,7 +1,9 @@
 import io
+import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -149,6 +151,63 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(catalog.status, 200, await catalog.text())
             item = next(v for v in (await catalog.json())["items"] if v["item_id"] == item_id)
             self.assertFalse(item["has_asset"], "a DB path alone must not count as an existing image file")
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
+
+
+    async def test_legacy_empty_metadata_update_preserves_template_layout(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+        old_metadata = {
+            "width": 1280, "height": 460, "layout": "wide",
+            "avatar": {"x": 990, "y": 35, "size": 92},
+            "stats": [{"key": "balance", "label": "الرصيد", "x": 30, "y": 330, "w": 280, "h": 55}],
+        }
+        async with database.connect() as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO profile_store_items
+                    (slug, name, description, item_type, category, subcategory,
+                     rarity, price, currency, style_json, metadata_json, is_active, is_featured)
+                VALUES ('layout-preserve-test', 'Layout preserve', '', 'card_template',
+                        'templates', '', 'common', 150, 'moon', '{}', ?, 0, 0)
+                """,
+                (json.dumps(old_metadata, ensure_ascii=False),),
+            )
+            await db.commit()
+            item_id = int(cursor.lastrowid)
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            response = await client.put(
+                f"/api/guild/99/profile-store/items/{item_id}",
+                json={
+                    "slug": "layout-preserve-test", "name": "Layout preserve updated",
+                    "description": "updated", "item_type": "card_template",
+                    "category": "templates", "subcategory": "", "rarity": "common",
+                    "price": 200, "currency": "moon", "style": {},
+                    "is_active": False, "is_featured": False,
+                },
+            )
+            self.assertEqual(response.status, 200, await response.text())
+            async with database.connect() as db:
+                async with db.execute(
+                    "SELECT price, metadata_json FROM profile_store_items WHERE item_id = ?",
+                    (item_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+            self.assertEqual(int(row[0]), 200)
+            self.assertEqual(json.loads(row[1]), old_metadata)
         finally:
             await client.close()
             profile_store_admin._registered = original_registered
@@ -770,6 +829,134 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(profile_store_public._origin_matches(bad))
         self.assertFalse(profile_store_public._origin_matches(missing))
 
+
+    async def test_scheduled_sale_debits_effective_price_and_preserves_ledger(self):
+        await self._seed_coin_wallet(100)
+        item_id = await self._add_item(
+            "scheduled-sale-purchase",
+            item_type="card_color",
+            price=80,
+            currency="moon",
+            name="Scheduled sale purchase",
+            category="sale-tests",
+            subcategory="",
+        )
+        now = datetime.now(timezone.utc)
+        starts = (now - timedelta(minutes=2)).isoformat()
+        ends = (now + timedelta(minutes=10)).isoformat()
+        async with database.connect() as db:
+            await db.execute(
+                """
+                UPDATE profile_store_items
+                SET sale_price = 25, sale_starts_at = ?, sale_ends_at = ?
+                WHERE item_id = ?
+                """,
+                (starts, ends, item_id),
+            )
+            await db.commit()
+
+        receipt = await profile_store_public._purchase_item(self.session, item_id)
+        self.assertEqual(receipt["price"], 25)
+        self.assertEqual(receipt["base_price"], 80)
+        self.assertTrue(receipt["is_on_sale"])
+        self.assertEqual(receipt["balance"], 75)
+
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                "SELECT price_paid FROM user_profile_inventory WHERE guild_id = 99 AND user_id = 1234 AND item_id = ?",
+                (item_id,),
+            ) as cursor:
+                inventory = await cursor.fetchone()
+            async with db.execute(
+                "SELECT delta, balance_after FROM profile_store_transactions WHERE guild_id = 99 AND user_id = 1234 AND item_id = ? AND transaction_type = 'purchase'",
+                (item_id,),
+            ) as cursor:
+                transaction = await cursor.fetchone()
+            async with db.execute(
+                "SELECT balance FROM users WHERE guild_id = 99 AND user_id = 1234",
+            ) as cursor:
+                wallet = await cursor.fetchone()
+        self.assertEqual(int(inventory["price_paid"]), 25)
+        self.assertEqual(tuple(transaction), (-25, 75))
+        self.assertEqual(int(wallet["balance"]), 75)
+
+    async def test_scheduled_sale_admin_api_metrics_and_manual_product_order(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            now = datetime.now(timezone.utc)
+            starts = (now - timedelta(minutes=1)).isoformat()
+            ends = (now + timedelta(minutes=15)).isoformat()
+            created = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "scheduled-sale-admin", "name": "Scheduled sale",
+                    "description": "Limited offer", "item_type": "card_color",
+                    "category": "sale-tests", "subcategory": "", "price": 40,
+                    "currency": "moon", "sale_price": 5,
+                    "sale_starts_at": starts, "sale_ends_at": ends,
+                    "sort_order": 500, "is_active": True, "is_featured": False,
+                },
+            )
+            self.assertEqual(created.status, 201, await created.text())
+            sale_item = (await created.json())["item"]
+            self.assertEqual(sale_item["sale_price"], 5)
+            self.assertEqual(sale_item["effective_price"], 5)
+            self.assertTrue(sale_item["is_on_sale"])
+
+            await self._seed_coin_wallet(100)
+            receipt = await profile_store_public._purchase_item(self.session, sale_item["item_id"])
+            self.assertEqual(receipt["price"], 5)
+
+            second = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "scheduled-sale-order-second", "name": "Second",
+                    "item_type": "card_color", "category": "sale-tests",
+                    "subcategory": "", "price": 9, "currency": "moon",
+                    "sort_order": 510, "is_active": True, "is_featured": False,
+                },
+            )
+            self.assertEqual(second.status, 201, await second.text())
+
+            before = await client.get("/api/guild/99/profile-store")
+            self.assertEqual(before.status, 200, await before.text())
+            catalog_before = await before.json()
+            report = catalog_before["sales"]
+            self.assertEqual(report["purchases"], 1)
+            self.assertEqual(report["buyers"], 1)
+            self.assertEqual(report["moon_revenue"], 5)
+            product_sale = next(i for i in catalog_before["items"] if i["item_id"] == sale_item["item_id"])
+            self.assertEqual(product_sale["purchase_count"], 1)
+            self.assertEqual(product_sale["moon_revenue"], 5)
+
+            ordered_ids = [int(i["item_id"]) for i in catalog_before["items"]]
+            reversed_ids = list(reversed(ordered_ids))
+            reordered = await client.put(
+                "/api/guild/99/profile-store/items/reorder",
+                json={"item_ids": reversed_ids},
+            )
+            self.assertEqual(reordered.status, 200, await reordered.text())
+            after = await client.get("/api/guild/99/profile-store")
+            catalog_after = await after.json()
+            self.assertEqual(
+                [int(i["item_id"]) for i in catalog_after["items"]],
+                reversed_ids,
+            )
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
 
 if __name__ == "__main__":
     unittest.main()

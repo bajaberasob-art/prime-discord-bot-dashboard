@@ -63,8 +63,15 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         self.assertIn("function isShopVisible(item)", client)
         self.assertIn("if(parent&&!parent.is_active)return false", client)
         self.assertIn("if(child&&!child.is_active)return false", client)
-        self.assertIn("items.filter(i=>Number(i.price)>0).length", client)
+        self.assertIn("items.filter(i=>effectivePrice(i)>0).length", client)
+        self.assertIn("items.filter(i=>effectivePrice(i)===0).length", client)
         self.assertIn("items.filter(i=>!isShopVisible(i)).length", client)
+        self.assertIn("salePrice", page)
+        self.assertIn("saleStart", page)
+        self.assertIn("saleEnd", page)
+        self.assertIn("salesPurchases", page)
+        self.assertIn("items/reorder", (root / "profile_store_admin.py").read_text("utf-8"))
+        self.assertIn("sale_starts_at", (root / "profile_store_public.py").read_text("utf-8"))
 
     def test_uploaded_template_receives_safe_default_layout_metadata(self):
         portrait = default_uploaded_template_metadata(1024, 1536)
@@ -100,6 +107,31 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         self.assertIn("max_custom_upload_bytes", client)
         self.assertIn("session_ttl_seconds", client)
         self.assertIn("custom:", (Path(__file__).resolve().parents[1] / "dashboard" / "profile-store.js").read_text("utf-8"))
+
+
+    def test_template_layout_editor_exposes_drag_resize_and_persists_metadata(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
+        client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        admin = (root / "profile_store_admin.py").read_text("utf-8")
+        for control in ("layoutEditorPanel", "layoutStage", "layoutField", "layoutX",
+                        "layoutY", "layoutWidth", "layoutHeight", "layoutXpEnabled",
+                        "stat:streak", "تطبيق الموضع والحجم", "saveLayout"):
+            with self.subTest(control=control):
+                self.assertIn(control, page)
+        self.assertIn("pointermove", client)
+        self.assertIn("writeLayoutBox", client)
+        self.assertIn("metadata:cloneLayoutMetadata(layoutMetadata)", client)
+        self.assertIn('if not body.get("metadata")', admin)
+
+    def test_live_xp_overlay_is_opt_in_and_streak_stat_has_real_value(self):
+        root = Path(__file__).resolve().parents[1]
+        generator = (root / "profile_card_generator.py").read_text("utf-8")
+        service = (root / "profile_card_service.py").read_text("utf-8")
+        self.assertIn('if xp_box.get("enabled") is True:', generator)
+        self.assertIn('"streak": f"{_number(profile.get(\'streak_days\')):,}"', generator)
+        self.assertIn("SELECT COALESCE(current_streak, 0) FROM user_levels", service)
+        self.assertIn('"streak_days": streak_days', service)
 
 
 if __name__ == "__main__":

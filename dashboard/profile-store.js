@@ -74,10 +74,24 @@
   }
   function priceNode(item, detailed) {
     const price = priceOf(item);
+    const basePrice = amount(item && item.base_price);
     const node = document.createElement("span");
+    const saleActive = Boolean(item && item.is_on_sale && basePrice > price);
     node.className = "product-price" + (detailed ? " detail-price-block" : "") +
       (item.currency === "gem" && price > 0 ? " price-gem" : "") + (price === 0 ? " price-free" : "");
-    if (!price) {
+    if (saleActive) {
+      const original = document.createElement("del");
+      original.className = "price-original";
+      original.textContent = fmt(basePrice) + " " + currencyGlyph(item.currency);
+      node.append(original);
+      if (!price) {
+        const free = document.createElement("strong");
+        free.className = "price-current-free";
+        free.textContent = "مجاني";
+        node.append(free);
+        return node;
+      }
+    } else if (!price) {
       node.textContent = "مجاني";
       return node;
     }
@@ -86,6 +100,7 @@
     glyph.setAttribute("aria-hidden", "true");
     glyph.textContent = currencyGlyph(item.currency);
     const value = document.createElement("strong");
+    value.className = saleActive ? "price-current-sale" : "";
     value.textContent = fmt(price);
     node.append(glyph, value);
     if (detailed) {

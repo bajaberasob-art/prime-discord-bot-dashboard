@@ -2,6 +2,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timezone
 
 import database
 import profile_store_db
@@ -64,6 +65,7 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             "idx_profile_store_sessions_owner",
             "idx_profile_store_web_sessions_expiry",
             "idx_profile_store_transactions_owner",
+            "idx_profile_store_transactions_sales",
             "idx_profile_store_admin_audit_target",
             "idx_profile_store_categories_parent_name",
             "idx_profile_store_categories_order",
@@ -104,6 +106,33 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(settings_count, 1)
         self.assertEqual(versions, [1, profile_store_db.PROFILE_STORE_SCHEMA_VERSION])
+        self.assertEqual(profile_store_db.PROFILE_STORE_SCHEMA_VERSION, 6)
+        async with database.connect() as db:
+            async with db.execute("PRAGMA table_info(profile_store_items)") as cursor:
+                item_columns = {row[1] for row in await cursor.fetchall()}
+        self.assertTrue({"sale_price", "sale_starts_at", "sale_ends_at", "sort_order"}.issubset(item_columns))
+
+    async def test_scheduled_sale_uses_utc_half_open_window_and_supports_free_promotions(self):
+        starts = datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)
+        ends = datetime(2026, 10, 26, 13, 0, tzinfo=timezone.utc)
+        item = {
+            "price": 120,
+            "sale_price": 30,
+            "sale_starts_at": profile_store_db.normalize_sale_datetime(starts.isoformat(), "sale_starts_at"),
+            "sale_ends_at": profile_store_db.normalize_sale_datetime(ends.isoformat(), "sale_ends_at"),
+        }
+        self.assertFalse(profile_store_db.catalog_item_is_on_sale(item, datetime(2026, 10, 26, 11, 59, tzinfo=timezone.utc)))
+        self.assertEqual(profile_store_db.effective_catalog_price(item, datetime(2026, 10, 26, 11, 59, tzinfo=timezone.utc)), 120)
+        self.assertTrue(profile_store_db.catalog_item_is_on_sale(item, datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)))
+        self.assertEqual(profile_store_db.effective_catalog_price(item, datetime(2026, 10, 26, 12, 30, tzinfo=timezone.utc)), 30)
+        self.assertFalse(profile_store_db.catalog_item_is_on_sale(item, datetime(2026, 10, 26, 13, 0, tzinfo=timezone.utc)))
+        self.assertEqual(profile_store_db.effective_catalog_price(item, datetime(2026, 10, 26, 13, 0, tzinfo=timezone.utc)), 120)
+        item["sale_price"] = 0
+        self.assertEqual(profile_store_db.effective_catalog_price(item, datetime(2026, 10, 26, 12, 30, tzinfo=timezone.utc)), 0)
+        item["sale_price"] = 121
+        self.assertFalse(profile_store_db.catalog_item_is_on_sale(item, datetime(2026, 10, 26, 12, 30, tzinfo=timezone.utc)))
+        with self.assertRaisesRegex(ValueError, "sale_starts_at_must_include_timezone"):
+            profile_store_db.normalize_sale_datetime("2026-10-26T12:00", "sale_starts_at")
 
     async def test_catalog_accepts_free_and_paid_items_but_rejects_invalid_values(self):
         async with database.connect() as db:

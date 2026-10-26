@@ -24,6 +24,13 @@ async def build_profile_card_data(guild: Any, member: Any) -> tuple[dict, dict]:
     progress = text_progress(int(snapshot.get("text_xp") or 0))
     wallet = await profile_store_db.get_profile_wallet(guild_id, user_id)
     configuration = await profile_store_db.get_profile_card_configuration(guild_id, user_id)
+    async with database.connect() as db:
+        async with db.execute(
+            "SELECT COALESCE(current_streak, 0) FROM user_levels WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ) as cursor:
+            streak_row = await cursor.fetchone()
+    streak_days = max(0, int(streak_row[0] or 0)) if streak_row else 0
     profile = {
         "display_name": str(getattr(member, "display_name", None) or member.name),
         "username": str(getattr(member, "name", "member")),
@@ -34,5 +41,6 @@ async def build_profile_card_data(guild: Any, member: Any) -> tuple[dict, dict]:
         "messages": int(snapshot.get("total_messages") or 0),
         "rank": snapshot.get("rank"),
         "voice_seconds": int(snapshot.get("total_voice_seconds") or 0),
+        "streak_days": streak_days,
     }
     return profile, configuration

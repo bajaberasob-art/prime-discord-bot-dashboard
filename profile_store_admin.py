@@ -412,6 +412,22 @@ def validate_catalog_item_payload(payload: dict) -> dict:
     if currency not in profile_store_db.STORE_CURRENCIES:
         raise ValueError("invalid_currency")
 
+    sort_order = payload.get("sort_order", 0)
+    if isinstance(sort_order, bool) or not isinstance(sort_order, int) or not 0 <= sort_order <= 1_000_000_000:
+        raise ValueError("invalid_item_order")
+
+    sale_price = payload.get("sale_price")
+    if sale_price in ("", None):
+        sale_price = None
+    elif isinstance(sale_price, bool) or not isinstance(sale_price, int) or not 0 <= sale_price <= 1_000_000_000:
+        raise ValueError("invalid_sale_price")
+    if sale_price is not None and sale_price > price:
+        raise ValueError("sale_price_exceeds_base_price")
+    sale_starts_at = profile_store_db.normalize_sale_datetime(payload.get("sale_starts_at"), "sale_starts_at")
+    sale_ends_at = profile_store_db.normalize_sale_datetime(payload.get("sale_ends_at"), "sale_ends_at")
+    if sale_starts_at and sale_ends_at and sale_ends_at <= sale_starts_at:
+        raise ValueError("sale_end_must_follow_start")
+
     style = _json_object(payload.get("style", {}), "style")
     metadata = _json_object(payload.get("metadata", {}), "metadata")
     for key in ("accent", "accent2", "divider", "xp", "deep", "glow"):
@@ -433,6 +449,10 @@ def validate_catalog_item_payload(payload: dict) -> dict:
         "rarity": rarity,
         "price": price,
         "currency": currency,
+        "sale_price": sale_price,
+        "sale_starts_at": sale_starts_at,
+        "sale_ends_at": sale_ends_at,
+        "sort_order": sort_order,
         "style_json": json.dumps(style, ensure_ascii=False, separators=(",", ":")),
         "metadata_json": json.dumps(metadata, ensure_ascii=False, separators=(",", ":")),
         "is_active": int(is_active),
@@ -463,6 +483,10 @@ def _public_item(row) -> dict:
     item = dict(row)
     item["style"] = _parse_json_column(item.pop("style_json", "{}"))
     item["metadata"] = _parse_json_column(item.pop("metadata_json", "{}"))
+    item["sort_order"] = int(item.get("sort_order") or 0)
+    item["sale_price"] = int(item["sale_price"]) if item.get("sale_price") is not None else None
+    item["effective_price"] = profile_store_db.effective_catalog_price(item)
+    item["is_on_sale"] = profile_store_db.catalog_item_is_on_sale(item)
     path = item.pop("asset_path", None)
     item["has_asset"] = _catalog_asset_exists(path)
     item["asset_name"] = Path(path).name if path else None
@@ -743,16 +767,28 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 settings_row = await cursor.fetchone()
             async with db.execute(
                 """
-                SELECT item_id, slug, name, description, item_type, category,
-                       subcategory, rarity, price, currency, asset_path, asset_url,
-                       style_json, metadata_json, is_active, is_featured,
-                       created_at, updated_at, deleted_at
-                FROM profile_store_items
-                WHERE deleted_at IS NULL
-                ORDER BY is_active DESC, item_id DESC
+                SELECT i.item_id, i.slug, i.name, i.description, i.item_type, i.category,
+                       i.subcategory, i.rarity, i.price, i.currency,
+                       i.sale_price, i.sale_starts_at, i.sale_ends_at, i.sort_order,
+                       i.asset_path, i.asset_url, i.style_json, i.metadata_json,
+                       i.is_active, i.is_featured, i.created_at, i.updated_at, i.deleted_at,
+                       COALESCE(s.purchase_count, 0) AS purchase_count,
+                       COALESCE(s.moon_revenue, 0) AS moon_revenue,
+                       COALESCE(s.gem_revenue, 0) AS gem_revenue
+                FROM profile_store_items AS i
+                LEFT JOIN (
+                    SELECT item_id, COUNT(*) AS purchase_count,
+                           SUM(CASE WHEN currency = 'moon' AND delta < 0 THEN -delta ELSE 0 END) AS moon_revenue,
+                           SUM(CASE WHEN currency = 'gem' AND delta < 0 THEN -delta ELSE 0 END) AS gem_revenue
+                    FROM profile_store_transactions
+                    WHERE guild_id = ? AND transaction_type = 'purchase'
+                    GROUP BY item_id
+                ) AS s ON s.item_id = i.item_id
+                WHERE i.deleted_at IS NULL
+                ORDER BY i.sort_order ASC, i.is_active DESC, i.is_featured DESC, i.item_id ASC
                 LIMIT ?
                 """,
-                (MAX_CATALOG_ITEMS,),
+                (int(guild.id), MAX_CATALOG_ITEMS),
             ) as cursor:
                 rows = await cursor.fetchall()
             async with db.execute(
@@ -772,11 +808,25 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             "max_custom_upload_bytes": MAX_PROFILE_UPLOAD_BYTES,
             "session_ttl_seconds": profile_store_db.DEFAULT_SESSION_TTL_SECONDS,
         }
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                """
+                SELECT COUNT(*) AS purchases,
+                       COUNT(DISTINCT user_id) AS buyers,
+                       COALESCE(SUM(CASE WHEN currency = 'moon' AND delta < 0 THEN -delta ELSE 0 END), 0) AS moon_revenue,
+                       COALESCE(SUM(CASE WHEN currency = 'gem' AND delta < 0 THEN -delta ELSE 0 END), 0) AS gem_revenue
+                FROM profile_store_transactions
+                WHERE guild_id = ? AND transaction_type = 'purchase'
+                """,
+                (int(guild.id),),
+            ) as cursor:
+                sales_row = await cursor.fetchone()
+        sales = {key: int(sales_row[key] or 0) for key in ("purchases", "buyers", "moon_revenue", "gem_revenue")}
         items = [_public_item(row) for row in rows]
         categories = [_public_category(row) for row in category_rows]
         return web.json_response({
             "guild_id": str(guild.id), "settings": settings,
-            "items": items, "categories": categories,
+            "items": items, "categories": categories, "sales": sales,
         })
 
     @routes.post("/api/guild/{guild_id}/profile-store/settings")
@@ -872,18 +922,24 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 return _json_error(400, "asset_required_before_publish")
             async with database.connect(aiosqlite.Row) as db:
                 await db.execute("BEGIN IMMEDIATE")
+                if "sort_order" not in body:
+                    async with db.execute(
+                        "SELECT COALESCE(MAX(sort_order), -10) + 10 FROM profile_store_items WHERE deleted_at IS NULL"
+                    ) as cursor:
+                        item["sort_order"] = int((await cursor.fetchone())[0] or 0)
                 cursor = await db.execute(
                     """
                     INSERT INTO profile_store_items
                         (slug, name, description, item_type, category, subcategory,
-                         rarity, price, currency, style_json, metadata_json,
-                         is_active, is_featured, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         rarity, price, currency, sale_price, sale_starts_at, sale_ends_at,
+                         sort_order, style_json, metadata_json, is_active, is_featured, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item["slug"], item["name"], item["description"], item["item_type"],
                         item["category"], item["subcategory"], item["rarity"], item["price"],
-                        item["currency"], item["style_json"], item["metadata_json"],
+                        item["currency"], item["sale_price"], item["sale_starts_at"], item["sale_ends_at"],
+                        item["sort_order"], item["style_json"], item["metadata_json"],
                         item["is_active"], item["is_featured"], int(session.get("id", 0) or 0),
                     ),
                 )
@@ -895,7 +951,8 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     action="item_created", entity_type="item", entity_id=item_id,
                     before=None, after={k: item[k] for k in (
                         "slug", "name", "item_type", "category", "subcategory",
-                        "price", "currency", "is_active", "is_featured",
+                        "price", "currency", "sale_price", "sale_starts_at", "sale_ends_at",
+                        "sort_order", "is_active", "is_featured",
                     )},
                 )
                 await db.commit()
@@ -906,6 +963,42 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             return _validation_response(error)
         except aiosqlite.IntegrityError:
             return _json_error(409, "duplicate_slug")
+
+    @routes.put("/api/guild/{guild_id}/profile-store/items/reorder")
+    async def profile_store_items_reorder(request):
+        session, guild = await store_authorize(request, write=True)
+        try:
+            body = await _read_item_payload(request, read_json_body)
+            raw_ids = body.get("item_ids")
+            if not isinstance(raw_ids, list) or len(raw_ids) > MAX_CATALOG_ITEMS:
+                raise ValueError("invalid_item_order")
+            if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in raw_ids):
+                raise ValueError("invalid_item_order")
+            if len(set(raw_ids)) != len(raw_ids):
+                raise ValueError("duplicate_item_order")
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                async with db.execute(
+                    "SELECT item_id FROM profile_store_items WHERE deleted_at IS NULL ORDER BY sort_order, item_id"
+                ) as cursor:
+                    current_ids = [int(row[0]) for row in await cursor.fetchall()]
+                if len(current_ids) > MAX_CATALOG_ITEMS or set(current_ids) != set(raw_ids):
+                    await db.rollback()
+                    return _json_error(409, "catalog_order_stale")
+                for position, item_id in enumerate(raw_ids):
+                    await db.execute(
+                        "UPDATE profile_store_items SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE item_id = ? AND deleted_at IS NULL",
+                        (position * 10, item_id),
+                    )
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="items_reordered", entity_type="item", entity_id=None,
+                    before={"item_ids": current_ids}, after={"item_ids": raw_ids},
+                )
+                await db.commit()
+            return web.json_response({"ok": True, "item_ids": raw_ids})
+        except ValueError as error:
+            return _validation_response(error)
 
     @routes.put("/api/guild/{guild_id}/profile-store/items/{item_id}")
     async def profile_store_item_update(request):
@@ -928,6 +1021,19 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     await db.rollback()
                     return _json_error(404, "item_not_found")
                 before_item = _public_item(before_row)
+                # Legacy dashboard clients used to send metadata: {} on every edit.
+                # Do not let a cosmetic price/name change erase the saved template layout.
+                if not body.get("metadata") and str(before_row["metadata_json"] or "{}") not in ("", "{}"):
+                    item["metadata_json"] = str(before_row["metadata_json"])
+                for field in ("sale_price", "sale_starts_at", "sale_ends_at", "sort_order"):
+                    if field not in body:
+                        item[field] = before_row[field]
+                if item["sale_price"] is not None and int(item["sale_price"]) > int(item["price"]):
+                    await db.rollback()
+                    raise ValueError("sale_price_exceeds_base_price")
+                if item["sale_starts_at"] and item["sale_ends_at"] and item["sale_ends_at"] <= item["sale_starts_at"]:
+                    await db.rollback()
+                    raise ValueError("sale_end_must_follow_start")
                 if item["is_active"] and item["item_type"] in _ASSET_ITEM_TYPES and not before_item["has_asset"]:
                     await db.rollback()
                     return _json_error(409, "asset_required_before_publish")
@@ -936,14 +1042,16 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     UPDATE profile_store_items SET
                         slug = ?, name = ?, description = ?, item_type = ?,
                         category = ?, subcategory = ?, rarity = ?, price = ?,
-                        currency = ?, style_json = ?, metadata_json = ?,
+                        currency = ?, sale_price = ?, sale_starts_at = ?, sale_ends_at = ?,
+                        sort_order = ?, style_json = ?, metadata_json = ?,
                         is_active = ?, is_featured = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE item_id = ?
                     """,
                     (
                         item["slug"], item["name"], item["description"], item["item_type"],
                         item["category"], item["subcategory"], item["rarity"], item["price"],
-                        item["currency"], item["style_json"], item["metadata_json"],
+                        item["currency"], item["sale_price"], item["sale_starts_at"], item["sale_ends_at"],
+                        item["sort_order"], item["style_json"], item["metadata_json"],
                         item["is_active"], item["is_featured"], item_id,
                     ),
                 )
@@ -954,7 +1062,8 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     action="item_updated", entity_type="item", entity_id=item_id,
                     before=before_item, after={k: item[k] for k in (
                         "slug", "name", "item_type", "category", "subcategory",
-                        "price", "currency", "is_active", "is_featured",
+                        "price", "currency", "sale_price", "sale_starts_at", "sale_ends_at",
+                        "sort_order", "is_active", "is_featured",
                     )},
                 )
                 await db.commit()

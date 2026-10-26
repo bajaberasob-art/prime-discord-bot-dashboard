@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 import database
 
-PROFILE_STORE_SCHEMA_VERSION = 5
+PROFILE_STORE_SCHEMA_VERSION = 6
 DEFAULT_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -33,6 +33,87 @@ STORE_ITEM_TYPES = (
     "club_logo",
 )
 STORE_RARITIES = ("common", "silver", "gold", "legendary")
+
+
+def normalize_sale_datetime(value, field: str) -> str | None:
+    """Validate a timezone-aware sale timestamp and store it in canonical UTC form."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field}_must_be_datetime")
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field}_must_be_datetime") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field}_must_include_timezone")
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _parse_sale_datetime(value) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def catalog_item_is_on_sale(item, now: datetime | None = None) -> bool:
+    """Return whether a scheduled sale is active at the current UTC instant."""
+    if not isinstance(item, dict):
+        try:
+            item = dict(item)
+        except (TypeError, ValueError):
+            return False
+    base_price = item.get("price")
+    sale_price = item.get("sale_price")
+    if isinstance(base_price, bool) or isinstance(sale_price, bool) or sale_price is None:
+        return False
+    try:
+        base_price, sale_price = int(base_price), int(sale_price)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if sale_price < 0 or sale_price > base_price:
+        return False
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None or current.utcoffset() is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    starts = _parse_sale_datetime(item.get("sale_starts_at"))
+    ends = _parse_sale_datetime(item.get("sale_ends_at"))
+    if item.get("sale_starts_at") and starts is None:
+        return False
+    if item.get("sale_ends_at") and ends is None:
+        return False
+    if starts and current < starts:
+        return False
+    if ends and current >= ends:
+        return False
+    if starts and ends and ends <= starts:
+        return False
+    return True
+
+
+def effective_catalog_price(item, now: datetime | None = None) -> int:
+    """Resolve a product's authoritative purchase price for a specific UTC instant."""
+    if not isinstance(item, dict):
+        try:
+            item = dict(item)
+        except (TypeError, ValueError):
+            return 0
+    try:
+        base_price = int(item.get("price") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    if catalog_item_is_on_sale(item, now):
+        return int(item["sale_price"])
+    return max(0, base_price)
+
+
 
 def _profile_template_metadata(width: int, height: int, layout: str, template_key: str) -> dict:
     """Return individually art-directed text/image anchors for a specific approved PNG."""
@@ -234,6 +315,10 @@ _SCHEMA_STATEMENTS = (
         price INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),
         currency TEXT NOT NULL DEFAULT 'moon'
             CHECK (currency IN ('moon', 'gem')),
+        sale_price INTEGER CHECK (sale_price IS NULL OR sale_price >= 0),
+        sale_starts_at TEXT,
+        sale_ends_at TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order BETWEEN 0 AND 1000000000),
         asset_path TEXT,
         asset_url TEXT,
         style_json TEXT NOT NULL DEFAULT '{}',
@@ -412,6 +497,10 @@ _SCHEMA_STATEMENTS = (
         ON profile_store_transactions(guild_id, user_id, created_at DESC)
     """,
     """
+    CREATE INDEX IF NOT EXISTS idx_profile_store_transactions_sales
+        ON profile_store_transactions(guild_id, transaction_type, item_id, currency)
+    """,
+    """
     CREATE TABLE IF NOT EXISTS profile_store_admin_audit (
         audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
         guild_id INTEGER NOT NULL CHECK (guild_id > 0),
@@ -577,13 +666,49 @@ async def ensure_profile_store_schema() -> None:
                         """,
                         (str(row[1]).strip(), int(parent[0])),
                     )
-            await db.execute(
-                """
-                INSERT OR IGNORE INTO profile_store_migrations (version, description)
-                VALUES (?, ?)
-                """,
-                (PROFILE_STORE_SCHEMA_VERSION, "Add manageable profile-store categories and catalog audit trail"),
-            )
+            # Schema v6 adds ordered items and scheduled sale prices without rebuilding
+            # the catalog table, so all existing item IDs, ownership and transaction rows remain valid.
+            async with db.execute(
+                "PRAGMA table_info(profile_store_items)"
+            ) as cursor:
+                item_columns = {str(row[1]) for row in await cursor.fetchall()}
+            for column_name, declaration in (
+                ("sale_price", "INTEGER CHECK (sale_price IS NULL OR sale_price >= 0)"),
+                ("sale_starts_at", "TEXT"),
+                ("sale_ends_at", "TEXT"),
+                ("sort_order", "INTEGER NOT NULL DEFAULT 0 CHECK (sort_order BETWEEN 0 AND 1000000000)"),
+            ):
+                if column_name not in item_columns:
+                    await db.execute(
+                        f"ALTER TABLE profile_store_items ADD COLUMN {column_name} {declaration}"
+                    )
+
+            async with db.execute(
+                "SELECT 1 FROM profile_store_migrations WHERE version = ?",
+                (PROFILE_STORE_SCHEMA_VERSION,),
+            ) as cursor:
+                migration_done = await cursor.fetchone()
+            if not migration_done:
+                async with db.execute(
+                    """
+                    SELECT item_id FROM profile_store_items
+                    WHERE deleted_at IS NULL
+                    ORDER BY is_active DESC, is_featured DESC, item_type ASC, price ASC, item_id ASC
+                    """
+                ) as cursor:
+                    ordered_item_ids = [int(row[0]) for row in await cursor.fetchall()]
+                for position, item_id in enumerate(ordered_item_ids):
+                    await db.execute(
+                        "UPDATE profile_store_items SET sort_order = ? WHERE item_id = ?",
+                        (position * 10, item_id),
+                    )
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO profile_store_migrations (version, description)
+                    VALUES (?, ?)
+                    """,
+                    (PROFILE_STORE_SCHEMA_VERSION, "Add catalog ordering and scheduled sale prices"),
+                )
             await db.commit()
         except BaseException:
             await db.rollback()
