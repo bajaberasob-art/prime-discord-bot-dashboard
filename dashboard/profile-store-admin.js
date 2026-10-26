@@ -164,7 +164,11 @@ function writeLayoutBox(key,x,y,width,height){
 }
 function layoutElements(){
  const meta=normalizeLayoutMetadata(),elements=[];
- for(const key of ['background_area','avatar','name','handle','level','xp_bar','badges','flag'])elements.push({key,label:layoutLabels[key],box:getLayoutBox(key),kind:layoutKind(key)});
+ for(const key of ['background_area','avatar','name','handle','level','xp_bar','badges','flag']){
+  const box=getLayoutBox(key);
+  const label=key==='level'?String(box.text_template||'المستوى {level}').replace('{level}','12'):layoutLabels[key];
+  elements.push({key,label,box,kind:layoutKind(key)});
+ }
  for(const stat of meta.stats){if(stat&&stat.key)elements.push({key:'stat:'+stat.key,label:stat.label||layoutLabels[stat.key]||stat.key,box:getLayoutBox('stat:'+stat.key),kind:'stat'})}
  return elements;
 }
@@ -218,6 +222,7 @@ function updateLayoutControls(){
  $('backgroundFit').disabled=key!=='background_area';$('backgroundFit').value=meta.background_area.fit||'cover';
  $('layoutXpEnabled').disabled=key!=='xp_bar';$('layoutXpEnabled').checked=!!(meta.xp_bar&&meta.xp_bar.enabled);
  const styleable=box.kind==='text'||box.kind==='stat';
+ const editableText=key==='level'||box.kind==='stat';
  const item=items.find(value=>String(value.item_id)===String($('itemId').value||''));
  const defaultFamily=item&&item.style&&['modern','tech','elegant','soft'].includes(item.style.font_family)?item.style.font_family:'modern';
  $('layoutFontSize').value=Number(box.font_size)||defaultElementFontSize(key,box,meta);
@@ -228,7 +233,10 @@ function updateLayoutControls(){
  $('layoutStrokeWidth').value=Number.isFinite(Number(box.stroke_width))&&box.stroke_width!==''?Math.max(0,Math.min(6,Math.round(Number(box.stroke_width)))):(key==='handle'?1:2);
  for(const id of ['layoutFontSize','layoutFontFamily','layoutAutoColor','layoutBold','layoutStrokeWidth','applyElementStyle'])$(id).disabled=!styleable;
  $('layoutTextColor').disabled=!styleable||$('layoutAutoColor').checked;
- $('layoutStyleHelp').textContent=styleable?'تُحفظ إعدادات الخط واللون والحد لهذا العنصر فقط. اضغط تطبيق مظهر العنصر، ثم حفظ التخطيط لتثبيت التغييرات واستخدامها في بطاقة البروفايل.':'إعدادات النص تظهر عند اختيار الاسم أو اسم الحساب أو المستوى أو أحد الإحصاءات النصية.';
+ $('layoutTextContent').value=key==='level'?String(box.text_template||'المستوى {level}'):box.kind==='stat'?String(box.label||layoutLabels[key.slice(5)]||''):'';
+ $('layoutTextContent').placeholder=key==='level'?'مثال: المستوى {level}':box.kind==='stat'?'عنوان الإحصائية':'هذا النص ديناميكي ويُجلب من بيانات العضو';
+ $('layoutTextContent').disabled=!editableText;
+ $('layoutStyleHelp').textContent=key==='level'?'يمكنك تخصيص تنسيق المستوى. استخدم {level} مكان رقم مستوى العضو.':box.kind==='stat'?'تتحكم هذه الإعدادات في قيمة الإحصائية؛ ويمكنك أيضًا تغيير عنوانها.':styleable?'تُحفظ إعدادات الخط واللون والحد لهذا العنصر فقط. اضغط تطبيق مظهر العنصر، ثم حفظ التخطيط لتثبيت التغييرات واستخدامها في بطاقة البروفايل.':'إعدادات النص تظهر عند اختيار الاسم أو اسم الحساب أو المستوى أو أحد الإحصاءات النصية.';
  $('layoutHelp').textContent=key==='background_area'?'حدد مساحة ظهور صورة الخلفية داخل القالب بالسحب أو بتعديل X/Y والعرض والارتفاع. تُركّب صورة الخلفية داخل هذا المستطيل فقط، ويبقى إطار القالب فوقها. اختر ملء المساحة للقص المتناسب أو إظهار الصورة كاملة دون قص.':key==='xp_bar'?'يمكن تحديد موضع شريط الخبرة وحجمه. تفعيل الرسم يرسم نسبة XP الحقيقية؛ اتركه متوقفاً إذا كان الشريط مرسوماً داخل صورة القالب.':box.kind==='text'?'يتحكم العرض في المساحة القصوى للنص، وتحدد المحاذاة اتجاه تثبيت نقطة الإحداثيات.':'اسحب العنصر فوق الصورة، أو أدخل قيم X/Y والعرض والارتفاع بدقة.';
 }
 function applyElementStyle(){
@@ -242,6 +250,9 @@ function applyElementStyle(){
  box.stroke_width=Math.round(strokeWidth);
  if($('layoutAutoColor').checked)delete box.color;
  else box.color=$('layoutTextColor').value;
+ const textContent=$('layoutTextContent').value.trim().slice(0,100);
+ if(key==='level')box.text_template=textContent||'المستوى {level}';
+ else if(box.kind==='stat')box.label=textContent||layoutLabels[key.slice(5)]||key.slice(5);
  renderLayoutEditor();
  notice('تم تطبيق المظهر في الاستوديو. اضغط «حفظ التخطيط» لتثبيت التغييرات.');
 }
