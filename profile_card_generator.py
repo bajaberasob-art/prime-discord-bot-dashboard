@@ -276,6 +276,7 @@ def _fit_font(
     minimum_size: int = 8,
     bold: bool = False,
     font_family: str = "modern",
+    use_family_for_arabic: bool = False,
 ) -> ImageFont.ImageFont:
     """Return the largest available font that fits the rendered text in its box."""
     shown = _display_text(text)
@@ -283,7 +284,11 @@ def _fit_font(
     size = max(minimum_size, int(preferred_size))
     # Use bundled DejaVu Sans Arabic glyphs for consistent readability while retaining
     # each template's selected family for Latin names and values.
-    resolved_family = "modern" if _contains_arabic(text) else font_family
+    resolved_family = (
+        font_family
+        if use_family_for_arabic or not _contains_arabic(text)
+        else "modern"
+    )
     probe = ImageDraw.Draw(Image.new("L", (1, 1)))
     while True:
         font = _load_font(size, bold=bold, font_family=resolved_family)
@@ -890,7 +895,10 @@ def _draw_stat_text(
     center_x = x + width // 2
     label = str(stat.get("label", ""))
     selected_family = stat.get("font_family")
-    if not isinstance(selected_family, str) or selected_family not in _FONT_FAMILY_FILES:
+    element_family_is_explicit = (
+        isinstance(selected_family, str) and selected_family in _FONT_FAMILY_FILES
+    )
+    if not element_family_is_explicit:
         selected_family = font_family
     label_size = max(8, min(120, _clamp(
         stat.get("label_font_size"),
@@ -908,6 +916,7 @@ def _draw_stat_text(
         label, available_width, label_size,
         minimum_size=8 if stat.get("label_font_size") is not None else 15,
         font_family=selected_family,
+        use_family_for_arabic=element_family_is_explicit,
     )
     value_text = str(value)
     value_bold = stat.get("bold") if isinstance(stat.get("bold"), bool) else True
@@ -915,6 +924,7 @@ def _draw_stat_text(
         value_text, available_width, value_size,
         minimum_size=8 if stat.get("font_size") is not None else 14,
         bold=value_bold, font_family=selected_family,
+        use_family_for_arabic=element_family_is_explicit,
     )
     can_sample = image is not None and auto_contrast
     label_color = (
@@ -1085,26 +1095,34 @@ def render_profile_card(
     name_default_size = max(28, min(64, int(min(width, height) * .056)))
     name_font_size = _clamp(name_box.get("font_size"), 8, 120, name_default_size)
     name_family = name_box.get("font_family")
-    if not isinstance(name_family, str) or name_family not in _FONT_FAMILY_FILES:
+    name_family_is_explicit = (
+        isinstance(name_family, str) and name_family in _FONT_FAMILY_FILES
+    )
+    if not name_family_is_explicit:
         name_family = font_family
     name_bold = name_box.get("bold") if isinstance(name_box.get("bold"), bool) else True
     name_font = _fit_font(
         name, name_available, name_font_size,
         minimum_size=8 if name_box.get("font_size") is not None else 18,
         bold=name_bold, font_family=name_family,
+        use_family_for_arabic=name_family_is_explicit,
     )
     handle_text = handle
     handle_available = _clamp(handle_box.get("max_width"), 100, width, name_available)
     handle_default_size = max(20, min(36, int(min(width, height) * .034)))
     handle_font_size = _clamp(handle_box.get("font_size"), 8, 120, handle_default_size)
     handle_family = handle_box.get("font_family")
-    if not isinstance(handle_family, str) or handle_family not in _FONT_FAMILY_FILES:
+    handle_family_is_explicit = (
+        isinstance(handle_family, str) and handle_family in _FONT_FAMILY_FILES
+    )
+    if not handle_family_is_explicit:
         handle_family = font_family
     handle_bold = handle_box.get("bold") if isinstance(handle_box.get("bold"), bool) else False
     handle_font = _fit_font(
         handle_text, handle_available, handle_font_size,
         minimum_size=8 if handle_box.get("font_size") is not None else 13,
         bold=handle_bold, font_family=handle_family,
+        use_family_for_arabic=handle_family_is_explicit,
     )
     name_color = (
         _safe_color(name_box.get("color"), light_text)
@@ -1146,13 +1164,17 @@ def render_profile_card(
     level_default_size = max(30, min(60, int(min(width, height) * .052)))
     level_font_size = _clamp(level_box.get("font_size"), 8, 120, level_default_size)
     level_family = level_box.get("font_family")
-    if not isinstance(level_family, str) or level_family not in _FONT_FAMILY_FILES:
+    level_family_is_explicit = (
+        isinstance(level_family, str) and level_family in _FONT_FAMILY_FILES
+    )
+    if not level_family_is_explicit:
         level_family = font_family
     level_bold = level_box.get("bold") if isinstance(level_box.get("bold"), bool) else True
     progress_font = _fit_font(
         level_text, level_available, level_font_size,
         minimum_size=8 if level_box.get("font_size") is not None else 18,
         bold=level_bold, font_family=level_family,
+        use_family_for_arabic=level_family_is_explicit,
     )
     level_color = (
         _safe_color(level_box.get("color"), light_text)
