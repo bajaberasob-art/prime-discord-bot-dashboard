@@ -73,7 +73,7 @@
     <div class="layout-controls">
       <label for="layoutField">العنصر المراد ضبطه</label>
       <select id="layoutField">
-        <option value="avatar">صورة المستخدم</option><option value="name">اسم المستخدم المعروض</option><option value="handle">اسم الحساب</option><option value="level">المستوى</option><option value="xp_bar">شريط الخبرة XP</option><option value="badges">الشارات والاستكرات</option><option value="flag">العلم</option><option value="stat:balance">الرصيد</option><option value="stat:messages">الرسائل</option><option value="stat:rank">الترتيب</option><option value="stat:voice">وقت الصوت</option><option value="stat:streak">الأيام / سلسلة النشاط</option>
+        <option value="background_area">مساحة الخلفية</option><option value="avatar">صورة المستخدم</option><option value="name">اسم المستخدم المعروض</option><option value="handle">اسم الحساب</option><option value="level">المستوى</option><option value="xp_bar">شريط الخبرة XP</option><option value="badges">الشارات والاستكرات</option><option value="flag">العلم</option><option value="stat:balance">الرصيد</option><option value="stat:messages">الرسائل</option><option value="stat:rank">الترتيب</option><option value="stat:voice">وقت الصوت</option><option value="stat:streak">الأيام / سلسلة النشاط</option>
       </select>
       <div class="layout-number-grid">
         <label for="layoutX">الموضع X (بكسل)<input id="layoutX" type="number" min="0" max="2048" step="1" value="0"></label>
@@ -83,6 +83,8 @@
       </div>
       <label for="layoutAnchor">محاذاة النص</label>
       <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="la">محاذاة من اليسار</option></select>
+      <label for="backgroundFit">طريقة ملاءمة صورة الخلفية</label>
+      <select id="backgroundFit"><option value="cover">ملء المساحة المحددة مع قص الأطراف الزائدة</option><option value="contain">إظهار الصورة كاملة دون قص</option></select>
       <label class="checks"><span><input id="layoutXpEnabled" type="checkbox"> رسم شريط خبرة فعلي في هذا الموضع</span></label>
       <div class="actions"><button type="button" class="primary" id="applyLayout">تطبيق الموضع والحجم</button><button type="button" id="saveLayout">حفظ التخطيط</button><button type="button" id="resetLayout">إعادة التخطيط الافتراضي</button></div>
       <div id="layoutHelp" class="layout-help" role="status">حدد العنصر واسحبه داخل القالب. القيم بوحدات بكسل الصورة الأصلية، وليس حجم المعاينة على الشاشة.</div>
