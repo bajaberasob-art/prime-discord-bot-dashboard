@@ -296,6 +296,15 @@ async def _store_state(request, session) -> dict:
             (guild_id, user_id),
         ) as cursor:
             settings_row = await cursor.fetchone()
+        async with db.execute(
+            """
+            SELECT category_id, name, parent_id, sort_order
+            FROM profile_store_categories
+            WHERE is_active = 1
+            ORDER BY COALESCE(parent_id, 0), sort_order, category_id
+            """
+        ) as cursor:
+            category_rows = await cursor.fetchall()
         settings = dict(settings_row) if settings_row else {}
         async with db.execute(
             """
@@ -360,6 +369,15 @@ async def _store_state(request, session) -> dict:
             "flag_item_id": settings.get("flag_item_id"),
             "slots": equipped_slots,
         },
+        "categories": [
+            {
+                "category_id": int(row["category_id"]),
+                "name": str(row["name"]),
+                "parent_id": int(row["parent_id"]) if row["parent_id"] is not None else None,
+                "sort_order": int(row["sort_order"]),
+            }
+            for row in category_rows
+        ],
         "items": catalog,
     }
 
