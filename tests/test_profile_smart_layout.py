@@ -111,6 +111,53 @@ class PrimeSmartProfileLayoutTests(unittest.TestCase):
                 checked += 1
         self.assertGreaterEqual(checked, 7)
 
+    def test_identity_search_stays_near_template_authored_identity_zone(self):
+        frame = _template_png()
+        analysis = cards._build_template_analysis(frame)
+        metadata = {
+            "x": 520,
+            "y": 115,
+            "max_width": 250,
+            "anchor": "ra",
+        }
+        identity = cards._find_best_identity_block(
+            analysis,
+            width=640,
+            height=360,
+            display_name="aboody_515",
+            handle="@aboody_515",
+            name_metadata=metadata,
+            handle_metadata={
+                "x": 520, "y": 135, "max_width": 250, "anchor": "ra",
+            },
+            font_family="modern",
+            reserved=[(455, 185, 615, 345), (0, 285, 640, 360)],
+        )
+        self.assertIsNotNone(identity)
+        left, top, right, bottom = identity["rect"]
+        self.assertLessEqual(abs((left + right) / 2 - 520), 640 * 0.13 + 30)
+        self.assertLessEqual(abs((top + bottom) / 2 - 130), 360 * 0.12 + 20)
+
+    def test_text_fitting_helper_never_claims_a_too_wide_candidate_fits(self):
+        text = "username_that_is_deliberately_extremely_long_123456789"
+        font = cards._fit_font(
+            text, 80, 24, minimum_size=18, font_family="modern"
+        )
+        self.assertGreater(cards._text_width(font, text), 80)
+        # Candidate search must reject this width rather than returning a clipped label.
+        result = cards._find_best_identity_block(
+            cards._build_template_analysis(_template_png()),
+            width=640,
+            height=360,
+            display_name=text,
+            handle="@" + text,
+            name_metadata={"x": 300, "y": 100, "max_width": 80, "anchor": "mm"},
+            handle_metadata={"x": 300, "y": 125, "max_width": 80, "anchor": "mm"},
+            font_family="modern",
+            reserved=[(0, 0, 640, 360)],
+        )
+        self.assertIsNone(result)
+
     def test_missing_template_image_keeps_curated_text_positions(self):
         metadata = {
             "width": 640,
