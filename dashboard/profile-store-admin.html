@@ -11,14 +11,14 @@
 .layout-editor-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(250px,.75fr);gap:14px;margin-top:12px;align-items:start}
 .layout-stage-shell{padding:10px;border:1px solid var(--line);border-radius:13px;background:#070b14}
 .layout-stage{position:relative;width:100%;max-height:460px;overflow:hidden;margin:auto;border-radius:9px;background-color:#0a1020;background-image:linear-gradient(45deg,#172237 25%,transparent 25%),linear-gradient(-45deg,#172237 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#172237 75%),linear-gradient(-45deg,transparent 75%,#172237 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0}
-.layout-stage>img{display:block;width:100%;height:100%;object-fit:fill}
-.layout-overlay-layer{position:absolute;inset:0;overflow:hidden}
+.layout-stage>img{display:block;width:100%;height:100%;object-fit:fill}.layout-stage>#layoutBackgroundPreview{position:absolute;z-index:3;display:block;object-fit:cover;pointer-events:none}.layout-stage>#layoutBackgroundPreview.hidden{display:none}.layout-stage>#layoutStageImage{position:absolute;inset:0;z-index:2}.layout-overlay-layer{z-index:3}
+.layout-overlay-layer{position:absolute;inset:0;overflow:hidden;z-index:4}
 .layout-element{position:absolute;display:flex;align-items:center;justify-content:center;min-width:7px;min-height:7px;padding:2px;border:1px dashed #72dcff;border-radius:5px;background:rgba(29,148,190,.18);color:#fff;font-size:clamp(8px,1.15vw,13px);font-weight:800;line-height:1.1;text-align:center;white-space:normal;overflow:visible;touch-action:none;user-select:none;cursor:move;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
 .layout-element.selected{z-index:5;border:2px solid #f4d06f;background:rgba(244,208,111,.2);box-shadow:0 0 0 2px rgba(244,208,111,.18)}
 .layout-element[data-kind="avatar"]{border-radius:50%;background:rgba(114,220,255,.12)}
 .layout-element[data-kind="background"]{border:1px dashed #63e6bd;background:rgba(99,230,189,.12);color:#effff8}
 .layout-element[data-kind="text"]{border-style:dashed}
-.layout-resize{position:absolute;right:-5px;left:auto;bottom:-5px;width:13px;height:13px;border:2px solid #080b14;border-radius:4px;background:#f4d06f;cursor:nwse-resize;touch-action:none}.layout-element[data-kind="text"][data-anchor="ra"] .layout-resize{left:-5px;right:auto}
+.layout-resize{position:absolute;width:13px;height:13px;border:2px solid #080b14;border-radius:4px;background:#f4d06f;touch-action:none;z-index:8}.layout-resize.se{right:-6px;bottom:-6px;cursor:nwse-resize}.layout-resize.sw{left:-6px;bottom:-6px;cursor:nesw-resize}.layout-resize.ne{right:-6px;top:-6px;cursor:nesw-resize}.layout-resize.nw{left:-6px;top:-6px;cursor:nwse-resize}.layout-element[data-kind="text"][data-anchor="ra"] .layout-resize.se{left:-5px;right:auto}.layout-element[data-kind="background"] .layout-resize{width:15px;height:15px;border-color:#063c31;background:#63e6bd;box-shadow:0 0 0 2px rgba(0,0,0,.4)}.layout-element[data-kind="background"] .layout-resize.nw,.layout-element[data-kind="background"] .layout-resize.ne,.layout-element[data-kind="background"] .layout-resize.sw,.layout-element[data-kind="background"] .layout-resize.se{display:block}
 .layout-controls{display:grid;gap:10px;min-width:0}
 .layout-number-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
 .layout-number-grid label,.layout-controls>label{display:grid;gap:5px}
@@ -70,7 +70,7 @@
 <section id="layoutEditorPanel" class="layout-editor-panel hidden" aria-labelledby="layoutEditorHeading">
   <div class="layout-editor-heading"><div><h3 id="layoutEditorHeading">محرر تخطيط القالب</h3><div class="muted">اختر «مساحة الخلفية» لتحديد مكان الصورة وحجمها داخل القالب. اسحب الإطار الأخضر أو غيّر X/Y والعرض والارتفاع، ثم احفظ التخطيط.</div></div><span class="pill">تحرير مرئي</span></div>
   <div class="layout-editor-grid">
-    <div class="layout-stage-shell"><div id="layoutStage" class="layout-stage" style="aspect-ratio:2/1"><img id="layoutStageImage" alt="معاينة قالب البروفايل"><div id="layoutOverlayLayer" class="layout-overlay-layer"></div><div id="layoutStageEmpty" class="layout-empty">ارفع صورة للقالب أو اختر قالباً موجوداً لبدء ضبط العناصر.</div></div></div>
+    <div class="layout-stage-shell"><div id="layoutStage" class="layout-stage" style="aspect-ratio:2/1"><img id="layoutBackgroundPreview" class="layout-background-preview hidden" alt="معاينة صورة الخلفية داخل المساحة المحددة"><img id="layoutStageImage" alt="معاينة قالب البروفايل"><div id="layoutOverlayLayer" class="layout-overlay-layer"></div><div id="layoutStageEmpty" class="layout-empty">ارفع صورة للقالب أو اختر قالباً موجوداً لبدء ضبط العناصر.</div></div></div>
     <div class="layout-controls">
       <label for="layoutField">العنصر المراد ضبطه</label>
       <select id="layoutField">
@@ -84,7 +84,7 @@
       </div>
       <label for="layoutAnchor">محاذاة النص</label>
       <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="la">محاذاة من اليسار</option></select>
-      <label for="backgroundFit">طريقة ملاءمة صورة الخلفية</label>
+      <label for="layoutBackgroundSource">صورة تجريبية للمعاينة</label><select id="layoutBackgroundSource"><option value="">بدون صورة تجريبية</option></select><div class="muted">اختر منتج خلفية محفوظًا في المتجر لتشاهد كيف يظهر داخل المساحة المحددة. هذا الاختيار للمعاينة فقط ولا يغيّر خلفية العميل.</div><label for="backgroundFit">طريقة ملاءمة صورة الخلفية</label>
       <select id="backgroundFit"><option value="cover">ملء المساحة المحددة مع قص الأطراف الزائدة</option><option value="contain">إظهار الصورة كاملة دون قص</option></select>
       <label class="checks"><span><input id="layoutXpEnabled" type="checkbox"> رسم شريط خبرة فعلي في هذا الموضع</span></label>
       <div class="actions"><button type="button" class="primary" id="applyLayout">تطبيق الموضع والحجم</button><button type="button" id="saveLayout">حفظ التخطيط</button><button type="button" id="resetLayout">إعادة التخطيط الافتراضي</button></div>
@@ -95,4 +95,4 @@
 <aside class="panel"><h2>خطوات إدارة المنتج</h2><div class="preview"><div><strong>1. أضف التفاصيل</strong><p class="muted">حدد الاسم والنوع والقسم والسعر. اختر صفرًا لجعله مجانيًا.</p><strong>2. ارفع الصورة</strong><p class="muted">ترفع الصورة بعد حفظ المنتج، ويجري فحص نوعها وأبعادها وتنظيف بياناتها قبل التخزين.</p><strong>3. انشر أو أخفِ</strong><p class="muted">إلغاء خيار «ظاهر وقابل للشراء» يخفيه عن العملاء دون حذف سجلات الشراء.</p></div></div><hr style="border-color:var(--line);margin:18px 0"><h2>تنبيه حول الصور</h2><p class="muted">يدعم الرفع PNG وJPG وWebP وGIF المتحرك ضمن حدود التحقق. ناتج بطاقة المستوى النهائي PNG ثابت، لذلك يظهر الإطار الأول من GIF داخل البطاقة.</p></aside></div>
 <section class="panel"><div class="sectionhead"><div><h2>كتالوج المنتجات</h2><div class="muted">ابحث بالاسم أو صفِّ حسب النوع والحالة.</div></div><div class="toolbar"><input id="search" placeholder="ابحث عن منتج..."><select id="filterType"><option value="">كل الأنواع</option><option value="background">خلفيات</option><option value="card_template">قوالب</option><option value="badge">استكرات / شارات</option><option value="flag">أعلام</option><option value="shape">إطارات</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان</option></select><select id="filterCategory"><option value="">كل الأقسام</option></select><select id="filterStatus"><option value="">كل الحالات</option><option value="active">معروض</option><option value="inactive">مخفي</option><option value="free">مجاني</option><option value="paid">مدفوع</option></select></div></div><div id="items" class="items"><p class="muted">جارٍ تحميل المنتجات...</p></div></section>
 <div class="foot">PRIME Store Studio · الإدارة محمية بصلاحيات المالك. كل التغييرات تُحفظ في قاعدة بيانات المتجر الحالية.</div>
-</main><script src="/static/profile-store-admin.js?v=store-sales-schedule-1" defer></script></body></html>
+</main><script src="/static/profile-store-admin.js?v=profile-background-preview-persistence-1" defer></script></body></html>

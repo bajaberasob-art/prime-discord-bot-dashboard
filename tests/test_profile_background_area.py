@@ -96,6 +96,23 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
                 self.assertLessEqual(area["x"] + area["width"], metadata["width"])
                 self.assertLessEqual(area["y"] + area["height"], metadata["height"])
 
+    def test_admin_editor_has_real_background_preview_and_verified_layout_save(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
+        client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        self.assertIn('id="layoutBackgroundPreview"', html)
+        self.assertIn('id="layoutBackgroundSource"', html)
+        self.assertIn("function updateBackgroundPreview()", client)
+        self.assertIn("preview.style.left=(area.x/meta.width*100)+'%'", client)
+        self.assertIn("preview.style.objectFit=area.fit==='contain'?'contain':'cover'", client)
+        self.assertIn("إعادة تحميل بيانات المتجر", client)
+        self.assertIn("JSON.stringify(saved.metadata||{})!==JSON.stringify(desired.metadata)", client)
+        self.assertIn('data-corner="nw"', client)
+        self.assertIn('data-corner="ne"', client)
+        self.assertIn('data-corner="sw"', client)
+        self.assertIn('data-corner="se"', client)
+        self.assertIn("if(layoutDrag.key==='background_area')", client)
+
     def test_admin_editor_exposes_drag_resize_and_fit_controls(self):
         root = Path(__file__).resolve().parents[1]
         html = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
