@@ -134,5 +134,22 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         self.assertNotIn("style_json = :style_json, metadata_json = :metadata_json,", source)
 
 
+    def test_admin_sections_are_split_into_tabs_without_renaming_existing_editor_fields(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
+        client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        for tab in ("overview", "products", "design", "categories", "settings"):
+            self.assertIn(f'data-admin-tab="{tab}"', html)
+            self.assertIn(f'data-admin-pane="{tab}"', html)
+        self.assertIn('id="designTemplateSelect"', html)
+        self.assertIn('id="designLoadTemplate"', html)
+        self.assertIn("function switchAdminTab(name)", client)
+        self.assertIn("function updateDesignTemplateOptions()", client)
+        self.assertIn("edit(Number(selected.item_id))", client)
+        # Existing control IDs remain stable for the current API/form implementation.
+        for field_id in ("itemForm", "itemId", "saveItem", "layoutField", "saveLayout", "backgroundFit"):
+            self.assertIn(f'id="{field_id}"', html)
+
+
 if __name__ == "__main__":
     unittest.main()
