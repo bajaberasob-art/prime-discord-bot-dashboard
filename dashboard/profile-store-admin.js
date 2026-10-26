@@ -102,7 +102,7 @@ function normalizeLayoutMetadata(){
  for(const key of ['avatar','name','handle','level','xp_bar','badges','flag'])if(!layoutMetadata[key]||typeof layoutMetadata[key]!=='object')layoutMetadata[key]={};
  return layoutMetadata;
 }
-const layoutLabels={avatar:'صورة المستخدم',name:'الاسم',handle:'اسم الحساب',level:'المستوى',xp_bar:'شريط الخبرة XP',badges:'الشارات',flag:'العلم',balance:'الرصيد',messages:'الرسائل',rank:'الترتيب',voice:'وقت الصوت',streak:'الأيام'};
+const layoutLabels={background_area:'مساحة الخلفية',avatar:'صورة المستخدم',name:'الاسم',handle:'اسم الحساب',level:'المستوى',xp_bar:'شريط الخبرة XP',badges:'الشارات',flag:'العلم',balance:'الرصيد',messages:'الرسائل',rank:'الترتيب',voice:'وقت الصوت',streak:'الأيام'};
 function ensureLayoutField(key){
  const meta=normalizeLayoutMetadata();
  if(key.startsWith('stat:')){
@@ -118,7 +118,7 @@ function ensureLayoutField(key){
  if(key==='xp_bar'){if(!meta.xp_bar.width)meta.xp_bar.width=Math.round(meta.width*.65);if(!meta.xp_bar.height)meta.xp_bar.height=8}
  return meta[key];
 }
-function layoutKind(key){if(key.startsWith('stat:'))return 'stat';return ['name','handle','level'].includes(key)?'text':key==='avatar'?'avatar':key==='badges'?'badges':key==='xp_bar'?'xp':key==='flag'?'flag':'other'}
+function layoutKind(key){if(key.startsWith('stat:'))return 'stat';return key==='background_area'?'background':['name','handle','level'].includes(key)?'text':key==='avatar'?'avatar':key==='badges'?'badges':key==='xp_bar'?'xp':key==='flag'?'flag':'other'}
 function getLayoutBox(key){
  const meta=normalizeLayoutMetadata(),kind=layoutKind(key),box=ensureLayoutField(key);
  let width=Number(box.w||box.width||box.max_width||box.size||120),height=Number(box.h||box.height||box.size||40);
