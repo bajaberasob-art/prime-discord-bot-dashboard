@@ -9,7 +9,7 @@ from unittest.mock import patch
 from PIL import Image, ImageColor, ImageDraw
 
 from profile_store_db import DEFAULT_PROFILE_TEMPLATES
-from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text, _fit_font, _display_text, _resolve_local_asset
+from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text, _fit_font, _display_text, _resolve_local_asset, _fit_background_to_card
 
 
 class ProfileCardTemplateTests(unittest.TestCase):
@@ -94,6 +94,22 @@ class ProfileCardTemplateTests(unittest.TestCase):
             with patch.dict(os.environ, {"PROFILE_STORE_ASSET_DIR": temporary}):
                 resolved = _resolve_local_asset(str(path))
             self.assertEqual(resolved, path.resolve())
+
+    def test_custom_background_is_center_cropped_to_cover_template_without_stretching(self):
+        source = Image.new("RGBA", (400, 100), (235, 45, 55, 255))
+        ImageDraw.Draw(source).rectangle((150, 0, 249, 99), fill=(30, 210, 100, 255))
+
+        # A 4:1 background is center-cropped to a 2:1 template canvas, not stretched.
+        fitted = _fit_background_to_card(source, (200, 100))
+        self.assertIsNotNone(fitted)
+        self.assertEqual(fitted.size, (200, 100))
+        self.assertEqual(fitted.getpixel((0, 50)), (235, 45, 55, 255))
+        self.assertEqual(fitted.getpixel((100, 50)), (30, 210, 100, 255))
+        self.assertEqual(fitted.getpixel((199, 50)), (235, 45, 55, 255))
+
+    def test_background_with_invalid_target_size_is_rejected(self):
+        with self.assertRaises(ValueError):
+            _fit_background_to_card(Image.new("RGB", (10, 10)), (0, 100))
 
     def test_approved_ultrawide_template_dimensions_are_preserved(self):
         metadata = _safe_metadata({
