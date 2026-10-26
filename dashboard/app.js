@@ -827,6 +827,7 @@
       "a",
       {
         class: "nav-item sidebar-item nav-link profile-store-admin-link",
+        style: "text-decoration:none",
         href: `/profile-store-admin/${encodeURIComponent(guildId)}`,
         target: "_blank",
         rel: "noopener noreferrer",
