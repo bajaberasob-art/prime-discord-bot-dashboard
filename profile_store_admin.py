@@ -258,9 +258,16 @@ def default_uploaded_template_metadata(width: int, height: int) -> dict[str, Any
     for (key, label), (x, y, box_w, box_h) in zip(keys, stat_boxes):
         stats.append({"key": key, "label": label, "x": int(w*x), "y": int(h*y),
                       "w": int(w*box_w), "h": int(h*box_h)})
+    # Start with an inset background window, then let the visual editor align it
+    # precisely to each template's actual empty frame opening.
+    if layout == "wide":
+        background_area = {"x": int(w*.05), "y": int(h*.06), "width": int(w*.90), "height": int(h*.85), "fit": "cover"}
+    else:
+        background_area = {"x": int(w*.07), "y": int(h*.045), "width": int(w*.86), "height": int(h*.90), "fit": "cover"}
     return {
         "layout": layout, "width": w, "height": h,
         "orientation": "portrait" if layout == "portrait" else ("square" if layout == "square" else "landscape"),
+        "background_area": background_area,
         "avatar": avatar, "name": name, "handle": handle, "level": level,
         "xp_bar": xp, "badges": badges,
         "flag": {"x": int(w*.045), "y": int(h*.035), "width": max(24,int(w*.055)), "height": max(18,int(h*.035))},

@@ -76,6 +76,32 @@ def _safe_metadata(template: dict) -> dict:
         layout = "portrait" if height > width else ("square" if width == height else "wide")
     metadata["layout"] = layout
     metadata.setdefault("orientation", "portrait" if height > width else ("square" if width == height else "landscape"))
+    # Existing catalog rows predate background geometry. Give them a conservative
+    # inset default immediately (matching the admin editor), while preserving manual
+    # per-template coordinates wherever they have already been saved.
+    area = metadata.get("background_area")
+    if not isinstance(area, dict):
+        if width > height * 1.08:
+            area = {
+                "x": round(width * 0.05), "y": round(height * 0.06),
+                "width": round(width * 0.90), "height": round(height * 0.85),
+                "fit": "cover",
+            }
+        else:
+            area = {
+                "x": round(width * 0.07), "y": round(height * 0.045),
+                "width": round(width * 0.86), "height": round(height * 0.90),
+                "fit": "cover",
+            }
+    area_x = _clamp(area.get("x"), 0, width - 1, 0)
+    area_y = _clamp(area.get("y"), 0, height - 1, 0)
+    area_width = _clamp(area.get("width"), 1, width - area_x, width - area_x)
+    area_height = _clamp(area.get("height"), 1, height - area_y, height - area_y)
+    area_fit = str(area.get("fit") or "cover").strip().lower()
+    metadata["background_area"] = {
+        "x": area_x, "y": area_y, "width": area_width, "height": area_height,
+        "fit": area_fit if area_fit in {"cover", "contain"} else "cover",
+    }
     metadata["avatar"] = metadata.get("avatar") if isinstance(metadata.get("avatar"), dict) else {}
     metadata["name"] = metadata.get("name") if isinstance(metadata.get("name"), dict) else {}
     metadata["handle"] = metadata.get("handle") if isinstance(metadata.get("handle"), dict) else {}
@@ -280,27 +306,43 @@ def _mix_hex(left: Any, right: Any, right_weight: float = 0.5) -> str:
     return "#{:02X}{:02X}{:02X}".format(*rgb)
 
 
-def _fit_background_to_card(
+def _fit_background_to_area(
     background: Image.Image | None,
     size: tuple[int, int],
+    fit: str = "cover",
 ) -> Image.Image | None:
-    """Scale a background to cover the whole card without stretching its aspect ratio.
+    """Fit a background to a template-defined rectangle without distorting it.
 
-    ImageOps.fit performs a centered cover-crop: every pixel in the template canvas gets
-    background coverage, extra edges are cropped, and the template's alpha remains a
-    separate foreground layer that is composited afterwards.
+    The cover mode fills the area and crops excess edges. The contain mode preserves the
+    complete source image and centers it on transparency, allowing the card's base
+    surface to show through any unused part of the configured area.
     """
     if background is None:
         return None
     width, height = int(size[0]), int(size[1])
     if width <= 0 or height <= 0:
         raise ValueError("background_target_size_must_be_positive")
+    source = background.convert("RGBA")
+    method = Image.Resampling.LANCZOS
+    if str(fit or "cover").strip().lower() == "contain":
+        contained = ImageOps.contain(source, (width, height), method=method)
+        result = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        result.alpha_composite(contained, ((width - contained.width) // 2, (height - contained.height) // 2))
+        return result
     return ImageOps.fit(
-        background.convert("RGBA"),
+        source,
         (width, height),
-        method=Image.Resampling.LANCZOS,
+        method=method,
         centering=(0.5, 0.5),
     )
+
+
+def _fit_background_to_card(
+    background: Image.Image | None,
+    size: tuple[int, int],
+) -> Image.Image | None:
+    """Backwards-compatible full-card cover fit for existing callers."""
+    return _fit_background_to_area(background, size, "cover")
 
 
 def _region_luminance(image: Image.Image, bounds: tuple[int, int, int, int]) -> float | None:
@@ -439,7 +481,7 @@ def _metadata_for_native_frame(metadata: dict, raw_frame: bytes | None) -> dict:
             else ("square" if native_width == native_height else "wide")
         )
 
-    for key in ("avatar", "name", "handle", "level", "xp_bar", "badges", "flag"):
+    for key in ("background_area", "avatar", "name", "handle", "level", "xp_bar", "badges", "flag"):
         box = scaled.get(key)
         if not isinstance(box, dict):
             continue
@@ -938,11 +980,23 @@ def render_profile_card(
     auto_contrast = not explicit_text_color
 
     bg = _image_from_bytes(background_bytes)
-    fitted_background = _fit_background_to_card(bg, (width, height))
-    if fitted_background is None:
-        canvas = _draw_gradient(width, height, deep, accent)
-    else:
-        canvas = fitted_background
+    # Keep the card surface separate from the member's image. The latter is composited
+    # only inside the per-template background_area, leaving margins and frame cut-outs
+    # under the designer's control instead of stretching the image over the whole canvas.
+    canvas = _draw_gradient(width, height, deep, accent)
+    if bg is not None:
+        area = metadata.get("background_area") or {}
+        area_x = _clamp(area.get("x"), 0, width - 1, 0)
+        area_y = _clamp(area.get("y"), 0, height - 1, 0)
+        area_width = _clamp(area.get("width"), 1, width - area_x, width - area_x)
+        area_height = _clamp(area.get("height"), 1, height - area_y, height - area_y)
+        fitted_background = _fit_background_to_area(
+            bg,
+            (area_width, area_height),
+            str(area.get("fit") or "cover"),
+        )
+        if fitted_background is not None:
+            canvas.alpha_composite(fitted_background, (area_x, area_y))
     # Mask the background to the card shape so transparent template corners stay transparent.
     mask = Image.new("L", (width, height), 0)
     mask_draw = ImageDraw.Draw(mask)
