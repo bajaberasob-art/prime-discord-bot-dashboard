@@ -80,7 +80,7 @@ function defaultLayoutMetadata(width,height){
  const xp=layout==='wide'?{x:Math.round(w*.055),y:Math.round(h*.520),width:Math.round(w*.685),height:Math.max(8,Math.round(h*.014)),enabled:false}:{x:Math.round(w*.065),y:Math.round(h*.470),width:Math.round(w*.865),height:Math.max(8,Math.round(h*.012)),enabled:false};
  const boxes=layout==='wide'?[[.025,.755,.220,.145],[.265,.755,.220,.145],[.505,.755,.220,.145],[.745,.755,.220,.145]]:[[.055,.655,.410,.115],[.535,.655,.410,.115],[.055,.805,.410,.115],[.535,.805,.410,.115]];
  const keys=[['balance','الرصيد'],['messages','الرسائل'],['rank','الترتيب'],['voice','الصوت']];
- return {layout,width:w,height:h,orientation:portrait?'portrait':(w===h?'square':'landscape'),avatar,name,handle,level,xp_bar:xp,badges:{x:Math.round(w*.055),y:Math.round(h*.58),size:Math.max(24,Math.round(h*.03)),limit:5},flag:{x:Math.round(w*.045),y:Math.round(h*.035),width:Math.max(24,Math.round(w*.055)),height:Math.max(18,Math.round(h*.035))},stats:keys.map((v,i)=>({key:v[0],label:v[1],x:Math.round(w*boxes[i][0]),y:Math.round(h*boxes[i][1]),w:Math.round(w*boxes[i][2]),h:Math.round(h*boxes[i][3])}))};
+ return {layout,width:w,height:h,orientation:portrait?'portrait':(w===h?'square':'landscape'),background_area:backgroundArea,avatar,name,handle,level,xp_bar:xp,badges:{x:Math.round(w*.055),y:Math.round(h*.58),size:Math.max(24,Math.round(h*.03)),limit:5},flag:{x:Math.round(w*.045),y:Math.round(h*.035),width:Math.max(24,Math.round(w*.055)),height:Math.max(18,Math.round(h*.035))},stats:keys.map((v,i)=>({key:v[0],label:v[1],x:Math.round(w*boxes[i][0]),y:Math.round(h*boxes[i][1]),w:Math.round(w*boxes[i][2]),h:Math.round(h*boxes[i][3])}))};
 }
 function normalizeLayoutMetadata(){
  if(!layoutMetadata||typeof layoutMetadata!=='object'||Array.isArray(layoutMetadata))layoutMetadata={};
@@ -88,6 +88,16 @@ function normalizeLayoutMetadata(){
  if(!Number.isFinite(Number(layoutMetadata.height))||Number(layoutMetadata.height)<1)layoutMetadata.height=460;
  layoutMetadata.width=Math.max(640,Math.min(2048,Math.round(Number(layoutMetadata.width))));
  layoutMetadata.height=Math.max(320,Math.min(1600,Math.round(Number(layoutMetadata.height))));
+ const width=layoutMetadata.width,height=layoutMetadata.height,wide=width>height*1.08;
+ if(!layoutMetadata.background_area||typeof layoutMetadata.background_area!=='object'||Array.isArray(layoutMetadata.background_area)){
+  layoutMetadata.background_area=wide?{x:Math.round(width*.05),y:Math.round(height*.06),width:Math.round(width*.90),height:Math.round(height*.85),fit:'cover'}:{x:Math.round(width*.07),y:Math.round(height*.045),width:Math.round(width*.86),height:Math.round(height*.90),fit:'cover'};
+ }
+ const area=layoutMetadata.background_area;
+ area.x=Math.max(0,Math.min(width-1,Math.round(Number(area.x)||0)));
+ area.y=Math.max(0,Math.min(height-1,Math.round(Number(area.y)||0)));
+ area.width=Math.max(1,Math.min(width-area.x,Math.round(Number(area.width)||width-area.x)));
+ area.height=Math.max(1,Math.min(height-area.y,Math.round(Number(area.height)||height-area.y)));
+ area.fit=area.fit==='contain'?'contain':'cover';
  if(!Array.isArray(layoutMetadata.stats))layoutMetadata.stats=[];
  for(const key of ['avatar','name','handle','level','xp_bar','badges','flag'])if(!layoutMetadata[key]||typeof layoutMetadata[key]!=='object')layoutMetadata[key]={};
  return layoutMetadata;
@@ -113,6 +123,7 @@ function getLayoutBox(key){
  const meta=normalizeLayoutMetadata(),kind=layoutKind(key),box=ensureLayoutField(key);
  let width=Number(box.w||box.width||box.max_width||box.size||120),height=Number(box.h||box.height||box.size||40);
  if(kind==='avatar')width=height=Number(box.size)||96;
+  if(kind==='background'){width=Number(box.width)||Math.round(meta.width*.86);height=Number(box.height)||Math.round(meta.height*.88)}
  if(kind==='badges'){width=Math.max(20,Number(box.size)||32)*Math.max(1,Number(box.limit)||5)+8*(Math.max(1,Number(box.limit)||5)-1);height=Number(box.size)||32}
  if(kind==='text'){width=Number(box.max_width)||Math.round(meta.width*.4);height=key==='name'?44:36}
  return {x:Number(box.x)||0,y:Number(box.y)||0,width,height,anchor:box.anchor||(['level'].includes(key)?'la':'ra'),kind};
@@ -122,7 +133,8 @@ function writeLayoutBox(key,x,y,width,height){
  x=Math.max(0,Math.min(meta.width-1,Math.round(Number(x)||0)));y=Math.max(0,Math.min(meta.height-1,Math.round(Number(y)||0)));
  width=Math.max(1,Math.min(meta.width-x,Math.round(Number(width)||1)));height=Math.max(1,Math.min(meta.height-y,Math.round(Number(height)||1)));
  box.x=x;box.y=y;
- if(kind==='avatar')box.size=Math.max(72,Math.min(Math.floor(Math.min(meta.width,meta.height)/2),Math.round((width+height)/2)));
+ if(kind==='background'){box.width=width;box.height=height;box.fit=box.fit==='contain'?'contain':'cover'}
+  else if(kind==='avatar')box.size=Math.max(72,Math.min(Math.floor(Math.min(meta.width,meta.height)/2),Math.round((width+height)/2)));
  else if(kind==='badges')box.size=Math.max(20,Math.min(72,Math.round(height)));
  else if(kind==='text')box.max_width=Math.max(100,Math.min(meta.width,Math.round(width)));
  else if(kind==='xp'){box.width=width;box.height=Math.max(4,Math.min(30,height))}
@@ -131,7 +143,7 @@ function writeLayoutBox(key,x,y,width,height){
 }
 function layoutElements(){
  const meta=normalizeLayoutMetadata(),elements=[];
- for(const key of ['avatar','name','handle','level','xp_bar','badges','flag'])elements.push({key,label:layoutLabels[key],box:getLayoutBox(key),kind:layoutKind(key)});
+ for(const key of ['background_area','avatar','name','handle','level','xp_bar','badges','flag'])elements.push({key,label:layoutLabels[key],box:getLayoutBox(key),kind:layoutKind(key)});
  for(const stat of meta.stats){if(stat&&stat.key)elements.push({key:'stat:'+stat.key,label:stat.label||layoutLabels[stat.key]||stat.key,box:getLayoutBox('stat:'+stat.key),kind:'stat'})}
  return elements;
 }
@@ -160,13 +172,15 @@ function updateLayoutControls(){
  $('layoutX').max=meta.width;$('layoutY').max=meta.height;$('layoutWidth').max=meta.width;$('layoutHeight').max=meta.height;
  $('layoutX').value=Math.round(box.x);$('layoutY').value=Math.round(box.y);$('layoutWidth').value=Math.round(box.width);$('layoutHeight').value=Math.round(box.height);
  $('layoutAnchor').disabled=box.kind!=='text';$('layoutAnchor').value=box.anchor==='la'?'la':'ra';
+ $('backgroundFit').disabled=key!=='background_area';$('backgroundFit').value=meta.background_area.fit||'cover';
  $('layoutXpEnabled').disabled=key!=='xp_bar';$('layoutXpEnabled').checked=!!(meta.xp_bar&&meta.xp_bar.enabled);
- $('layoutHelp').textContent=key==='xp_bar'?'يمكن تحديد موضع شريط الخبرة وحجمه. تفعيل الرسم يرسم نسبة XP الحقيقية؛ اتركه متوقفاً إذا كان الشريط مرسوماً داخل صورة القالب.':box.kind==='text'?'يتحكم العرض في المساحة القصوى للنص، وتحدد المحاذاة اتجاه تثبيت نقطة الإحداثيات.':'اسحب العنصر فوق الصورة، أو أدخل قيم X/Y والعرض والارتفاع بدقة.';
+ $('layoutHelp').textContent=key==='background_area'?'حدد مساحة ظهور صورة الخلفية داخل القالب بالسحب أو بتعديل X/Y والعرض والارتفاع. تُركّب صورة الخلفية داخل هذا المستطيل فقط، ويبقى إطار القالب فوقها. اختر ملء المساحة للقص المتناسب أو إظهار الصورة كاملة دون قص.':key==='xp_bar'?'يمكن تحديد موضع شريط الخبرة وحجمه. تفعيل الرسم يرسم نسبة XP الحقيقية؛ اتركه متوقفاً إذا كان الشريط مرسوماً داخل صورة القالب.':box.kind==='text'?'يتحكم العرض في المساحة القصوى للنص، وتحدد المحاذاة اتجاه تثبيت نقطة الإحداثيات.':'اسحب العنصر فوق الصورة، أو أدخل قيم X/Y والعرض والارتفاع بدقة.';
 }
 function applyLayoutInputs(){
  const key=$('layoutField').value||'avatar',box=getLayoutBox(key);let x=Number($('layoutX').value),y=Number($('layoutY').value),w=Number($('layoutWidth').value),h=Number($('layoutHeight').value);
  if(![x,y,w,h].every(Number.isFinite)||w<=0||h<=0){notice('أدخل مواضع وأبعاد صحيحة للقالب.',true);return}
  writeLayoutBox(key,x,y,w,h);const b=ensureLayoutField(key);if(box.kind==='text')b.anchor=$('layoutAnchor').value==='la'?'la':'ra';
+ if(key==='background_area')b.fit=$('backgroundFit').value==='contain'?'contain':'cover';
  if(key==='xp_bar')b.enabled=$('layoutXpEnabled').checked;
  renderLayoutEditor();
 }
