@@ -27,23 +27,28 @@ logger = logging.getLogger("ProfileStoreAdminAPI")
 
 MAX_PROFILE_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_PROFILE_UPLOAD_PIXELS = 16_000_000
+MAX_PROFILE_UPLOAD_FRAMES = 60
+MAX_PROFILE_UPLOAD_TOTAL_PIXELS = 32_000_000
 MAX_STYLE_JSON_BYTES = 12 * 1024
 MAX_CATALOG_ITEMS = 500
 ALLOWED_UPLOAD_MIME = {
     "PNG": {"image/png"},
     "JPEG": {"image/jpeg", "image/jpg"},
     "WEBP": {"image/webp"},
+    "GIF": {"image/gif"},
 }
 ALLOWED_UPLOAD_EXT = {
     "PNG": {".png"},
     "JPEG": {".jpg", ".jpeg"},
     "WEBP": {".webp"},
+    "GIF": {".gif"},
 }
 MIME_TO_FORMAT = {
     "image/png": "PNG",
     "image/jpeg": "JPEG",
     "image/jpg": "JPEG",
     "image/webp": "WEBP",
+    "image/gif": "GIF",
 }
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$")
 COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -59,41 +64,47 @@ def validate_static_image(
     filename: str,
     max_bytes: int = MAX_PROFILE_UPLOAD_BYTES,
 ) -> dict[str, Any]:
-    """Validate and sanitize a single-frame PNG/JPEG/WebP image.
+    """Validate and sanitize PNG/JPEG/WebP images and bounded animated GIFs.
 
-    Never trust filename or browser MIME alone. Pillow verifies the real format,
-    frame count, animation flag and pixel dimensions. The returned bytes are
-    re-encoded to the detected static format, stripping metadata.
+    GIF frames are decoded and re-encoded without source metadata. Animation is
+    retained only within strict frame, aggregate-pixel, and output-size limits.
+    Animated PNG and animated WebP remain rejected.
     """
     if not isinstance(data, (bytes, bytearray)) or not data:
         raise ValueError("empty_image")
     if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
         raise ValueError("invalid_size_limit")
-    if len(data) > min(max_bytes, MAX_PROFILE_UPLOAD_BYTES):
+    size_limit = min(max_bytes, MAX_PROFILE_UPLOAD_BYTES)
+    if len(data) > size_limit:
         raise ValueError("image_too_large")
 
     safe_name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
     suffix = Path(safe_name).suffix.lower()
-    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
         raise ValueError("unsupported_image_extension")
 
     mime = str(declared_mime or "").split(";", 1)[0].strip().lower()
     actual_format = None
+    frame_count = 1
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(data)) as image:
                 actual_format = str(image.format or "").upper()
+                frame_count = int(getattr(image, "n_frames", 1) or 1)
                 if actual_format not in ALLOWED_UPLOAD_MIME:
                     raise ValueError("unsupported_image_format")
-                if bool(getattr(image, "is_animated", False)) or int(
-                    getattr(image, "n_frames", 1) or 1
-                ) != 1:
+                if frame_count > 1 and actual_format != "GIF":
                     raise ValueError("animated_images_not_allowed")
+                if frame_count > MAX_PROFILE_UPLOAD_FRAMES:
+                    raise ValueError("animated_image_frame_limit")
                 if image.width <= 0 or image.height <= 0:
                     raise ValueError("invalid_image_dimensions")
-                if image.width * image.height > MAX_PROFILE_UPLOAD_PIXELS:
+                frame_pixels = int(image.width) * int(image.height)
+                if frame_pixels > MAX_PROFILE_UPLOAD_PIXELS:
                     raise ValueError("image_pixel_limit")
+                if actual_format == "GIF" and frame_pixels * frame_count > MAX_PROFILE_UPLOAD_TOTAL_PIXELS:
+                    raise ValueError("animated_image_pixel_limit")
                 if suffix not in ALLOWED_UPLOAD_EXT[actual_format]:
                     raise ValueError("image_extension_mismatch")
                 if mime not in ALLOWED_UPLOAD_MIME[actual_format]:
@@ -101,33 +112,63 @@ def validate_static_image(
                 image.verify()
 
             with Image.open(io.BytesIO(data)) as image:
-                if bool(getattr(image, "is_animated", False)) or int(
-                    getattr(image, "n_frames", 1) or 1
-                ) != 1:
-                    raise ValueError("animated_images_not_allowed")
-                image.load()
-                if actual_format == "JPEG":
-                    clean = ImageOps.exif_transpose(image).convert("RGB")
-                elif actual_format == "PNG":
-                    clean = ImageOps.exif_transpose(image)
-                    has_alpha = "A" in clean.getbands() or "transparency" in clean.info
-                    clean = clean.convert("RGBA" if has_alpha else "RGB")
-                else:
-                    clean = ImageOps.exif_transpose(image)
-                    has_alpha = "A" in clean.getbands() or "transparency" in clean.info
-                    clean = clean.convert("RGBA" if has_alpha else "RGB")
-
                 output = io.BytesIO()
-                save_options: dict[str, Any] = {}
-                if actual_format == "PNG":
-                    save_options["optimize"] = True
-                elif actual_format == "JPEG":
-                    save_options.update(quality=90, optimize=True, progressive=True)
-                elif actual_format == "WEBP":
-                    save_options.update(quality=90, method=4)
-                clean.save(output, format=actual_format, **save_options)
+                normalized_frames = 1
+                animated = False
+                if actual_format == "GIF":
+                    normalized_frames = int(getattr(image, "n_frames", 1) or 1)
+                    if normalized_frames > MAX_PROFILE_UPLOAD_FRAMES:
+                        raise ValueError("animated_image_frame_limit")
+                    frames: list[Image.Image] = []
+                    durations: list[int] = []
+                    total_pixels = 0
+                    loop_count = max(0, min(65535, int(image.info.get("loop", 0) or 0)))
+                    for frame_index in range(normalized_frames):
+                        image.seek(frame_index)
+                        frame = image.convert("RGBA").copy()
+                        total_pixels += int(frame.width) * int(frame.height)
+                        if total_pixels > MAX_PROFILE_UPLOAD_TOTAL_PIXELS:
+                            raise ValueError("animated_image_pixel_limit")
+                        frames.append(frame)
+                        try:
+                            duration = int(image.info.get("duration", 100) or 100)
+                        except (TypeError, ValueError, OverflowError):
+                            duration = 100
+                        durations.append(max(20, min(10000, duration)))
+                    frames[0].save(
+                        output, format="GIF", save_all=True,
+                        append_images=frames[1:], duration=durations,
+                        loop=loop_count, disposal=2, optimize=False,
+                    )
+                    clean_width, clean_height = frames[0].size
+                    animated = normalized_frames > 1
+                else:
+                    if frame_count != 1:
+                        raise ValueError("animated_images_not_allowed")
+                    image.load()
+                    if actual_format == "JPEG":
+                        clean = ImageOps.exif_transpose(image).convert("RGB")
+                    elif actual_format == "PNG":
+                        clean = ImageOps.exif_transpose(image)
+                        has_alpha = "A" in clean.getbands() or "transparency" in clean.info
+                        clean = clean.convert("RGBA" if has_alpha else "RGB")
+                    else:
+                        clean = ImageOps.exif_transpose(image)
+                        has_alpha = "A" in clean.getbands() or "transparency" in clean.info
+                        clean = clean.convert("RGBA" if has_alpha else "RGB")
+
+                    save_options: dict[str, Any] = {}
+                    if actual_format == "PNG":
+                        save_options["optimize"] = True
+                    elif actual_format == "JPEG":
+                        save_options.update(quality=90, optimize=True, progressive=True)
+                    elif actual_format == "WEBP":
+                        save_options.update(quality=90, method=4)
+                    clean.save(output, format=actual_format, **save_options)
+                    clean_width, clean_height = clean.size
+
                 sanitized = output.getvalue()
-                if not sanitized or len(sanitized) > min(max_bytes, MAX_PROFILE_UPLOAD_BYTES):
+                if not sanitized or len(sanitized) > size_limit:
                     raise ValueError("sanitized_image_too_large")
                 return {
                     "data": sanitized,
@@ -136,15 +177,19 @@ def validate_static_image(
                         "PNG": "image/png",
                         "JPEG": "image/jpeg",
                         "WEBP": "image/webp",
+                        "GIF": "image/gif",
                     }[actual_format],
                     "extension": {
                         "PNG": ".png",
                         "JPEG": ".jpg",
                         "WEBP": ".webp",
+                        "GIF": ".gif",
                     }[actual_format],
-                    "width": int(clean.width),
-                    "height": int(clean.height),
+                    "width": int(clean_width),
+                    "height": int(clean_height),
                     "size": len(sanitized),
+                    "frames": int(normalized_frames),
+                    "animated": bool(animated),
                 }
     except ValueError:
         raise
