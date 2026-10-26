@@ -821,9 +821,11 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 row = await cursor.fetchone()
         if not row or not row["asset_path"]:
             return _json_error(404, "asset_not_found")
-        root = profile_asset_root().resolve()
-        path = (root / str(row["asset_path"])).resolve()
-        if root not in path.parents or not path.is_file():
+        # Resolve both repository-approved default template PNGs and private uploaded
+        # catalog assets through the same traversal-safe resolver used by the store.
+        from profile_store_public import _resolve_asset_path
+        path = _resolve_asset_path(row["asset_path"])
+        if path is None:
             return _json_error(404, "asset_not_found")
         return web.FileResponse(path, headers={
             "Cache-Control": "private, max-age=60",
