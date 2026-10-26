@@ -9,7 +9,7 @@ async function load(){try{const data=await api('');items=(data.items||[]).map(pa
 function escape(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function kind(t){return ({background:'خلفية',card_template:'قالب بطاقة',badge:'استكر / شارة',flag:'علم',shape:'إطار / شكل',club_logo:'شعارات / أيقونات',card_color:'ألوان'})[t]||t}
 function render(){
- const activeTop=categories.filter(c=>c.parent_id===null&&c.is_active).sort((a,b)=>a.sort_order-b.sort_order||a.category_id-b.category_id);
+ const allTop=categories.filter(c=>c.parent_id===null).sort((a,b)=>a.sort_order-b.sort_order||a.category_id-b.category_id); const activeTop=allTop.filter(c=>c.is_active);
  const itemCategories=Array.from(new Set(items.map(i=>String(i.category||'').trim()).filter(v=>v&&v!=='all'))).sort((a,b)=>a.localeCompare(b,'ar'));
  const priorCategory=$('filterCategory').value;
  $('filterCategory').innerHTML='<option value="">كل الأقسام</option>'+itemCategories.map(v=>'<option value="'+escape(v)+'">'+escape(v)+'</option>').join('');
@@ -19,7 +19,7 @@ function render(){
  const categoryCounts=new Map();items.forEach(i=>{const name=String(i.category||'').trim();if(name&&name!=='all')categoryCounts.set(name,(categoryCounts.get(name)||0)+1)});
  $('sections').innerHTML=activeTop.length?activeTop.map(v=>'<button type="button" data-section="'+escape(v.name)+'">'+escape(v.name)+' <span class="pill">'+(categoryCounts.get(v.name)||0)+'</span></button>').join(''):'<span class="muted">لا توجد أقسام نشطة بعد. أضف قسمًا من إدارة الأقسام.</span>';
  const parentSelect=$('categoryParent'), oldParent=parentSelect.value;
- parentSelect.innerHTML='<option value="">قسم رئيسي</option>'+activeTop.map(v=>'<option value="'+v.category_id+'">'+escape(v.name)+'</option>').join('');
+ parentSelect.innerHTML='<option value="">قسم رئيسي</option>'+allTop.map(v=>'<option value="'+v.category_id+'">'+escape(v.name)+(v.is_active?'':' (مخفي)')+'</option>').join('');
  if(activeTop.some(v=>String(v.category_id)===oldParent))parentSelect.value=oldParent;
  const search=$('search').value.trim().toLowerCase(),type=$('filterType').value,category=$('filterCategory').value,status=$('filterStatus').value;
  const filtered=items.filter(i=>(!search||(i.name+' '+i.slug+' '+i.category+' '+(i.subcategory||'')).toLowerCase().includes(search))&&(!type||i.item_type===type)&&(!category||String(i.category||'')===category)&&(!status||(status==='active'?!!i.is_active:status==='inactive'?!i.is_active:status==='free'?i.price===0:i.price>0)));
