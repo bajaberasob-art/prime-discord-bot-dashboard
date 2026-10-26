@@ -655,7 +655,8 @@ async def _write_item_asset(request, *, authorize):
                 before={"asset_path": item.get("asset_path"), "has_asset": bool(item.get("asset_path"))},
                 after={"asset_path": relative_path.as_posix(), "format": normalized["format"],
                        "width": normalized["width"], "height": normalized["height"],
-                       "size": normalized["size"]},
+                       "size": normalized["size"], "frames": normalized.get("frames", 1),
+                       "animated": normalized.get("animated", False)},
             )
             await db.commit()
     except Exception:
