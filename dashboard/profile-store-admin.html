@@ -17,7 +17,7 @@
 .layout-element.selected{z-index:5;border:2px solid #f4d06f;background:rgba(244,208,111,.2);box-shadow:0 0 0 2px rgba(244,208,111,.18)}
 .layout-element[data-kind="avatar"]{border-radius:50%;background:rgba(114,220,255,.12)}
 .layout-element[data-kind="text"]{border-style:dashed}
-.layout-resize{position:absolute;left:-5px;bottom:-5px;width:13px;height:13px;border:2px solid #080b14;border-radius:4px;background:#f4d06f;cursor:nwse-resize;touch-action:none}
+.layout-resize{position:absolute;right:-5px;left:auto;bottom:-5px;width:13px;height:13px;border:2px solid #080b14;border-radius:4px;background:#f4d06f;cursor:nwse-resize;touch-action:none}.layout-element[data-kind="text"][data-anchor="ra"] .layout-resize{left:-5px;right:auto}
 .layout-controls{display:grid;gap:10px;min-width:0}
 .layout-number-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
 .layout-number-grid label,.layout-controls>label{display:grid;gap:5px}
@@ -78,7 +78,7 @@
       <label for="layoutAnchor">محاذاة النص</label>
       <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="la">محاذاة من اليسار</option></select>
       <label class="checks"><span><input id="layoutXpEnabled" type="checkbox"> رسم شريط خبرة فعلي في هذا الموضع</span></label>
-      <div class="actions"><button type="button" class="primary" id="applyLayout">تطبيق الموضع والحجم</button><button type="button" id="resetLayout">إعادة التخطيط الافتراضي</button></div>
+      <div class="actions"><button type="button" class="primary" id="applyLayout">تطبيق الموضع والحجم</button><button type="button" id="saveLayout">حفظ التخطيط</button><button type="button" id="resetLayout">إعادة التخطيط الافتراضي</button></div>
       <div id="layoutHelp" class="layout-help" role="status">حدد العنصر واسحبه داخل القالب. القيم بوحدات بكسل الصورة الأصلية، وليس حجم المعاينة على الشاشة.</div>
     </div>
   </div>
