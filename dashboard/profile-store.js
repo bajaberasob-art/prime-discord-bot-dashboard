@@ -211,15 +211,14 @@
       .filter(category => category.parent_id === null)
       .slice()
       .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.category_id) - Number(b.category_id))
-      .map(category => String(category.name || "").trim())
-      .filter(name => categoriesByName.has(name));
+      .map(category => String(category.name || "").trim());
     const orderedNames = [...managedOrder, ...[...categoriesByName.keys()]
       .filter(name => !managedOrder.includes(name))
       .sort((a, b) => a.localeCompare(b, "ar"))];
     orderedNames.forEach(name => {
-        const group = categoriesByName.get(name);
+        const group = categoriesByName.get(name) || [];
         const equivalentType = typeByDefaultLabel.get(name.toLowerCase());
-        if (equivalentType && group.every(item => item.item_type === equivalentType)) return;
+        if (group.length && equivalentType && group.every(item => item.item_type === equivalentType)) return;
         const labelByKnownName = {
           templates: "قوالب البروفايل", القوالب: "قوالب البروفايل", backgrounds: "الخلفيات", stickers: "الاستكرات",
           flags: "الأعلام", banners: "البانرات", frames: "الإطارات",
