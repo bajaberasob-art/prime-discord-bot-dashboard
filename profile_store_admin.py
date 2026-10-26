@@ -928,6 +928,10 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     await db.rollback()
                     return _json_error(404, "item_not_found")
                 before_item = _public_item(before_row)
+                # Legacy dashboard clients used to send metadata: {} on every edit.
+                # Do not let a cosmetic price/name change erase the saved template layout.
+                if not body.get("metadata") and str(before_row["metadata_json"] or "{}") not in ("", "{}"):
+                    item["metadata_json"] = str(before_row["metadata_json"])
                 if item["is_active"] and item["item_type"] in _ASSET_ITEM_TYPES and not before_item["has_asset"]:
                     await db.rollback()
                     return _json_error(409, "asset_required_before_publish")
