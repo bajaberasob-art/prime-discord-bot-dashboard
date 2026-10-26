@@ -75,7 +75,10 @@ def _public_item(row, *, owned: bool, equipped: bool) -> dict:
     item.pop("updated_at", None)
     item.pop("deleted_at", None)
     item["item_id"] = int(item["item_id"])
-    item["price"] = max(0, int(item.get("price") or 0))
+    item["base_price"] = max(0, int(item.get("price") or 0))
+    item["is_on_sale"] = profile_store_db.catalog_item_is_on_sale(item)
+    item["price"] = profile_store_db.effective_catalog_price(item)
+    item["sort_order"] = int(item.get("sort_order") or 0)
     item["is_featured"] = bool(item.get("is_featured"))
     item["owned"] = bool(owned)
     item["equipped"] = bool(equipped)
@@ -282,7 +285,7 @@ async def _store_state(request, session) -> dict:
                     AND parent.name = i.category COLLATE NOCASE
                     AND child.is_active = 0
               )
-            ORDER BY i.is_featured DESC, i.item_type ASC, i.price ASC, i.item_id ASC
+            ORDER BY i.sort_order ASC, i.is_featured DESC, i.item_type ASC, i.price ASC, i.item_id ASC
             """,
             (guild_id, user_id),
         ) as cursor:
@@ -515,7 +518,8 @@ async def _purchase_item(session, item_id: int) -> dict:
         try:
             async with db.execute(
                 """
-                SELECT item_id, slug, name, item_type, price, currency
+                SELECT item_id, slug, name, item_type, price, currency,
+                       sale_price, sale_starts_at, sale_ends_at
                 FROM profile_store_items AS i
                 WHERE i.item_id = ? AND i.is_active = 1 AND i.deleted_at IS NULL
                   AND NOT EXISTS (
@@ -553,8 +557,9 @@ async def _purchase_item(session, item_id: int) -> dict:
                     raise StoreActionError(409, "already_owned", "هذا العنصر موجود في مقتنياتك بالفعل.")
 
             currency = str(item["currency"])
-            price = int(item["price"])
-            if price < 0 or currency not in profile_store_db.STORE_CURRENCIES:
+            base_price = int(item["price"])
+            price = profile_store_db.effective_catalog_price(dict(item))
+            if base_price < 0 or price < 0 or currency not in profile_store_db.STORE_CURRENCIES:
                 await db.rollback()
                 raise StoreActionError(409, "invalid_catalog_item", "بيانات سعر العنصر غير صالحة.")
 
@@ -632,7 +637,12 @@ async def _purchase_item(session, item_id: int) -> dict:
                 ),
             )
             await db.commit()
-            return {"item_id": item_id, "name": str(item["name"]), "price": price, "currency": currency, "balance": balance_after}
+            return {
+                "item_id": item_id, "name": str(item["name"]),
+                "price": price, "base_price": base_price,
+                "is_on_sale": price < base_price, "currency": currency,
+                "balance": balance_after,
+            }
         except StoreActionError:
             raise
         except BaseException:
