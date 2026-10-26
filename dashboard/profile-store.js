@@ -53,8 +53,16 @@
     expected_one_file_field: "يجب إرسال ملف صورة واحد فقط.",
     invalid_image_file: "الملف المحدد ليس صورة صالحة.",
     image_too_large: "حجم الصورة يتجاوز الحد المحدد في إعدادات المتجر.",
-    insufficient_coins: "رصيد عملات PRIME ما يكفي لرفع الخلفية.",
-    insufficient_gems: "رصيد بلورات PRIME ما يكفي لرفع الخلفية."
+    unsupported_image_extension: "امتداد الصورة غير مدعوم.",
+    unsupported_image_format: "صيغة الصورة غير مدعومة.",
+    image_extension_mismatch: "امتداد الملف لا يطابق نوع الصورة.",
+    image_mime_mismatch: "نوع الملف المعلن لا يطابق محتواه.",
+    invalid_image_dimensions: "أبعاد الصورة غير صالحة.",
+    image_pixel_limit: "أبعاد الصورة كبيرة جدًا. اختر صورة بأبعاد أصغر.",
+    animated_images_not_allowed: "هذا النوع من الصور المتحركة غير مدعوم.",
+    animated_image_frame_limit: "عدد إطارات GIF يتجاوز الحد المسموح.",
+    animated_image_pixel_limit: "حجم GIF الإجمالي يتجاوز الحد المسموح.",
+    sanitized_image_too_large: "حجم الصورة بعد الفحص يتجاوز الحد المسموح."
   };
 
   function safeColor(value, fallback) {
@@ -189,8 +197,8 @@
     const maxBytes = Math.max(1024, Math.min(5 * 1024 * 1024, amount(config.max_bytes) || 5 * 1024 * 1024));
     $("#customBackgroundPrice").textContent = price === 0 ? "مجاني" : fmt(price) + " " + currencyGlyph(currency);
     $("#customBackgroundPriceNote").textContent = price === 0
-      ? "الرفع مجاني حسب إعدادات المتجر"
-      : "تُخصم " + currencyName(currency) + " عند نجاح الرفع فقط";
+      ? "الرفع مجاني حسب إعدادات المتجر، بما في ذلك الاستبدال"
+      : "تُخصم " + currencyName(currency) + " عند كل رفع ناجح، بما في ذلك الاستبدال";
     $("#customBackgroundMaxSize").textContent = (maxBytes / (1024 * 1024)).toLocaleString("en-US", { maximumFractionDigits: 2 }) + " MB";
     $("#customBackgroundFile").disabled = state.customUploadBusy;
     $("#uploadCustomBackground").disabled = state.customUploadBusy;
