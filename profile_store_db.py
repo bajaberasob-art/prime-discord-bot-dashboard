@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 import database
 
-PROFILE_STORE_SCHEMA_VERSION = 5
+PROFILE_STORE_SCHEMA_VERSION = 6
 DEFAULT_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -234,6 +234,10 @@ _SCHEMA_STATEMENTS = (
         price INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),
         currency TEXT NOT NULL DEFAULT 'moon'
             CHECK (currency IN ('moon', 'gem')),
+        sale_price INTEGER CHECK (sale_price IS NULL OR sale_price >= 0),
+        sale_starts_at TEXT,
+        sale_ends_at TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order BETWEEN 0 AND 1000000000),
         asset_path TEXT,
         asset_url TEXT,
         style_json TEXT NOT NULL DEFAULT '{}',
@@ -577,13 +581,49 @@ async def ensure_profile_store_schema() -> None:
                         """,
                         (str(row[1]).strip(), int(parent[0])),
                     )
-            await db.execute(
-                """
-                INSERT OR IGNORE INTO profile_store_migrations (version, description)
-                VALUES (?, ?)
-                """,
-                (PROFILE_STORE_SCHEMA_VERSION, "Add manageable profile-store categories and catalog audit trail"),
-            )
+            # Schema v6 adds ordered items and scheduled sale prices without rebuilding
+            # the catalog table, so all existing item IDs, ownership and transaction rows remain valid.
+            async with db.execute(
+                "PRAGMA table_info(profile_store_items)"
+            ) as cursor:
+                item_columns = {str(row[1]) for row in await cursor.fetchall()}
+            for column_name, declaration in (
+                ("sale_price", "INTEGER CHECK (sale_price IS NULL OR sale_price >= 0)"),
+                ("sale_starts_at", "TEXT"),
+                ("sale_ends_at", "TEXT"),
+                ("sort_order", "INTEGER NOT NULL DEFAULT 0 CHECK (sort_order BETWEEN 0 AND 1000000000)"),
+            ):
+                if column_name not in item_columns:
+                    await db.execute(
+                        f"ALTER TABLE profile_store_items ADD COLUMN {column_name} {declaration}"
+                    )
+
+            async with db.execute(
+                "SELECT 1 FROM profile_store_migrations WHERE version = ?",
+                (PROFILE_STORE_SCHEMA_VERSION,),
+            ) as cursor:
+                migration_done = await cursor.fetchone()
+            if not migration_done:
+                async with db.execute(
+                    """
+                    SELECT item_id FROM profile_store_items
+                    WHERE deleted_at IS NULL
+                    ORDER BY is_active DESC, is_featured DESC, item_type ASC, price ASC, item_id ASC
+                    """
+                ) as cursor:
+                    ordered_item_ids = [int(row[0]) for row in await cursor.fetchall()]
+                for position, item_id in enumerate(ordered_item_ids):
+                    await db.execute(
+                        "UPDATE profile_store_items SET sort_order = ? WHERE item_id = ?",
+                        (position * 10, item_id),
+                    )
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO profile_store_migrations (version, description)
+                    VALUES (?, ?)
+                    """,
+                    (PROFILE_STORE_SCHEMA_VERSION, "Add catalog ordering and scheduled sale prices"),
+                )
             await db.commit()
         except BaseException:
             await db.rollback()
