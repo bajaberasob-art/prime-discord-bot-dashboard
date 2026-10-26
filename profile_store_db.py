@@ -619,28 +619,11 @@ async def ensure_profile_store_schema() -> None:
                     for item in DEFAULT_PROFILE_TEMPLATES
                 ],
             )
-            # Keep existing item IDs/inventory valid while migrating legacy SVG entries to PNG assets.
-            await db.executemany(
-                """
-                UPDATE profile_store_items
-                SET name = :name, description = :description, rarity = :rarity,
-                    price = :price, currency = :currency, asset_path = :asset_path,
-                    style_json = :style_json, metadata_json = :metadata_json,
-                    is_active = 1, deleted_at = NULL, updated_at = CURRENT_TIMESTAMP
-                WHERE slug = :slug AND item_type = 'card_template'
-                """,
-                [
-                    {
-                        "slug": item["slug"], "name": item["name"],
-                        "description": item["description"], "rarity": item["rarity"],
-                        "price": item["price"], "currency": item["currency"],
-                        "asset_path": item["asset_path"],
-                        "style_json": json.dumps(item["style"], ensure_ascii=False),
-                        "metadata_json": json.dumps(item["metadata"], ensure_ascii=False),
-                    }
-                    for item in DEFAULT_PROFILE_TEMPLATES
-                ],
-            )
+            # Default templates are seeded with INSERT OR IGNORE above. Do not rewrite
+            # existing rows here: admins can customize metadata_json/style_json, asset_path,
+            # price, and visibility in the dashboard, and startup must preserve those edits.
+            # Any future legacy asset migration must be versioned and must not overwrite
+            # administrator-owned layout metadata.
             await db.execute(
                 """
                 UPDATE profile_store_items
