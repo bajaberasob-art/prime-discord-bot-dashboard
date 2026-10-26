@@ -63,8 +63,15 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         self.assertIn("function isShopVisible(item)", client)
         self.assertIn("if(parent&&!parent.is_active)return false", client)
         self.assertIn("if(child&&!child.is_active)return false", client)
-        self.assertIn("items.filter(i=>Number(i.price)>0).length", client)
+        self.assertIn("items.filter(i=>effectivePrice(i)>0).length", client)
+        self.assertIn("items.filter(i=>effectivePrice(i)===0).length", client)
         self.assertIn("items.filter(i=>!isShopVisible(i)).length", client)
+        self.assertIn("salePrice", page)
+        self.assertIn("saleStart", page)
+        self.assertIn("saleEnd", page)
+        self.assertIn("salesPurchases", page)
+        self.assertIn("items/reorder", (root / "profile_store_admin.py").read_text("utf-8"))
+        self.assertIn("sale_starts_at", (root / "profile_store_public.py").read_text("utf-8"))
 
     def test_uploaded_template_receives_safe_default_layout_metadata(self):
         portrait = default_uploaded_template_metadata(1024, 1536)
