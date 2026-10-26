@@ -267,6 +267,21 @@ async def _store_state(request, session) -> dict:
             LEFT JOIN user_profile_inventory AS inv
               ON inv.guild_id = ? AND inv.user_id = ? AND inv.item_id = i.item_id
             WHERE i.is_active = 1 AND i.deleted_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM profile_store_categories AS parent
+                  WHERE parent.parent_id IS NULL
+                    AND parent.name = i.category COLLATE NOCASE
+                    AND parent.is_active = 0
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM profile_store_categories AS child
+                  JOIN profile_store_categories AS parent
+                    ON parent.category_id = child.parent_id
+                  WHERE child.name = i.subcategory COLLATE NOCASE
+                    AND parent.name = i.category COLLATE NOCASE
+                    AND child.is_active = 0
+              )
             ORDER BY i.is_featured DESC, i.item_type ASC, i.price ASC, i.item_id ASC
             """,
             (guild_id, user_id),
