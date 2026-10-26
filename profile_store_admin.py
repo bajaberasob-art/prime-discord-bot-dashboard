@@ -790,6 +790,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             body = await _read_item_payload(request)
             item = validate_catalog_item_payload(body)
             async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
                 cursor = await db.execute(
                     """
                     INSERT INTO profile_store_items
@@ -816,20 +817,8 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                         "price", "currency", "is_active", "is_featured",
                     )},
                 )
-                await _ensure_category_rows(db, item["category"], item["subcategory"],
-                                            int(_session.get("id", 0) or 0))
-                await _record_catalog_audit(
-                    db, guild_id=int(_guild.id), actor_id=int(_session.get("id", 0) or 0),
-                    action="item_updated", entity_type="item", entity_id=item_id,
-                    before=before_item, after={k: item[k] for k in (
-                        "slug", "name", "item_type", "category", "subcategory",
-                        "price", "currency", "is_active", "is_featured",
-                    )},
-                )
                 await db.commit()
-                async with db.execute(
-                    "SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)
-                ) as cursor:
+                async with db.execute("SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)) as cursor:
                     row = await cursor.fetchone()
             return web.json_response({"item": _public_item(row)}, status=201)
         except ValueError as error:
@@ -839,7 +828,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
 
     @routes.put("/api/guild/{guild_id}/profile-store/items/{item_id}")
     async def profile_store_item_update(request):
-        _session, _guild = await store_authorize(request, write=True)
+        session, guild = await store_authorize(request, write=True)
         raw_id = str(request.match_info.get("item_id", ""))
         if not raw_id.isdigit() or int(raw_id) <= 0:
             return _json_error(404, "item_not_found")
@@ -848,19 +837,16 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             body = await _read_item_payload(request)
             item = validate_catalog_item_payload(body)
             async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
                 async with db.execute(
-                    "SELECT item_id FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
-                    (item_id,),
-                ) as cursor:
-                    exists = await cursor.fetchone()
-                if not exists:
-                    return _json_error(404, "item_not_found")
-                async with db.execute(
-                    "SELECT slug, name, item_type, category, subcategory, price, currency, is_active, is_featured FROM profile_store_items WHERE item_id = ?",
+                    "SELECT * FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
                     (item_id,),
                 ) as cursor:
                     before_row = await cursor.fetchone()
-                before_item = dict(before_row) if before_row else {}
+                if not before_row:
+                    await db.rollback()
+                    return _json_error(404, "item_not_found")
+                before_item = _public_item(before_row)
                 await db.execute(
                     """
                     UPDATE profile_store_items SET
@@ -877,10 +863,18 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                         item["is_active"], item["is_featured"], item_id,
                     ),
                 )
+                await _ensure_category_rows(db, item["category"], item["subcategory"],
+                                            int(session.get("id", 0) or 0))
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="item_updated", entity_type="item", entity_id=item_id,
+                    before=before_item, after={k: item[k] for k in (
+                        "slug", "name", "item_type", "category", "subcategory",
+                        "price", "currency", "is_active", "is_featured",
+                    )},
+                )
                 await db.commit()
-                async with db.execute(
-                    "SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)
-                ) as cursor:
+                async with db.execute("SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)) as cursor:
                     row = await cursor.fetchone()
             return web.json_response({"item": _public_item(row)})
         except ValueError as error:
@@ -890,20 +884,22 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
 
     @routes.delete("/api/guild/{guild_id}/profile-store/items/{item_id}")
     async def profile_store_item_delete(request):
-        _session, _guild = await store_authorize(request, write=True)
+        session, guild = await store_authorize(request, write=True)
         raw_id = str(request.match_info.get("item_id", ""))
         if not raw_id.isdigit() or int(raw_id) <= 0:
             return _json_error(404, "item_not_found")
         item_id = int(raw_id)
-        async with database.connect() as db:
+        async with database.connect(aiosqlite.Row) as db:
+            await db.execute("BEGIN IMMEDIATE")
             async with db.execute(
-                "SELECT slug, name, item_type, category, subcategory, price, currency, is_active, is_featured FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
+                "SELECT * FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
                 (item_id,),
             ) as cursor:
                 before_row = await cursor.fetchone()
             if not before_row:
+                await db.rollback()
                 return _json_error(404, "item_not_found")
-            before_item = dict(before_row)
+            before_item = _public_item(before_row)
             cursor = await db.execute(
                 """
                 UPDATE profile_store_items
@@ -914,7 +910,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 (item_id,),
             )
             await _record_catalog_audit(
-                db, guild_id=int(_guild.id), actor_id=int(_session.get("id", 0) or 0),
+                db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
                 action="item_deleted", entity_type="item", entity_id=item_id,
                 before=before_item, after={"is_active": 0, "deleted": True},
             )
