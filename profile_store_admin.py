@@ -674,6 +674,8 @@ async def _write_item_asset(request, *, authorize):
         "width": normalized["width"],
         "height": normalized["height"],
         "size": normalized["size"],
+        "frames": normalized.get("frames", 1),
+        "animated": normalized.get("animated", False),
     }, status=201)
 
 
