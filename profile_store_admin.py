@@ -526,7 +526,7 @@ async def _write_item_asset(request, *, authorize):
                 break
             if part.name != "file" or image_data is not None:
                 return _json_error(400, "expected_one_file_field")
-            declared_mime = part.headers.get("Content-Type", part.content_type or "")
+            declared_mime = part.headers.get("Content-Type") or ""
             filename = part.filename or ""
             buffer = bytearray()
             while True:
