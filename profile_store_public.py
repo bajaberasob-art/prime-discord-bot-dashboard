@@ -955,6 +955,7 @@ def register_profile_store_public_routes(routes) -> None:
 
         asset_root = None
         saved_path = None
+        committed = False
         try:
             async with database.connect(aiosqlite.Row) as db:
                 async with db.execute(
@@ -1103,6 +1104,7 @@ def register_profile_store_public_routes(routes) -> None:
                     (guild_id, user_id, relative_path, currency, price, balance_after),
                 )
                 await db.commit()
+                committed = True
 
             # Delete only the previous member asset after the new file and payment
             # are committed. A failed upload/payment never removes the working image.
@@ -1121,14 +1123,14 @@ def register_profile_store_public_routes(routes) -> None:
                 "height": normalized["height"], "has_background": True,
             }, headers={"Cache-Control": "no-store"})
         except StoreActionError as error:
-            if saved_path:
+            if saved_path and not committed:
                 try:
                     saved_path.unlink(missing_ok=True)
                 except OSError:
                     logger.warning("Could not remove uncommitted custom profile background")
             return _error(error.status, error.code, error.message)
         except ValueError as error:
-            if saved_path:
+            if saved_path and not committed:
                 try:
                     saved_path.unlink(missing_ok=True)
                 except OSError:
@@ -1136,14 +1138,14 @@ def register_profile_store_public_routes(routes) -> None:
             status = 413 if str(error) in {"image_too_large", "sanitized_image_too_large"} else 400
             return _error(status, str(error))
         except (web.HTTPException, asyncio.CancelledError):
-            if saved_path:
+            if saved_path and not committed:
                 try:
                     saved_path.unlink(missing_ok=True)
                 except OSError:
                     logger.warning("Could not remove interrupted custom profile background")
             raise
         except Exception:
-            if saved_path:
+            if saved_path and not committed:
                 try:
                     saved_path.unlink(missing_ok=True)
                 except OSError:
