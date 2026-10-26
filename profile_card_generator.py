@@ -1034,6 +1034,25 @@ def render_profile_card(
         stroke_fill=(0, 0, 0, 190),
     )
 
+    # Templates may opt into a live, positionable XP overlay. Keep it disabled by default
+    # because many existing artworks already contain a decorative XP track.
+    xp_box = metadata.get("xp_bar") or {}
+    if xp_box.get("enabled") is True:
+        xp_w = _clamp(xp_box.get("width"), 80, width, int(width * .65))
+        xp_h = _clamp(xp_box.get("height"), 4, 30, max(6, int(height * .014)))
+        xp_x = _scale_position(xp_box, "x", inset * 3, width - xp_w)
+        xp_y = _scale_position(xp_box, "y", int(height * .52), height - xp_h)
+        xp_draw = ImageDraw.Draw(canvas, "RGBA")
+        xp_radius = max(2, xp_h // 2)
+        xp_draw.rounded_rectangle((xp_x, xp_y, xp_x + xp_w - 1, xp_y + xp_h - 1),
+                                  radius=xp_radius, fill=(8, 12, 24, 190))
+        current_xp = max(0, _number(profile.get("xp"), 0))
+        required_xp = max(1, _number(profile.get("required_xp"), 1))
+        progress_width = max(0, min(xp_w, int(xp_w * min(1.0, current_xp / required_xp))))
+        if progress_width:
+            xp_draw.rounded_rectangle((xp_x, xp_y, xp_x + progress_width - 1, xp_y + xp_h - 1),
+                                      radius=xp_radius, fill=xp_color)
+
     # The XP track is part of the template artwork. Do not draw a second progress bar
     # or caption over it; that duplicated the line and collided with the level/stat labels.
     stat_values = {
@@ -1041,6 +1060,7 @@ def render_profile_card(
         "messages": f"{_number(profile.get('messages')):,}",
         "rank": f"#{_number(profile.get('rank'))}" if profile.get("rank") else "—",
         "voice": f"{_number(profile.get('voice_seconds')) // 3600}h",
+        "streak": f"{_number(profile.get('streak_days')):,}",
     }
     for stat in metadata.get("stats") or []:
         if not isinstance(stat, dict):
