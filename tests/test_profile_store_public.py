@@ -58,6 +58,72 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             await db.commit()
             return int(cursor.lastrowid)
 
+    async def test_admin_category_crud_audits_changes_and_hidden_sections_disappear_from_store(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        async def read_json_body(request):
+            return await request.json()
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize, read_json_body)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            created_category = await client.post(
+                "/api/guild/99/profile-store/categories",
+                json={"name": "test-section", "parent_id": None, "sort_order": 20, "is_active": True},
+            )
+            self.assertEqual(created_category.status, 201, await created_category.text())
+            category = (await created_category.json())["category"]
+            self.assertTrue(category["is_active"])
+
+            created_item = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "test-section-free", "name": "Free section item",
+                    "item_type": "card_color", "category": "test-section",
+                    "subcategory": "", "price": 0, "currency": "moon",
+                    "is_active": True, "is_featured": False,
+                },
+            )
+            self.assertEqual(created_item.status, 201, await created_item.text())
+            item = (await created_item.json())["item"]
+            self.assertEqual(item["price"], 0)
+
+            visible = await profile_store_public._store_state(
+                SimpleNamespace(app={"bot": None}), self.session,
+            )
+            self.assertIn(item["item_id"], {entry["item_id"] for entry in visible["items"]})
+
+            hidden = await client.put(
+                f"/api/guild/99/profile-store/categories/{category['category_id']}",
+                json={"name": "test-section", "parent_id": None, "sort_order": 20, "is_active": False},
+            )
+            self.assertEqual(hidden.status, 200, await hidden.text())
+            hidden_state = await profile_store_public._store_state(
+                SimpleNamespace(app={"bot": None}), self.session,
+            )
+            self.assertNotIn(item["item_id"], {entry["item_id"] for entry in hidden_state["items"]})
+
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT action, entity_type FROM profile_store_catalog_audit WHERE guild_id = 99 ORDER BY audit_id"
+                ) as cursor:
+                    audit = await cursor.fetchall()
+            self.assertTrue(any(row["action"] == "category_created" for row in audit))
+            self.assertTrue(any(row["action"] == "item_created" for row in audit))
+            self.assertTrue(any(row["action"] == "category_updated" for row in audit))
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
+
     async def test_admin_gem_grant_is_scoped_and_audited(self):
         original_registered = profile_store_admin._registered
         profile_store_admin._registered = False
