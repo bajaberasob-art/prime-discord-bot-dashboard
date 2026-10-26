@@ -38,7 +38,7 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
             self.assertEqual({stat["key"] for stat in metadata["stats"]},
                              {"balance", "messages", "rank", "voice"})
         with self.assertRaisesRegex(ValueError, "template_aspect_ratio_not_supported"):
-            default_uploaded_template_metadata(5000, 200)
+            default_uploaded_template_metadata(5000, 400)
 
     def test_admin_asset_preview_route_is_owner_gated_and_path_checked(self):
         source = (Path(__file__).resolve().parents[1] / "profile_store_admin.py").read_text("utf-8")
