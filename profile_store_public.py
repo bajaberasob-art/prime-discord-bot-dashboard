@@ -420,7 +420,7 @@ def _resolve_asset_path(raw_path) -> Path | None:
             return None
         candidate = (trusted_root / relative).resolve()
 
-    if trusted_root not in candidate.parents or candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+    if trusted_root not in candidate.parents or candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
         return None
     return candidate if candidate.is_file() else None
 
