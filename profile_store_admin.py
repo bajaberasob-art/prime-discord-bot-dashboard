@@ -506,7 +506,8 @@ async def _write_item_asset(request, *, authorize):
     item_id = int(raw_id)
 
     async with database.connect(aiosqlite.Row) as db:
-        item = await _catalog_item_exists(db, item_id)
+        item_row = await _catalog_item_exists(db, item_id)
+        item = dict(item_row) if item_row is not None else None
     if item is None or item["deleted_at"]:
         return _json_error(404, "item_not_found")
     if item["item_type"] not in _ASSET_ITEM_TYPES:
