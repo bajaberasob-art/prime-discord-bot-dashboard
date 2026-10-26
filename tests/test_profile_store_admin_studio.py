@@ -22,6 +22,9 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
             "filterType",
             "filterStatus",
             "storeEnabled",
+            "maxUpload",
+            "sessionTtl",
+            "أقسام المتجر",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, source)
@@ -57,6 +60,8 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         self.assertIn("categories.map", client)
         self.assertIn("/items/", client)
         self.assertIn("filterCategory", client)
+        self.assertIn("max_custom_upload_bytes", client)
+        self.assertIn("session_ttl_seconds", client)
         self.assertIn("custom:", (Path(__file__).resolve().parents[1] / "dashboard" / "profile-store.js").read_text("utf-8"))
 
 
