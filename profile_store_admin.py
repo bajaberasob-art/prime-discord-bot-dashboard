@@ -793,6 +793,11 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                         int(_session.get("id", 0) or 0),
                     ),
                 )
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(_session.get("id", 0) or 0),
+                    action="settings_updated", entity_type="settings", entity_id=1,
+                    before=current, after=updated,
+                )
                 await db.commit()
             return web.json_response({"guild_id": str(guild.id), "settings": updated})
         except ValueError as error:
