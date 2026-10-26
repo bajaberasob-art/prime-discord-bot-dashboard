@@ -820,6 +820,25 @@
       el("span", { class: "nav-copy" }, el("b", { text: meta.label }), el("small", { text: meta.hint })),
     );
   }
+  function profileStoreAdminLink() {
+    const guildId = state.guild?.id;
+    if (!guildId) return null;
+    return el(
+      "a",
+      {
+        class: "nav-item sidebar-item nav-link profile-store-admin-link",
+        href: `/profile-store-admin/${encodeURIComponent(guildId)}`,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        "aria-label": "فتح إدارة متجر البروفايل في صفحة جديدة",
+      },
+      el("span", { class: "nav-icon", text: "▧", "aria-hidden": "true" }),
+      el("span", { class: "nav-copy" },
+        el("b", { text: "إدارة متجر البروفايل" }),
+        el("small", { text: "القوالب والأسعار والصور" }),
+      ),
+    );
+  }
   function workspaceNav() {
     return el(
       "aside",
@@ -839,6 +858,7 @@
         "nav",
         { class: "nav-list" },
         ...Object.keys(viewLabels).map((view) => navButton(view)),
+        profileStoreAdminLink(),
       ),
       el(
         "div",
@@ -873,6 +893,7 @@
       navButton("settings"),
       navButton("backup"),
       navButton("system"),
+      profileStoreAdminLink(),
     );
     const moreButton = el(
       "button",
