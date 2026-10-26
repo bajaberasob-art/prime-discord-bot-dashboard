@@ -412,6 +412,22 @@ def validate_catalog_item_payload(payload: dict) -> dict:
     if currency not in profile_store_db.STORE_CURRENCIES:
         raise ValueError("invalid_currency")
 
+    sort_order = payload.get("sort_order", 0)
+    if isinstance(sort_order, bool) or not isinstance(sort_order, int) or not 0 <= sort_order <= 1_000_000_000:
+        raise ValueError("invalid_item_order")
+
+    sale_price = payload.get("sale_price")
+    if sale_price in ("", None):
+        sale_price = None
+    elif isinstance(sale_price, bool) or not isinstance(sale_price, int) or not 0 <= sale_price <= 1_000_000_000:
+        raise ValueError("invalid_sale_price")
+    if sale_price is not None and sale_price > price:
+        raise ValueError("sale_price_exceeds_base_price")
+    sale_starts_at = profile_store_db.normalize_sale_datetime(payload.get("sale_starts_at"), "sale_starts_at")
+    sale_ends_at = profile_store_db.normalize_sale_datetime(payload.get("sale_ends_at"), "sale_ends_at")
+    if sale_starts_at and sale_ends_at and sale_ends_at <= sale_starts_at:
+        raise ValueError("sale_end_must_follow_start")
+
     style = _json_object(payload.get("style", {}), "style")
     metadata = _json_object(payload.get("metadata", {}), "metadata")
     for key in ("accent", "accent2", "divider", "xp", "deep", "glow"):
@@ -433,6 +449,10 @@ def validate_catalog_item_payload(payload: dict) -> dict:
         "rarity": rarity,
         "price": price,
         "currency": currency,
+        "sale_price": sale_price,
+        "sale_starts_at": sale_starts_at,
+        "sale_ends_at": sale_ends_at,
+        "sort_order": sort_order,
         "style_json": json.dumps(style, ensure_ascii=False, separators=(",", ":")),
         "metadata_json": json.dumps(metadata, ensure_ascii=False, separators=(",", ":")),
         "is_active": int(is_active),
@@ -463,6 +483,10 @@ def _public_item(row) -> dict:
     item = dict(row)
     item["style"] = _parse_json_column(item.pop("style_json", "{}"))
     item["metadata"] = _parse_json_column(item.pop("metadata_json", "{}"))
+    item["sort_order"] = int(item.get("sort_order") or 0)
+    item["sale_price"] = int(item["sale_price"]) if item.get("sale_price") is not None else None
+    item["effective_price"] = profile_store_db.effective_catalog_price(item)
+    item["is_on_sale"] = profile_store_db.catalog_item_is_on_sale(item)
     path = item.pop("asset_path", None)
     item["has_asset"] = _catalog_asset_exists(path)
     item["asset_name"] = Path(path).name if path else None
@@ -743,16 +767,28 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 settings_row = await cursor.fetchone()
             async with db.execute(
                 """
-                SELECT item_id, slug, name, description, item_type, category,
-                       subcategory, rarity, price, currency, asset_path, asset_url,
-                       style_json, metadata_json, is_active, is_featured,
-                       created_at, updated_at, deleted_at
-                FROM profile_store_items
-                WHERE deleted_at IS NULL
-                ORDER BY is_active DESC, item_id DESC
+                SELECT i.item_id, i.slug, i.name, i.description, i.item_type, i.category,
+                       i.subcategory, i.rarity, i.price, i.currency,
+                       i.sale_price, i.sale_starts_at, i.sale_ends_at, i.sort_order,
+                       i.asset_path, i.asset_url, i.style_json, i.metadata_json,
+                       i.is_active, i.is_featured, i.created_at, i.updated_at, i.deleted_at,
+                       COALESCE(s.purchase_count, 0) AS purchase_count,
+                       COALESCE(s.moon_revenue, 0) AS moon_revenue,
+                       COALESCE(s.gem_revenue, 0) AS gem_revenue
+                FROM profile_store_items AS i
+                LEFT JOIN (
+                    SELECT item_id, COUNT(*) AS purchase_count,
+                           SUM(CASE WHEN currency = 'moon' AND delta < 0 THEN -delta ELSE 0 END) AS moon_revenue,
+                           SUM(CASE WHEN currency = 'gem' AND delta < 0 THEN -delta ELSE 0 END) AS gem_revenue
+                    FROM profile_store_transactions
+                    WHERE guild_id = ? AND transaction_type = 'purchase'
+                    GROUP BY item_id
+                ) AS s ON s.item_id = i.item_id
+                WHERE i.deleted_at IS NULL
+                ORDER BY i.sort_order ASC, i.is_active DESC, i.is_featured DESC, i.item_id ASC
                 LIMIT ?
                 """,
-                (MAX_CATALOG_ITEMS,),
+                (int(guild.id), MAX_CATALOG_ITEMS),
             ) as cursor:
                 rows = await cursor.fetchall()
             async with db.execute(
@@ -772,11 +808,25 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             "max_custom_upload_bytes": MAX_PROFILE_UPLOAD_BYTES,
             "session_ttl_seconds": profile_store_db.DEFAULT_SESSION_TTL_SECONDS,
         }
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                """
+                SELECT COUNT(*) AS purchases,
+                       COUNT(DISTINCT user_id) AS buyers,
+                       COALESCE(SUM(CASE WHEN currency = 'moon' AND delta < 0 THEN -delta ELSE 0 END), 0) AS moon_revenue,
+                       COALESCE(SUM(CASE WHEN currency = 'gem' AND delta < 0 THEN -delta ELSE 0 END), 0) AS gem_revenue
+                FROM profile_store_transactions
+                WHERE guild_id = ? AND transaction_type = 'purchase'
+                """,
+                (int(guild.id),),
+            ) as cursor:
+                sales_row = await cursor.fetchone()
+        sales = {key: int(sales_row[key] or 0) for key in ("purchases", "buyers", "moon_revenue", "gem_revenue")}
         items = [_public_item(row) for row in rows]
         categories = [_public_category(row) for row in category_rows]
         return web.json_response({
             "guild_id": str(guild.id), "settings": settings,
-            "items": items, "categories": categories,
+            "items": items, "categories": categories, "sales": sales,
         })
 
     @routes.post("/api/guild/{guild_id}/profile-store/settings")
