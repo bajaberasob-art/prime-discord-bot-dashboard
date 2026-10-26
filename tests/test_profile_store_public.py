@@ -201,6 +201,15 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("test-section", {entry["name"] for entry in visible["categories"]})
             visible_category = next(entry for entry in visible["categories"] if entry["name"] == "test-section")
             self.assertEqual(visible_category["sort_order"], 20)
+            empty_category_response = await client.post(
+                "/api/guild/99/profile-store/categories",
+                json={"name": "empty-section", "parent_id": None, "sort_order": 21, "is_active": True},
+            )
+            self.assertEqual(empty_category_response.status, 201, await empty_category_response.text())
+            visible_with_empty = await profile_store_public._store_state(
+                SimpleNamespace(app={"bot": None}), self.session,
+            )
+            self.assertIn("empty-section", {entry["name"] for entry in visible_with_empty["categories"]})
 
             hidden = await client.put(
                 f"/api/guild/99/profile-store/categories/{category['category_id']}",
