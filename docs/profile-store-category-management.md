@@ -26,7 +26,7 @@ Product create/update/delete and asset upload events are recorded in `profile_st
 
 ## Asset policy
 
-The upload endpoint validates actual image format, declared MIME, extension, file size, pixel count, and animation flags; it re-encodes accepted PNG/JPEG/WEBP files to strip metadata and stores assets outside the public dashboard directory. The admin page shows a local preview before upload. Animated GIF/APNG/animated WebP are intentionally rejected until an animation-preserving validation and serving pipeline is added.
+The upload endpoint validates actual image format, declared MIME, extension, file size, pixel count, and animation bounds, strips source metadata, and stores assets outside the public dashboard directory. PNG/JPEG/WEBP are re-encoded as static images. GIF uploads preserve animation with a maximum of 60 frames, 32 million aggregate frame pixels, and a 5MB sanitized output limit; APNG and animated WebP remain rejected. The admin page shows a local preview before upload. Profile cards are rendered as PNG, so an animated GIF used as a profile background is represented by its first frame in the final card image.
 
 ## Verification
 
