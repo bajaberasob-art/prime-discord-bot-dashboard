@@ -586,8 +586,9 @@ async def _write_item_asset(request, *, authorize):
         await asyncio.to_thread(temporary.write_bytes, normalized["data"])
         await asyncio.to_thread(os.chmod, temporary, 0o600)
         await asyncio.to_thread(os.replace, temporary, destination)
-        async with database.connect() as db:
-            await db.execute(
+        async with database.connect(aiosqlite.Row) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            cursor = await db.execute(
                 """
                 UPDATE profile_store_items
                 SET asset_path = ?, asset_url = NULL,
@@ -596,6 +597,19 @@ async def _write_item_asset(request, *, authorize):
                 WHERE item_id = ? AND deleted_at IS NULL
                 """,
                 (relative_path.as_posix(), generated_metadata_json, item_id),
+            )
+            if cursor.rowcount != 1:
+                await db.rollback()
+                await asyncio.to_thread(destination.unlink, missing_ok=True)
+                return _json_error(404, "item_not_found")
+            await _record_catalog_audit(
+                db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                action="asset_replaced" if item.get("asset_path") else "asset_uploaded",
+                entity_type="asset", entity_id=item_id,
+                before={"asset_path": item.get("asset_path"), "has_asset": bool(item.get("asset_path"))},
+                after={"asset_path": relative_path.as_posix(), "format": normalized["format"],
+                       "width": normalized["width"], "height": normalized["height"],
+                       "size": normalized["size"]},
             )
             await db.commit()
     except Exception:
