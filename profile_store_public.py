@@ -516,8 +516,23 @@ async def _purchase_item(session, item_id: int) -> dict:
             async with db.execute(
                 """
                 SELECT item_id, slug, name, item_type, price, currency
-                FROM profile_store_items
-                WHERE item_id = ? AND is_active = 1 AND deleted_at IS NULL
+                FROM profile_store_items AS i
+                WHERE i.item_id = ? AND i.is_active = 1 AND i.deleted_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM profile_store_categories AS parent
+                      WHERE parent.parent_id IS NULL
+                        AND parent.name = i.category COLLATE NOCASE
+                        AND parent.is_active = 0
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM profile_store_categories AS child
+                      JOIN profile_store_categories AS parent
+                        ON parent.category_id = child.parent_id
+                      WHERE child.name = i.subcategory COLLATE NOCASE
+                        AND parent.name = i.category COLLATE NOCASE
+                        AND child.is_active = 0
+                  )
                 """,
                 (item_id,),
             ) as cursor:
