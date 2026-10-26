@@ -210,6 +210,22 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(app={"bot": None}), self.session,
             )
             self.assertIn("empty-section", {entry["name"] for entry in visible_with_empty["categories"]})
+            admin_catalog = await client.get("/api/guild/99/profile-store")
+            category_rows = (await admin_catalog.json())["categories"]
+            ordered_ids = [row["category_id"] for row in category_rows]
+            section_index = next(i for i, row in enumerate(category_rows) if row["name"] == "test-section")
+            empty_index = next(i for i, row in enumerate(category_rows) if row["name"] == "empty-section")
+            ordered_ids[section_index], ordered_ids[empty_index] = ordered_ids[empty_index], ordered_ids[section_index]
+            reordered = await client.put(
+                "/api/guild/99/profile-store/categories/reorder",
+                json={"category_ids": ordered_ids},
+            )
+            self.assertEqual(reordered.status, 200, await reordered.text())
+            reordered_state = await profile_store_public._store_state(
+                SimpleNamespace(app={"bot": None}), self.session,
+            )
+            order_by_name = {row["name"]: row["sort_order"] for row in reordered_state["categories"]}
+            self.assertLess(order_by_name["empty-section"], order_by_name["test-section"])
 
             hidden = await client.put(
                 f"/api/guild/99/profile-store/categories/{category['category_id']}",
