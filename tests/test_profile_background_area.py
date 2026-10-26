@@ -217,6 +217,38 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
             )
         self.assertGreater(green_pixels, 10, "The stat-value style must be rendered")
 
+    def test_level_text_template_is_rendered_with_live_level_value(self):
+        frame = png_bytes(Image.new("RGBA", (640, 320), (0, 0, 0, 0)))
+        base_metadata = {
+            "width": 640,
+            "height": 320,
+            "layout": "wide",
+            "background_area": {"x": 20, "y": 20, "width": 600, "height": 280, "fit": "cover"},
+            "avatar": {"x": 520, "y": 220, "size": 72},
+            "name": {"x": 590, "y": 35, "max_width": 220, "anchor": "ra"},
+            "handle": {"x": 590, "y": 75, "max_width": 220, "anchor": "ra"},
+            "level": {"x": 50, "y": 145, "max_width": 220, "anchor": "la"},
+            "xp_bar": {"x": 30, "y": 280, "width": 120, "height": 8, "enabled": False},
+            "badges": {"x": 10, "y": 10, "size": 20, "limit": 0},
+            "flag": {"x": 10, "y": 10, "width": 24, "height": 18},
+            "stats": [],
+        }
+        profile = {"display_name": "Member", "username": "member", "level": 42}
+        default_result = render_profile_card(
+            profile, template_bytes=frame, template={"metadata": base_metadata}
+        )
+        custom_metadata = dict(base_metadata)
+        custom_metadata["level"] = {**base_metadata["level"], "text_template": "LVL {level}"}
+        custom_result = render_profile_card(
+            profile, template_bytes=frame, template={"metadata": custom_metadata}
+        )
+        with Image.open(default_result) as default_card, Image.open(custom_result) as custom_card:
+            self.assertNotEqual(
+                default_card.convert("RGBA").tobytes(),
+                custom_card.convert("RGBA").tobytes(),
+                "Changing the level text template should change the rendered image",
+            )
+
     def test_invalid_element_style_values_fall_back_safely(self):
         frame = png_bytes(Image.new("RGBA", (640, 320), (0, 0, 0, 0)))
         metadata = {
@@ -253,13 +285,17 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         renderer = (root / "profile_card_generator.py").read_text("utf-8")
         for field_id in (
             "layoutFontSize", "layoutFontFamily", "layoutTextColor",
-            "layoutAutoColor", "layoutBold", "layoutStrokeWidth", "applyElementStyle",
+            "layoutTextContent", "layoutAutoColor", "layoutBold",
+            "layoutStrokeWidth", "applyElementStyle",
         ):
             self.assertIn(f'id="{field_id}"', html)
         self.assertIn("function applyElementStyle()", client)
         self.assertIn("box.font_size=Math.round(fontSize)", client)
         self.assertIn("delete box.color", client)
         self.assertIn("box.font_family", client)
+        self.assertIn("box.text_template=textContent", client)
+        self.assertIn("box.label=textContent", client)
+        self.assertIn('level_template = str(level_box.get("text_template") or "المستوى {level}")[:100]', renderer)
         self.assertIn("_clamp(name_box.get(\"font_size\")", renderer)
         self.assertIn("_safe_color(name_box.get(\"color\"), light_text)", renderer)
         self.assertIn("_clamp(stat.get(\"font_size\")", renderer)
