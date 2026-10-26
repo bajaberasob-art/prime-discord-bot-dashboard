@@ -34,6 +34,87 @@ STORE_ITEM_TYPES = (
 )
 STORE_RARITIES = ("common", "silver", "gold", "legendary")
 
+
+def normalize_sale_datetime(value, field: str) -> str | None:
+    """Validate a timezone-aware sale timestamp and store it in canonical UTC form."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field}_must_be_datetime")
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field}_must_be_datetime") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field}_must_include_timezone")
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _parse_sale_datetime(value) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def catalog_item_is_on_sale(item, now: datetime | None = None) -> bool:
+    """Return whether a scheduled sale is active at the current UTC instant."""
+    if not isinstance(item, dict):
+        try:
+            item = dict(item)
+        except (TypeError, ValueError):
+            return False
+    base_price = item.get("price")
+    sale_price = item.get("sale_price")
+    if isinstance(base_price, bool) or isinstance(sale_price, bool) or sale_price is None:
+        return False
+    try:
+        base_price, sale_price = int(base_price), int(sale_price)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if sale_price < 0 or sale_price > base_price:
+        return False
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None or current.utcoffset() is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    starts = _parse_sale_datetime(item.get("sale_starts_at"))
+    ends = _parse_sale_datetime(item.get("sale_ends_at"))
+    if item.get("sale_starts_at") and starts is None:
+        return False
+    if item.get("sale_ends_at") and ends is None:
+        return False
+    if starts and current < starts:
+        return False
+    if ends and current >= ends:
+        return False
+    if starts and ends and ends <= starts:
+        return False
+    return True
+
+
+def effective_catalog_price(item, now: datetime | None = None) -> int:
+    """Resolve a product's authoritative purchase price for a specific UTC instant."""
+    if not isinstance(item, dict):
+        try:
+            item = dict(item)
+        except (TypeError, ValueError):
+            return 0
+    try:
+        base_price = int(item.get("price") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    if catalog_item_is_on_sale(item, now):
+        return int(item["sale_price"])
+    return max(0, base_price)
+
+
+
 def _profile_template_metadata(width: int, height: int, layout: str, template_key: str) -> dict:
     """Return individually art-directed text/image anchors for a specific approved PNG."""
     w, h = int(width), int(height)
@@ -414,6 +495,10 @@ _SCHEMA_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS idx_profile_store_transactions_owner
         ON profile_store_transactions(guild_id, user_id, created_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profile_store_transactions_sales
+        ON profile_store_transactions(guild_id, transaction_type, item_id, currency)
     """,
     """
     CREATE TABLE IF NOT EXISTS profile_store_admin_audit (
