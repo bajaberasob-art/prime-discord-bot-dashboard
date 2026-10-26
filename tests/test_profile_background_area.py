@@ -103,7 +103,9 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         self.assertIn('option value="background_area"', html)
         self.assertIn('id="backgroundFit"', html)
         self.assertIn("layoutMetadata.background_area", client)
+        self.assertIn("key==='background_area'?'background'", client)
         self.assertIn("box.width=width;box.height=height", client)
+        self.assertIn("background_area:'مساحة الخلفية'", client)
         self.assertIn("b.fit=$('backgroundFit').value", client)
 
 
