@@ -136,6 +136,36 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             with Image.open(io.BytesIO(await preview.read())) as image:
                 self.assertEqual(image.size, (72, 48))
 
+            gif_buffer = io.BytesIO()
+            gif_frames = [
+                Image.new("RGB", (72, 48), (20, 140, 220)),
+                Image.new("RGB", (72, 48), (220, 80, 140)),
+            ]
+            gif_frames[0].save(
+                gif_buffer, format="GIF", save_all=True,
+                append_images=gif_frames[1:], duration=[80, 120], loop=0,
+            )
+            gif_form = FormData()
+            gif_form.add_field("file", gif_buffer.getvalue(), filename="motion.gif", content_type="image/gif")
+            gif_upload = await client.post(
+                f"/api/guild/99/profile-store/items/{item_id}/asset", data=gif_form,
+            )
+            self.assertEqual(gif_upload.status, 201, await gif_upload.text())
+            gif_payload = await gif_upload.json()
+            self.assertEqual(gif_payload["format"], "GIF")
+            self.assertEqual(gif_payload["frames"], 2)
+            self.assertTrue(gif_payload["animated"])
+
+            gif_preview = await client.get(
+                f"/api/guild/99/profile-store/items/{item_id}/asset",
+            )
+            self.assertEqual(gif_preview.status, 200)
+            self.assertEqual(gif_preview.headers.get("Content-Type"), "image/gif")
+            with Image.open(io.BytesIO(await gif_preview.read())) as image:
+                self.assertEqual(image.n_frames, 2)
+                image.seek(1)
+                self.assertEqual(image.info.get("duration"), 120)
+
             invalid = FormData()
             invalid.add_field("file", b"not an image", filename="bad.png", content_type="image/png")
             rejected = await client.post(
@@ -151,6 +181,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
                 ) as cursor:
                     audit = await cursor.fetchall()
             self.assertTrue(any(row["action"] == "asset_uploaded" and row["entity_type"] == "asset" for row in audit))
+            self.assertTrue(any(row["action"] == "asset_replaced" and row["entity_type"] == "asset" for row in audit))
         finally:
             await client.close()
             profile_store_admin._registered = original_registered
