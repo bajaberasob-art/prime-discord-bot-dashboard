@@ -101,6 +101,9 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(app={"bot": None}), self.session,
             )
             self.assertIn(item["item_id"], {entry["item_id"] for entry in visible["items"]})
+            self.assertIn("test-section", {entry["name"] for entry in visible["categories"]})
+            visible_category = next(entry for entry in visible["categories"] if entry["name"] == "test-section")
+            self.assertEqual(visible_category["sort_order"], 20)
 
             hidden = await client.put(
                 f"/api/guild/99/profile-store/categories/{category['category_id']}",
@@ -111,6 +114,7 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(app={"bot": None}), self.session,
             )
             self.assertNotIn(item["item_id"], {entry["item_id"] for entry in hidden_state["items"]})
+            self.assertNotIn("test-section", {entry["name"] for entry in hidden_state["categories"]})
 
             async with database.connect(aiosqlite.Row) as db:
                 async with db.execute(
