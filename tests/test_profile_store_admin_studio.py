@@ -49,6 +49,8 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         self.assertIn("categoryForm", client)
         self.assertIn("categories/reorder", client)
         self.assertIn("createObjectURL", client)
+        self.assertIn("image/gif", client)
+        self.assertIn("image/gif", (Path(__file__).resolve().parents[1] / "dashboard" / "profile-store-admin.html").read_text("utf-8"))
 
     def test_uploaded_template_receives_safe_default_layout_metadata(self):
         portrait = default_uploaded_template_metadata(1024, 1536)
