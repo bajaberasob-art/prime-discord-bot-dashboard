@@ -32,6 +32,15 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
             {"x": 600, "y": 300, "width": 40, "height": 20, "fit": "cover"},
         )
 
+    def test_existing_template_without_area_gets_safe_inset_default(self):
+        metadata = _safe_metadata({"metadata": {"width": 640, "height": 320}})
+        area = metadata["background_area"]
+        self.assertGreater(area["x"], 0)
+        self.assertGreater(area["y"], 0)
+        self.assertLess(area["x"] + area["width"], metadata["width"])
+        self.assertLess(area["y"] + area["height"], metadata["height"])
+        self.assertEqual(area["fit"], "cover")
+
     def test_background_image_is_visible_only_inside_configured_area(self):
         frame = png_bytes(Image.new("RGBA", (640, 320), (0, 0, 0, 0)))
         background = png_bytes(Image.new("RGB", (300, 180), "#ff0000"))
