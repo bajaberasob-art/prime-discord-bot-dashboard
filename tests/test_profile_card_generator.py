@@ -9,7 +9,7 @@ from unittest.mock import patch
 from PIL import Image, ImageColor, ImageDraw
 
 from profile_store_db import DEFAULT_PROFILE_TEMPLATES
-from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text, _fit_font, _display_text, _resolve_local_asset
+from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text, _fit_font, _display_text, _resolve_local_asset, _fit_background_to_card
 
 
 class ProfileCardTemplateTests(unittest.TestCase):
@@ -94,6 +94,54 @@ class ProfileCardTemplateTests(unittest.TestCase):
             with patch.dict(os.environ, {"PROFILE_STORE_ASSET_DIR": temporary}):
                 resolved = _resolve_local_asset(str(path))
             self.assertEqual(resolved, path.resolve())
+
+    def test_custom_background_is_center_cropped_to_cover_template_without_stretching(self):
+        source = Image.new("RGBA", (400, 100), (235, 45, 55, 255))
+        ImageDraw.Draw(source).rectangle((150, 0, 249, 99), fill=(30, 210, 100, 255))
+
+        # A 4:1 background is center-cropped to a 2:1 template canvas, not stretched.
+        fitted = _fit_background_to_card(source, (200, 100))
+        self.assertIsNotNone(fitted)
+        self.assertEqual(fitted.size, (200, 100))
+        self.assertEqual(fitted.getpixel((0, 50)), (235, 45, 55, 255))
+        self.assertEqual(fitted.getpixel((100, 50)), (30, 210, 100, 255))
+        self.assertEqual(fitted.getpixel((199, 50)), (235, 45, 55, 255))
+
+    def test_background_is_visible_beneath_transparent_template_and_frame_is_foreground(self):
+        background_buffer = io.BytesIO()
+        Image.new("RGBA", (200, 100), "#2677FF").save(background_buffer, format="PNG")
+        frame = Image.new("RGBA", (640, 320), (0, 0, 0, 0))
+        ImageDraw.Draw(frame).rectangle((10, 140, 26, 180), fill=(255, 220, 20, 255))
+        frame_buffer = io.BytesIO()
+        frame.save(frame_buffer, format="PNG")
+        metadata = {
+            "width": 640, "height": 320, "layout": "wide",
+            "avatar": {"x": 560, "y": 20, "size": 52},
+            "name": {"x": 550, "y": 80, "max_width": 180, "anchor": "ra"},
+            "handle": {"x": 550, "y": 104, "max_width": 180, "anchor": "ra"},
+            "level": {"x": 50, "y": 190, "max_width": 140, "anchor": "la"},
+            "xp_bar": {"x": 50, "y": 220, "width": 300, "height": 10, "enabled": False},
+            "badges": {"x": 50, "y": 250, "size": 20, "limit": 0},
+            "stats": [],
+        }
+        result = render_profile_card(
+            {"display_name": "Member", "username": "member"},
+            background_bytes=background_buffer.getvalue(),
+            template_bytes=frame_buffer.getvalue(),
+            template={"metadata": metadata},
+        )
+        with Image.open(result) as rendered:
+            self.assertEqual(rendered.size, (640, 320))
+            frame_pixel = rendered.getpixel((18, 160))
+            self.assertGreater(frame_pixel[0], 240)
+            self.assertGreater(frame_pixel[1], 190)
+            background_pixel = rendered.getpixel((320, 80))
+            self.assertGreater(background_pixel[2], background_pixel[1])
+            self.assertGreater(background_pixel[1], background_pixel[0])
+
+    def test_background_with_invalid_target_size_is_rejected(self):
+        with self.assertRaises(ValueError):
+            _fit_background_to_card(Image.new("RGB", (10, 10)), (0, 100))
 
     def test_approved_ultrawide_template_dimensions_are_preserved(self):
         metadata = _safe_metadata({

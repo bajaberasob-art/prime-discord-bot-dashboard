@@ -545,6 +545,31 @@ _SCHEMA_STATEMENTS = (
     CREATE INDEX IF NOT EXISTS idx_profile_store_sessions_owner
         ON profile_store_sessions(guild_id, user_id, expires_at)
     """,
+    """
+    CREATE TABLE IF NOT EXISTS user_profile_custom_backgrounds (
+        guild_id INTEGER NOT NULL CHECK (guild_id > 0),
+        user_id INTEGER NOT NULL CHECK (user_id > 0),
+        asset_path TEXT NOT NULL CHECK (length(trim(asset_path)) BETWEEN 1 AND 512),
+        width INTEGER NOT NULL CHECK (width > 0),
+        height INTEGER NOT NULL CHECK (height > 0),
+        price_paid INTEGER NOT NULL DEFAULT 0 CHECK (price_paid >= 0),
+        currency TEXT NOT NULL DEFAULT 'moon' CHECK (currency IN ('moon', 'gem')),
+        uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (guild_id, user_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS profile_store_custom_upload_transactions (
+        upload_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id INTEGER NOT NULL CHECK (guild_id > 0),
+        user_id INTEGER NOT NULL CHECK (user_id > 0),
+        asset_path TEXT NOT NULL CHECK (length(trim(asset_path)) BETWEEN 1 AND 512),
+        currency TEXT NOT NULL CHECK (currency IN ('moon', 'gem')),
+        price_paid INTEGER NOT NULL CHECK (price_paid >= 0),
+        balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
 )
 
 
@@ -860,6 +885,30 @@ async def get_profile_card_configuration(guild_id: int, user_id: int) -> dict:
                 except (TypeError, ValueError):
                     item[key.replace("_json", "")] = {}
             badges.append(item)
+
+    # A member-uploaded background takes precedence over the catalog background,
+    # while leaving their purchased/equipped catalog item untouched. Clearing the
+    # custom image automatically falls back to the selected catalog background.
+    async with database.connect(aiosqlite.Row) as db:
+        async with db.execute(
+            "SELECT asset_path, width, height FROM user_profile_custom_backgrounds WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ) as cursor:
+            custom_background_row = await cursor.fetchone()
+    if custom_background_row and custom_background_row["asset_path"]:
+        background = {
+            "slug": "member-custom-background",
+            "name": "خلفية مخصصة",
+            "item_type": "background",
+            "asset_path": str(custom_background_row["asset_path"]),
+            "asset_url": None,
+            "style": {},
+            "metadata": {
+                "width": int(custom_background_row["width"]),
+                "height": int(custom_background_row["height"]),
+                "fit": "cover",
+            },
+        }
 
     settings.update({
         "template": template,

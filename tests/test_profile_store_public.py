@@ -309,6 +309,88 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             await client.close()
             profile_store_admin._registered = original_registered
 
+    async def test_member_custom_background_upload_charges_safely_and_can_be_cleared(self):
+        original_registered = profile_store_public._registered
+        profile_store_public._registered = False
+        async with database.connect() as db:
+            await db.execute(
+                """
+                UPDATE profile_store_settings
+                SET enabled = 1, custom_upload_enabled = 1,
+                    custom_upload_price = 25, custom_upload_currency = 'moon',
+                    max_custom_upload_bytes = 1048576
+                WHERE settings_id = 1
+                """
+            )
+            await db.commit()
+        await self._seed_coin_wallet(balance=100)
+
+        async def authorize(_request, *, write=False):
+            return dict(self.session, session_hash="test-session"), None
+
+        routes = web.RouteTableDef()
+        profile_store_public.register_profile_store_public_routes(routes)
+        app = web.Application(client_max_size=2 * 1024 * 1024)
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        asset_root = os.path.join(self.temp_dir.name, "custom-assets")
+        try:
+            with patch.dict(os.environ, {"PROFILE_STORE_ASSET_DIR": asset_root, "DB_PATH": ""}):
+                with patch.object(profile_store_public, "_authorize_request", new=authorize):
+                    await client.start_server()
+                    image_buffer = io.BytesIO()
+                    Image.new("RGB", (120, 60), "#E85C36").save(image_buffer, format="PNG")
+                    form = FormData()
+                    form.add_field("file", image_buffer.getvalue(), filename="my-background.png", content_type="image/png")
+                    uploaded = await client.post("/api/profile-store/custom-background", data=form)
+                    self.assertEqual(uploaded.status, 200, await uploaded.text())
+                    payload = await uploaded.json()
+                    self.assertEqual(payload["price_paid"], 25)
+                    self.assertEqual((payload["width"], payload["height"]), (120, 60))
+
+                    wallet = await profile_store_db.get_profile_wallet(self.session["guild_id"], self.session["user_id"])
+                    self.assertEqual(wallet["balance"], 75)
+                    configuration = await profile_store_db.get_profile_card_configuration(
+                        self.session["guild_id"], self.session["user_id"],
+                    )
+                    custom_background = configuration["background"]
+                    self.assertEqual(custom_background["name"], "خلفية مخصصة")
+                    custom_file = Path(asset_root) / custom_background["asset_path"]
+                    self.assertTrue(custom_file.is_file())
+
+                    # A second upload that cannot be paid must not replace the existing background.
+                    async with database.connect() as db:
+                        await db.execute(
+                            "UPDATE profile_store_settings SET custom_upload_price = 500 WHERE settings_id = 1"
+                        )
+                        await db.commit()
+                    second_form = FormData()
+                    second_form.add_field("file", image_buffer.getvalue(), filename="replacement.png", content_type="image/png")
+                    rejected = await client.post("/api/profile-store/custom-background", data=second_form)
+                    self.assertEqual(rejected.status, 402, await rejected.text())
+                    wallet = await profile_store_db.get_profile_wallet(self.session["guild_id"], self.session["user_id"])
+                    self.assertEqual(wallet["balance"], 75)
+                    configuration = await profile_store_db.get_profile_card_configuration(
+                        self.session["guild_id"], self.session["user_id"],
+                    )
+                    self.assertEqual(configuration["background"]["asset_path"], custom_background["asset_path"])
+                    self.assertTrue(custom_file.is_file())
+
+                    cleared = await client.post("/api/profile-store/custom-background/clear", json={})
+                    self.assertEqual(cleared.status, 200, await cleared.text())
+                    self.assertFalse(custom_file.exists())
+                    configuration = await profile_store_db.get_profile_card_configuration(
+                        self.session["guild_id"], self.session["user_id"],
+                    )
+                    self.assertIsNone(configuration["background"])
+                    wallet = await profile_store_db.get_profile_wallet(self.session["guild_id"], self.session["user_id"])
+                    self.assertEqual(wallet["balance"], 75)
+        finally:
+            await client.close()
+            profile_store_public._registered = original_registered
+
+
     async def test_admin_category_crud_audits_changes_and_hidden_sections_disappear_from_store(self):
         original_registered = profile_store_admin._registered
         profile_store_admin._registered = False

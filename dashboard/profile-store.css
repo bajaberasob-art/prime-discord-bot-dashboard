@@ -560,3 +560,56 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   border-radius: 10px;
   background: #070b14;
 }
+
+
+/* Member-uploaded background controls: the backend handles image validation,
+   while the renderer center-crops the asset behind the selected transparent frame. */
+.custom-background-panel {
+  margin: 18px 0 24px;
+  padding: clamp(16px, 2.4vw, 24px);
+  border: 1px solid rgba(103, 204, 255, .2);
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(15, 29, 48, .96), rgba(12, 17, 31, .96));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .18);
+}
+.custom-background-panel[hidden] { display: none !important; }
+.custom-background-copy h2 { margin: 5px 0 7px; font-size: clamp(19px, 2.5vw, 25px); }
+.custom-background-copy p { margin: 0; max-width: 760px; color: var(--muted, #9eacc2); line-height: 1.8; }
+.custom-background-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, .35fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 18px;
+}
+.custom-background-file, .custom-background-price {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(123, 155, 193, .18);
+  border-radius: 13px;
+  background: rgba(5, 11, 22, .54);
+}
+.custom-background-file { color: var(--text, #eef4ff); font-weight: 700; }
+.custom-background-file input { width: 100%; min-width: 0; color: var(--text, #eef4ff); }
+.custom-background-file small, .custom-background-price small { color: var(--muted, #9eacc2); font-size: 12px; font-weight: 400; }
+.custom-background-price strong { color: #8de9ff; font-size: 22px; }
+.custom-background-actions { display: flex; flex-wrap: wrap; grid-column: 1 / -1; gap: 9px; }
+.custom-background-actions button { min-height: 43px; }
+.custom-background-status {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #bdcee5;
+  background: rgba(4, 10, 20, .48);
+  font-size: 13px;
+  line-height: 1.7;
+}
+@media (max-width: 620px) {
+  .custom-background-controls { grid-template-columns: minmax(0, 1fr); }
+  .custom-background-actions { flex-direction: column; }
+  .custom-background-actions button { width: 100%; }
+}

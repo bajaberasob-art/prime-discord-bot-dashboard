@@ -93,7 +93,7 @@ def _asset_roots() -> tuple[Path, ...]:
     if configured:
         store_root = Path(configured).expanduser().resolve()
     else:
-        db_name = getattr(database, "DB_NAME", "data/bot.db")
+        db_name = (os.environ.get("DB_PATH") or "").strip() or getattr(database, "DB_NAME", "data/bot.db")
         store_root = (Path(db_name).expanduser().resolve().parent / "profile_store_assets").resolve()
     return TEMPLATE_ROOT, store_root
 
@@ -278,6 +278,29 @@ def _mix_hex(left: Any, right: Any, right_weight: float = 0.5) -> str:
     weight = max(0.0, min(1.0, float(right_weight)))
     rgb = tuple(round(a * (1 - weight) + b * weight) for a, b in zip(left_rgb[:3], right_rgb[:3]))
     return "#{:02X}{:02X}{:02X}".format(*rgb)
+
+
+def _fit_background_to_card(
+    background: Image.Image | None,
+    size: tuple[int, int],
+) -> Image.Image | None:
+    """Scale a background to cover the whole card without stretching its aspect ratio.
+
+    ImageOps.fit performs a centered cover-crop: every pixel in the template canvas gets
+    background coverage, extra edges are cropped, and the template's alpha remains a
+    separate foreground layer that is composited afterwards.
+    """
+    if background is None:
+        return None
+    width, height = int(size[0]), int(size[1])
+    if width <= 0 or height <= 0:
+        raise ValueError("background_target_size_must_be_positive")
+    return ImageOps.fit(
+        background.convert("RGBA"),
+        (width, height),
+        method=Image.Resampling.LANCZOS,
+        centering=(0.5, 0.5),
+    )
 
 
 def _region_luminance(image: Image.Image, bounds: tuple[int, int, int, int]) -> float | None:
@@ -915,11 +938,11 @@ def render_profile_card(
     auto_contrast = not explicit_text_color
 
     bg = _image_from_bytes(background_bytes)
-    if bg is None:
+    fitted_background = _fit_background_to_card(bg, (width, height))
+    if fitted_background is None:
         canvas = _draw_gradient(width, height, deep, accent)
     else:
-        fitted = ImageOps.fit(bg, (width, height), method=Image.Resampling.LANCZOS, centering=(.5, .4))
-        canvas = fitted
+        canvas = fitted_background
     # Mask the background to the card shape so transparent template corners stay transparent.
     mask = Image.new("L", (width, height), 0)
     mask_draw = ImageDraw.Draw(mask)

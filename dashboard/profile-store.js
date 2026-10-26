@@ -4,7 +4,9 @@
   const state = {
     items: [], categories: [], wallet: { coins: 0, gems: 0, bank: 0 }, user: {}, guild: {}, equipped: {},
     category: "all", subcategory: "all", filter: "all", sort: "recommended", search: "",
-    selectedId: null, busy: false, loaded: false, previewBusy: false, previewObjectUrl: null
+    selectedId: null, busy: false, loaded: false, previewBusy: false, previewObjectUrl: null,
+    customUpload: { enabled: false, price: 0, currency: "moon", max_bytes: 5242880, has_background: false },
+    customUploadBusy: false
   };
   const CATEGORIES = {
     all: { label: "كل الأقسام", icon: "▦" },
@@ -43,7 +45,24 @@
     bot_unavailable: "البوت غير متصل حالياً؛ جرّب المعاينة لاحقاً.",
     guild_unavailable: "تعذر الوصول إلى السيرفر من البوت. تأكد أن البوت متصل.",
     member_unavailable: "تعذر العثور على حسابك داخل السيرفر.",
-    badge_slots_full: "خانات الشارات الخمس ممتلئة. أزل شارة موجودة ثم جهّز الجديدة."
+    badge_slots_full: "خانات الشارات الخمس ممتلئة. أزل شارة موجودة ثم جهّز الجديدة.",
+    custom_upload_disabled: "رفع الخلفيات المخصصة غير مفعّل حالياً.",
+    custom_upload_failed: "تعذر رفع الخلفية. لم يتم تأكيد العملية.",
+    custom_background_clear_failed: "تعذر إزالة الخلفية المخصصة.",
+    multipart_required: "ارفع الصورة باستخدام نموذج الملفات.",
+    expected_one_file_field: "يجب إرسال ملف صورة واحد فقط.",
+    invalid_image_file: "الملف المحدد ليس صورة صالحة.",
+    image_too_large: "حجم الصورة يتجاوز الحد المحدد في إعدادات المتجر.",
+    unsupported_image_extension: "امتداد الصورة غير مدعوم.",
+    unsupported_image_format: "صيغة الصورة غير مدعومة.",
+    image_extension_mismatch: "امتداد الملف لا يطابق نوع الصورة.",
+    image_mime_mismatch: "نوع الملف المعلن لا يطابق محتواه.",
+    invalid_image_dimensions: "أبعاد الصورة غير صالحة.",
+    image_pixel_limit: "أبعاد الصورة كبيرة جدًا. اختر صورة بأبعاد أصغر.",
+    animated_images_not_allowed: "هذا النوع من الصور المتحركة غير مدعوم.",
+    animated_image_frame_limit: "عدد إطارات GIF يتجاوز الحد المسموح.",
+    animated_image_pixel_limit: "حجم GIF الإجمالي يتجاوز الحد المسموح.",
+    sanitized_image_too_large: "حجم الصورة بعد الفحص يتجاوز الحد المسموح."
   };
 
   function safeColor(value, fallback) {
@@ -167,6 +186,116 @@
     $("#userAvatar").referrerPolicy = "no-referrer";
     $("#catalogTotal").textContent = fmt(state.items.length);
   }
+  function renderCustomBackground() {
+    const panel = $("#customBackgroundPanel");
+    if (!panel) return;
+    const config = state.customUpload || {};
+    panel.hidden = !config.enabled;
+    if (!config.enabled) return;
+    const currency = config.currency === "gem" ? "gem" : "moon";
+    const price = amount(config.price);
+    const maxBytes = Math.max(1024, Math.min(5 * 1024 * 1024, amount(config.max_bytes) || 5 * 1024 * 1024));
+    $("#customBackgroundPrice").textContent = price === 0 ? "مجاني" : fmt(price) + " " + currencyGlyph(currency);
+    $("#customBackgroundPriceNote").textContent = price === 0
+      ? "الرفع مجاني حسب إعدادات المتجر، بما في ذلك الاستبدال"
+      : "تُخصم " + currencyName(currency) + " عند كل رفع ناجح، بما في ذلك الاستبدال";
+    $("#customBackgroundMaxSize").textContent = (maxBytes / (1024 * 1024)).toLocaleString("en-US", { maximumFractionDigits: 2 }) + " MB";
+    $("#customBackgroundFile").disabled = state.customUploadBusy;
+    $("#uploadCustomBackground").disabled = state.customUploadBusy;
+    $("#clearCustomBackground").hidden = !config.has_background;
+    $("#clearCustomBackground").disabled = state.customUploadBusy;
+    $("#customBackgroundStatus").textContent = config.has_background
+      ? "لديك خلفية مخصصة مفعّلة (" + Number(config.width || 0) + "×" + Number(config.height || 0) + "). ستظهر خلف القالب الحالي. رفع صورة أخرى يستبدل هذه الخلفية."
+      : "لا توجد خلفية مخصصة مفعّلة. ستبقى خلفية المتجر التي جهزتها كما هي حتى ترفع صورة.";
+  }
+
+  async function uploadCustomBackground() {
+    if (state.customUploadBusy) return;
+    const input = $("#customBackgroundFile");
+    const file = input.files && input.files[0];
+    if (!file) {
+      toast("اختر صورة الخلفية أولاً.", "error");
+      input.focus();
+      return;
+    }
+    const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+    const maxBytes = Math.max(1024, Math.min(5 * 1024 * 1024, amount(state.customUpload.max_bytes) || 5 * 1024 * 1024));
+    if (!allowedTypes.includes(String(file.type || "").toLowerCase())) {
+      toast("اختر صورة PNG أو JPG أو WebP أو GIF.", "error");
+      return;
+    }
+    if (file.size > maxBytes) {
+      toast("حجم الصورة يتجاوز الحد " + $("#customBackgroundMaxSize").textContent + ".", "error");
+      return;
+    }
+
+    state.customUploadBusy = true;
+    renderCustomBackground();
+    $("#customBackgroundStatus").textContent = "جاري فحص الصورة ورفعها بأمان...";
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      let response;
+      try {
+        response = await fetch("/api/profile-store/custom-background", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+            "X-CSRF-Token": cookie("prime_profile_csrf")
+          },
+          body: form
+        });
+      } catch (error) {
+        throw Object.assign(new Error("network_error"), { cause: error });
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const code = typeof data.error === "string" ? data.error : "custom_upload_failed";
+        throw Object.assign(new Error(code), {
+          code, status: response.status,
+          message: typeof data.message === "string" ? data.message : ""
+        });
+      }
+      input.value = "";
+      await loadState(false);
+      toast("تم تطبيق الخلفية (" + data.width + "×" + data.height + "). ستُلاءم تلقائيًا مع أبعاد القالب.");
+      if (state.selectedId && findItem(state.selectedId)?.item_type === "card_template") {
+        await renderFullPreview();
+      }
+    } catch (error) {
+      const message = errorText(error);
+      $("#customBackgroundStatus").textContent = message;
+      toast(message, "error");
+      if (error && error.status === 401) setNotice(ERRORS.store_session_expired);
+    } finally {
+      state.customUploadBusy = false;
+      renderCustomBackground();
+    }
+  }
+
+  async function clearCustomBackground() {
+    if (state.customUploadBusy || !state.customUpload.has_background) return;
+    state.customUploadBusy = true;
+    renderCustomBackground();
+    try {
+      await api("/api/profile-store/custom-background/clear", { method: "POST", body: {} });
+      await loadState(false);
+      toast("تمت إزالة الخلفية المخصصة والرجوع إلى الخلفية التي جهزتها من المتجر.");
+      if (state.selectedId && findItem(state.selectedId)?.item_type === "card_template") {
+        await renderFullPreview();
+      }
+    } catch (error) {
+      const message = errorText(error);
+      $("#customBackgroundStatus").textContent = message;
+      toast(message, "error");
+    } finally {
+      state.customUploadBusy = false;
+      renderCustomBackground();
+    }
+  }
+
   function subcategory(item) { return String(item.subcategory || "").trim(); }
   function renderCategories() {
     const root = $("#categoryTabs");
@@ -612,8 +741,10 @@
       state.user = data.user || {};
       state.guild = data.guild || {};
       state.equipped = data.equipped || {};
+      state.customUpload = data.custom_upload || { enabled: false, price: 0, currency: "moon", max_bytes: 5242880, has_background: false };
       state.loaded = true;
       renderWallet();
+      renderCustomBackground();
       renderGrid();
       setNotice("", false);
       if (showMessage) toast("تم تحديث متجر PRIME.");
@@ -666,6 +797,8 @@
     if (button) openSheet(button.dataset.itemId);
   });
   $("#renderFullPreview").addEventListener("click", renderFullPreview);
+  $("#uploadCustomBackground").addEventListener("click", uploadCustomBackground);
+  $("#clearCustomBackground").addEventListener("click", clearCustomBackground);
   $("#closeSheet").addEventListener("click", closeSheet);
   $("#sheetScrim").addEventListener("click", closeSheet);
   document.addEventListener("keydown", event => { if (event.key === "Escape") closeSheet(); });
