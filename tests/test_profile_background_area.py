@@ -128,3 +128,10 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_startup_seed_does_not_overwrite_saved_template_layout(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "profile_store_db.py").read_text("utf-8")
+        self.assertIn("INSERT OR IGNORE INTO profile_store_items", source)
+        self.assertIn("Do not rewrite", source)
+        self.assertNotIn("style_json = :style_json, metadata_json = :metadata_json,", source)
