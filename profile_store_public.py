@@ -7,6 +7,7 @@ import logging
 import mimetypes
 import secrets
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -331,6 +332,32 @@ async def _store_state(request, session) -> dict:
         owned = bool(item.pop("is_owned", 0))
         catalog.append(_public_item(item, owned=owned, equipped=int(item["item_id"]) in equipped_ids))
 
+    async with database.connect(aiosqlite.Row) as db:
+        async with db.execute(
+            "SELECT custom_upload_enabled, custom_upload_price, custom_upload_currency, max_custom_upload_bytes FROM profile_store_settings WHERE settings_id = 1"
+        ) as cursor:
+            custom_settings_row = await cursor.fetchone()
+        async with db.execute(
+            "SELECT width, height FROM user_profile_custom_backgrounds WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ) as cursor:
+            custom_background_row = await cursor.fetchone()
+    custom_settings = dict(custom_settings_row) if custom_settings_row else {
+        "custom_upload_enabled": 0,
+        "custom_upload_price": 0,
+        "custom_upload_currency": "moon",
+        "max_custom_upload_bytes": profile_store_db.DEFAULT_MAX_UPLOAD_BYTES,
+    }
+    custom_upload_state = {
+        "enabled": bool(custom_settings.get("custom_upload_enabled")),
+        "price": max(0, int(custom_settings.get("custom_upload_price") or 0)),
+        "currency": str(custom_settings.get("custom_upload_currency") or "moon"),
+        "max_bytes": max(1024, min(5 * 1024 * 1024, int(custom_settings.get("max_custom_upload_bytes") or profile_store_db.DEFAULT_MAX_UPLOAD_BYTES))),
+        "has_background": bool(custom_background_row),
+        "width": int(custom_background_row["width"]) if custom_background_row else None,
+        "height": int(custom_background_row["height"]) if custom_background_row else None,
+    }
+
     bot = request.app.get("bot") if hasattr(request, "app") else None
     guild = None
     member = None
@@ -382,6 +409,7 @@ async def _store_state(request, session) -> dict:
             for row in category_rows
         ],
         "items": catalog,
+        "custom_upload": custom_upload_state,
     }
 
 
@@ -918,6 +946,244 @@ def register_profile_store_public_routes(routes) -> None:
             raise web.HTTPNotFound()
         mime = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
         return web.FileResponse(candidate, headers={"Cache-Control": "private, max-age=300", "Content-Type": mime})
+
+    @routes.post("/api/profile-store/custom-background")
+    async def profile_store_custom_background_upload(request):
+        session, failure = await _authorize_request(request, write=True)
+        if failure:
+            return failure
+
+        asset_root = None
+        saved_path = None
+        try:
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT enabled, custom_upload_enabled, max_custom_upload_bytes FROM profile_store_settings WHERE settings_id = 1"
+                ) as cursor:
+                    upload_settings = await cursor.fetchone()
+            if upload_settings and not int(upload_settings["enabled"]):
+                return _error(423, "store_disabled", "متجر PRIME متوقف مؤقتاً.")
+            if not upload_settings or not int(upload_settings["custom_upload_enabled"]):
+                return _error(403, "custom_upload_disabled", "رفع الخلفيات المخصصة غير مفعّل حالياً.")
+
+            max_bytes = max(1024, min(
+                5 * 1024 * 1024,
+                int(upload_settings["max_custom_upload_bytes"] or profile_store_db.DEFAULT_MAX_UPLOAD_BYTES),
+            ))
+            if request.content_type.lower() != "multipart/form-data":
+                return _error(415, "multipart_required", "ارفع الصورة باستخدام نموذج الملفات.")
+            multipart = await request.multipart()
+            image_data = None
+            declared_mime = ""
+            filename = ""
+            while True:
+                part = await multipart.next()
+                if part is None:
+                    break
+                if part.name != "file" or image_data is not None:
+                    return _error(400, "expected_one_file_field", "يجب إرسال ملف صورة واحد فقط.")
+                declared_mime = part.headers.get("Content-Type") or ""
+                filename = part.filename or ""
+                buffer = bytearray()
+                while True:
+                    chunk = await part.read_chunk(size=64 * 1024)
+                    if not chunk:
+                        break
+                    buffer.extend(chunk)
+                    if len(buffer) > max_bytes:
+                        return _error(413, "image_too_large", "حجم الصورة يتجاوز الحد المحدد في إعدادات المتجر.")
+                image_data = bytes(buffer)
+
+            from profile_store_admin import profile_asset_root, validate_static_image
+
+            normalized = validate_static_image(
+                image_data or b"",
+                declared_mime=declared_mime,
+                filename=filename,
+                max_bytes=max_bytes,
+            )
+            guild_id, user_id = int(session["guild_id"]), int(session["user_id"])
+            asset_root = profile_asset_root().resolve()
+            member_dir = (asset_root / "custom-backgrounds" / str(guild_id) / str(user_id)).resolve()
+            if asset_root not in member_dir.parents:
+                return _error(400, "invalid_asset_path", "تعذر تحديد مكان آمن لحفظ الصورة.")
+            member_dir.mkdir(parents=True, exist_ok=True)
+            saved_path = (member_dir / (uuid.uuid4().hex + normalized["extension"])).resolve()
+            if member_dir not in saved_path.parents:
+                return _error(400, "invalid_asset_path", "مسار الصورة غير صالح.")
+            saved_path.write_bytes(normalized["data"])
+            relative_path = saved_path.relative_to(asset_root).as_posix()
+
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                async with db.execute(
+                    "SELECT enabled, custom_upload_enabled, custom_upload_price, custom_upload_currency FROM profile_store_settings WHERE settings_id = 1"
+                ) as cursor:
+                    current_settings = await cursor.fetchone()
+                if not current_settings or not int(current_settings["enabled"]):
+                    await db.rollback()
+                    raise StoreActionError(423, "store_disabled", "متجر PRIME متوقف مؤقتاً.")
+                if not int(current_settings["custom_upload_enabled"]):
+                    await db.rollback()
+                    raise StoreActionError(403, "custom_upload_disabled", "رفع الخلفيات المخصصة غير مفعّل حالياً.")
+
+                price = max(0, int(current_settings["custom_upload_price"] or 0))
+                currency = str(current_settings["custom_upload_currency"] or "moon")
+                async with db.execute(
+                    "SELECT asset_path FROM user_profile_custom_backgrounds WHERE guild_id = ? AND user_id = ?",
+                    (guild_id, user_id),
+                ) as cursor:
+                    old_row = await cursor.fetchone()
+                old_asset_path = str(old_row["asset_path"]) if old_row and old_row["asset_path"] else None
+
+                if currency == "moon":
+                    async with db.execute(
+                        "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?",
+                        (guild_id, user_id),
+                    ) as cursor:
+                        wallet_row = await cursor.fetchone()
+                    balance = int(wallet_row["balance"] or 0) if wallet_row else 0
+                    if balance < price:
+                        await db.rollback()
+                        raise StoreActionError(402, "insufficient_coins", "رصيد عملات PRIME ما يكفي لرفع الخلفية.")
+                    if price:
+                        cursor = await db.execute(
+                            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ? AND balance >= ?",
+                            (price, guild_id, user_id, price),
+                        )
+                        if cursor.rowcount != 1:
+                            await db.rollback()
+                            raise StoreActionError(409, "wallet_changed", "تغيّر رصيدك أثناء الرفع. حدّث الصفحة وحاول مجدداً.")
+                    balance_after = balance - price
+                elif currency == "gem":
+                    await db.execute(
+                        "INSERT OR IGNORE INTO user_profile_gem_wallets (guild_id, user_id, balance) VALUES (?, ?, 0)",
+                        (guild_id, user_id),
+                    )
+                    async with db.execute(
+                        "SELECT balance FROM user_profile_gem_wallets WHERE guild_id = ? AND user_id = ?",
+                        (guild_id, user_id),
+                    ) as cursor:
+                        wallet_row = await cursor.fetchone()
+                    balance = int(wallet_row["balance"] or 0) if wallet_row else 0
+                    if balance < price:
+                        await db.rollback()
+                        raise StoreActionError(402, "insufficient_gems", "رصيد بلورات PRIME ما يكفي لرفع الخلفية.")
+                    if price:
+                        cursor = await db.execute(
+                            "UPDATE user_profile_gem_wallets SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ? AND balance >= ?",
+                            (price, guild_id, user_id, price),
+                        )
+                        if cursor.rowcount != 1:
+                            await db.rollback()
+                            raise StoreActionError(409, "wallet_changed", "تغيّر رصيدك أثناء الرفع. حدّث الصفحة وحاول مجدداً.")
+                    balance_after = balance - price
+                else:
+                    await db.rollback()
+                    raise StoreActionError(409, "invalid_custom_upload_currency", "عملة رفع الخلفية غير صالحة.")
+
+                await db.execute(
+                    """
+                    INSERT INTO user_profile_custom_backgrounds
+                        (guild_id, user_id, asset_path, width, height, price_paid, currency, uploaded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                        asset_path = excluded.asset_path, width = excluded.width,
+                        height = excluded.height, price_paid = excluded.price_paid,
+                        currency = excluded.currency, uploaded_at = CURRENT_TIMESTAMP
+                    """,
+                    (guild_id, user_id, relative_path, normalized["width"], normalized["height"], price, currency),
+                )
+                await db.execute(
+                    """
+                    INSERT INTO profile_store_custom_upload_transactions
+                        (guild_id, user_id, asset_path, currency, price_paid, balance_after)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (guild_id, user_id, relative_path, currency, price, balance_after),
+                )
+                await db.commit()
+
+            # Delete only the previous member asset after the new file and payment
+            # are committed. A failed upload/payment never removes the working image.
+            if old_asset_path:
+                old_candidate = _resolve_asset_path(old_asset_path)
+                if old_candidate and old_candidate != saved_path:
+                    expected_parent = Path("custom-backgrounds") / str(guild_id) / str(user_id)
+                    try:
+                        if old_candidate.relative_to(asset_root).parent == expected_parent:
+                            old_candidate.unlink(missing_ok=True)
+                    except (ValueError, OSError):
+                        logger.warning("Could not remove a replaced custom profile background")
+            return web.json_response({
+                "ok": True, "price_paid": price, "currency": currency,
+                "balance": balance_after, "width": normalized["width"],
+                "height": normalized["height"], "has_background": True,
+            }, headers={"Cache-Control": "no-store"})
+        except StoreActionError as error:
+            if saved_path:
+                try:
+                    saved_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove uncommitted custom profile background")
+            return _error(error.status, error.code, error.message)
+        except ValueError as error:
+            if saved_path:
+                try:
+                    saved_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove invalid custom profile background")
+            status = 413 if str(error) in {"image_too_large", "sanitized_image_too_large"} else 400
+            return _error(status, str(error))
+        except (web.HTTPException, asyncio.CancelledError):
+            if saved_path:
+                try:
+                    saved_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove interrupted custom profile background")
+            raise
+        except Exception:
+            if saved_path:
+                try:
+                    saved_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove failed custom profile background")
+            logger.exception("PRIME custom profile background upload failed")
+            return _error(500, "custom_upload_failed", "تعذر رفع الخلفية. لم يتم تأكيد العملية.")
+
+    @routes.post("/api/profile-store/custom-background/clear")
+    async def profile_store_custom_background_clear(request):
+        session, failure = await _authorize_request(request, write=True)
+        if failure:
+            return failure
+        guild_id, user_id = int(session["guild_id"]), int(session["user_id"])
+        try:
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                async with db.execute(
+                    "SELECT asset_path FROM user_profile_custom_backgrounds WHERE guild_id = ? AND user_id = ?",
+                    (guild_id, user_id),
+                ) as cursor:
+                    old_row = await cursor.fetchone()
+                await db.execute(
+                    "DELETE FROM user_profile_custom_backgrounds WHERE guild_id = ? AND user_id = ?",
+                    (guild_id, user_id),
+                )
+                await db.commit()
+            old_asset_path = str(old_row["asset_path"]) if old_row and old_row["asset_path"] else None
+            if old_asset_path:
+                old_candidate = _resolve_asset_path(old_asset_path)
+                if old_candidate:
+                    expected_parent = Path("custom-backgrounds") / str(guild_id) / str(user_id)
+                    try:
+                        if old_candidate.relative_to(old_candidate.parents[3]).parent == expected_parent:
+                            old_candidate.unlink(missing_ok=True)
+                    except (ValueError, OSError, IndexError):
+                        logger.warning("Could not remove cleared custom profile background")
+            return web.json_response({"ok": True, "has_background": False}, headers={"Cache-Control": "no-store"})
+        except Exception:
+            logger.exception("PRIME custom profile background clear failed")
+            return _error(500, "custom_background_clear_failed", "تعذر إزالة الخلفية المخصصة.")
 
     @routes.post("/api/profile-store/purchase")
     async def profile_store_purchase(request):
