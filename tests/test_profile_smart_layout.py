@@ -154,7 +154,7 @@ class PrimeSmartProfileLayoutTests(unittest.TestCase):
             name_metadata={"x": 300, "y": 100, "max_width": 80, "anchor": "mm"},
             handle_metadata={"x": 300, "y": 125, "max_width": 80, "anchor": "mm"},
             font_family="modern",
-            reserved=[(0, 0, 640, 360)],
+            reserved=[(455, 185, 615, 345), (0, 285, 640, 360)],
         )
         self.assertIsNone(result)
 
