@@ -15,6 +15,7 @@ from profile_store_admin import (
     is_profile_store_owner,
     profile_asset_root,
     validate_catalog_item_payload,
+    validate_category_payload,
     validate_static_image,
 )
 
@@ -155,6 +156,31 @@ class ProfileCatalogPayloadTests(unittest.TestCase):
 
 
 
+
+    def test_category_payload_accepts_sections_and_subsections_and_rejects_bad_input(self):
+        section = validate_category_payload({
+            "name": "بانرات موسمية", "parent_id": None,
+            "sort_order": 12, "is_active": True,
+        })
+        child = validate_category_payload({
+            "name": "نيون", "parent_id": 7,
+            "sort_order": 3, "is_active": False,
+        })
+        self.assertEqual(section["name"], "بانرات موسمية")
+        self.assertIsNone(section["parent_id"])
+        self.assertEqual(section["sort_order"], 12)
+        self.assertEqual(child["parent_id"], 7)
+        self.assertEqual(child["is_active"], 0)
+        for payload, expected in (
+            ({"name": "all"}, "invalid_category_name"),
+            ({"name": "  "}, "required"),
+            ({"name": "valid", "sort_order": -1}, "invalid_category_order"),
+            ({"name": "valid", "is_active": 1}, "category_active_must_be_boolean"),
+            ({"name": "valid", "parent_id": True}, "invalid_parent_category"),
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaisesRegex(ValueError, expected):
+                    validate_category_payload(payload)
 
     def test_asset_root_rejects_public_dashboard_directory(self):
         public_root = Path(__file__).resolve().parents[1] / "dashboard"
