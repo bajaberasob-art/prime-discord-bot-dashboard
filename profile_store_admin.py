@@ -171,6 +171,58 @@ def profile_asset_root() -> Path:
     return root
 
 
+def default_uploaded_template_metadata(width: int, height: int) -> dict[str, Any]:
+    """Give a newly uploaded PNG template a safe, useful default composition."""
+    if (
+        isinstance(width, bool) or isinstance(height, bool)
+        or not isinstance(width, int) or not isinstance(height, int)
+        or width < 640 or height < 320 or width > 16000 or height > 16000
+    ):
+        raise ValueError("template_dimensions_too_small_or_large")
+    ratio = width / height
+    if ratio < 0.4 or ratio > 4.0:
+        raise ValueError("template_aspect_ratio_not_supported")
+
+    # The renderer caps card canvases at 2.5 MP and 2048x1600. Scale geometry
+    # and canvas metadata together so larger uploads are reduced without distortion.
+    scale = min(1.0, 2048 / width, 1600 / height, (2_500_000 / (width * height)) ** 0.5)
+    w, h = int(width * scale), int(height * scale)
+    layout = "portrait" if h > w * 1.08 else ("square" if w <= h * 1.08 else "wide")
+    stats = []
+    keys = (("balance", "الرصيد"), ("messages", "الرسائل"),
+            ("rank", "الترتيب"), ("voice", "الصوت"))
+    if layout == "wide":
+        stat_boxes = [(0.025, 0.755, 0.220, 0.145), (0.265, 0.755, 0.220, 0.145),
+                      (0.505, 0.755, 0.220, 0.145), (0.745, 0.755, 0.220, 0.145)]
+        avatar = {"x": int(w*.785), "y": int(h*.075), "size": int(min(w,h)*.185)}
+        name = {"x": int(w*.755), "y": int(h*.335), "max_width": int(w*.405), "anchor": "ra"}
+        handle = {"x": int(w*.755), "y": int(h*.385), "max_width": int(w*.405), "anchor": "ra"}
+        level = {"x": int(w*.055), "y": int(h*.455), "max_width": int(w*.405), "anchor": "la"}
+        xp = {"x": int(w*.055), "y": int(h*.520), "width": int(w*.685), "height": max(8,int(h*.014))}
+        badges = {"x": int(w*.055), "y": int(h*.580), "size": max(24,int(h*.030)), "limit": 5}
+    else:
+        stat_boxes = [(0.055, 0.655, 0.410, 0.115), (0.535, 0.655, 0.410, 0.115),
+                      (0.055, 0.805, 0.410, 0.115), (0.535, 0.805, 0.410, 0.115)]
+        avatar = {"x": int(w*.675), "y": int(h*.075), "size": int(min(w,h)*.165)}
+        name = {"x": int(w*.925), "y": int(h*.295), "max_width": int(w*.425), "anchor": "ra"}
+        handle = {"x": int(w*.925), "y": int(h*.340), "max_width": int(w*.425), "anchor": "ra"}
+        level = {"x": int(w*.065), "y": int(h*.405), "max_width": int(w*.430), "anchor": "la"}
+        xp = {"x": int(w*.065), "y": int(h*.470), "width": int(w*.865), "height": max(8,int(h*.012))}
+        badges = {"x": int(w*.065), "y": int(h*.535), "size": max(24,int(h*.028)), "limit": 5}
+
+    for (key, label), (x, y, box_w, box_h) in zip(keys, stat_boxes):
+        stats.append({"key": key, "label": label, "x": int(w*x), "y": int(h*y),
+                      "w": int(w*box_w), "h": int(h*box_h)})
+    return {
+        "layout": layout, "width": w, "height": h,
+        "orientation": "portrait" if layout == "portrait" else ("square" if layout == "square" else "landscape"),
+        "avatar": avatar, "name": name, "handle": handle, "level": level,
+        "xp_bar": xp, "badges": badges,
+        "flag": {"x": int(w*.045), "y": int(h*.035), "width": max(24,int(w*.055)), "height": max(18,int(h*.035))},
+        "stats": stats,
+    }
+
+
 def _json_object(value: Any, field: str) -> dict:
     if value is None:
         return {}
@@ -416,6 +468,24 @@ async def _write_item_asset(request, *, authorize):
         logger.exception("Profile catalog asset upload failed guild=%s item=%s", guild.id, item_id)
         return _json_error(500, "asset_upload_failed")
 
+    generated_metadata_json = None
+    if str(item["item_type"]) == "card_template":
+        existing_metadata = _parse_json_column(item.get("metadata_json"))
+        if not (
+            isinstance(existing_metadata.get("stats"), list)
+            and len(existing_metadata.get("stats")) == 4
+            and isinstance(existing_metadata.get("avatar"), dict)
+        ):
+            try:
+                generated_metadata = default_uploaded_template_metadata(
+                    int(normalized["width"]), int(normalized["height"]),
+                )
+            except ValueError as error:
+                return _json_error(400, str(error))
+            generated_metadata_json = json.dumps(
+                generated_metadata, ensure_ascii=False, separators=(",", ":"),
+            )
+
     filename = f"{uuid.uuid4().hex}{normalized['extension']}"
     relative_path = Path("catalog") / str(int(guild.id)) / filename
     root = profile_asset_root()
@@ -436,10 +506,12 @@ async def _write_item_asset(request, *, authorize):
             await db.execute(
                 """
                 UPDATE profile_store_items
-                SET asset_path = ?, asset_url = NULL, updated_at = CURRENT_TIMESTAMP
+                SET asset_path = ?, asset_url = NULL,
+                    metadata_json = COALESCE(?, metadata_json),
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE item_id = ? AND deleted_at IS NULL
                 """,
-                (relative_path.as_posix(), item_id),
+                (relative_path.as_posix(), generated_metadata_json, item_id),
             )
             await db.commit()
     except Exception:
