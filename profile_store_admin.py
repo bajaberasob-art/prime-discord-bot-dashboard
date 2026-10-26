@@ -27,23 +27,28 @@ logger = logging.getLogger("ProfileStoreAdminAPI")
 
 MAX_PROFILE_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_PROFILE_UPLOAD_PIXELS = 16_000_000
+MAX_PROFILE_UPLOAD_FRAMES = 60
+MAX_PROFILE_UPLOAD_TOTAL_PIXELS = 32_000_000
 MAX_STYLE_JSON_BYTES = 12 * 1024
 MAX_CATALOG_ITEMS = 500
 ALLOWED_UPLOAD_MIME = {
     "PNG": {"image/png"},
     "JPEG": {"image/jpeg", "image/jpg"},
     "WEBP": {"image/webp"},
+    "GIF": {"image/gif"},
 }
 ALLOWED_UPLOAD_EXT = {
     "PNG": {".png"},
     "JPEG": {".jpg", ".jpeg"},
     "WEBP": {".webp"},
+    "GIF": {".gif"},
 }
 MIME_TO_FORMAT = {
     "image/png": "PNG",
     "image/jpeg": "JPEG",
     "image/jpg": "JPEG",
     "image/webp": "WEBP",
+    "image/gif": "GIF",
 }
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$")
 COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -59,41 +64,47 @@ def validate_static_image(
     filename: str,
     max_bytes: int = MAX_PROFILE_UPLOAD_BYTES,
 ) -> dict[str, Any]:
-    """Validate and sanitize a single-frame PNG/JPEG/WebP image.
+    """Validate and sanitize PNG/JPEG/WebP images and bounded animated GIFs.
 
-    Never trust filename or browser MIME alone. Pillow verifies the real format,
-    frame count, animation flag and pixel dimensions. The returned bytes are
-    re-encoded to the detected static format, stripping metadata.
+    GIF frames are decoded and re-encoded without source metadata. Animation is
+    retained only within strict frame, aggregate-pixel, and output-size limits.
+    Animated PNG and animated WebP remain rejected.
     """
     if not isinstance(data, (bytes, bytearray)) or not data:
         raise ValueError("empty_image")
     if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
         raise ValueError("invalid_size_limit")
-    if len(data) > min(max_bytes, MAX_PROFILE_UPLOAD_BYTES):
+    size_limit = min(max_bytes, MAX_PROFILE_UPLOAD_BYTES)
+    if len(data) > size_limit:
         raise ValueError("image_too_large")
 
     safe_name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
     suffix = Path(safe_name).suffix.lower()
-    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
         raise ValueError("unsupported_image_extension")
 
     mime = str(declared_mime or "").split(";", 1)[0].strip().lower()
     actual_format = None
+    frame_count = 1
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(data)) as image:
                 actual_format = str(image.format or "").upper()
+                frame_count = int(getattr(image, "n_frames", 1) or 1)
                 if actual_format not in ALLOWED_UPLOAD_MIME:
                     raise ValueError("unsupported_image_format")
-                if bool(getattr(image, "is_animated", False)) or int(
-                    getattr(image, "n_frames", 1) or 1
-                ) != 1:
+                if frame_count > 1 and actual_format != "GIF":
                     raise ValueError("animated_images_not_allowed")
+                if frame_count > MAX_PROFILE_UPLOAD_FRAMES:
+                    raise ValueError("animated_image_frame_limit")
                 if image.width <= 0 or image.height <= 0:
                     raise ValueError("invalid_image_dimensions")
-                if image.width * image.height > MAX_PROFILE_UPLOAD_PIXELS:
+                frame_pixels = int(image.width) * int(image.height)
+                if frame_pixels > MAX_PROFILE_UPLOAD_PIXELS:
                     raise ValueError("image_pixel_limit")
+                if actual_format == "GIF" and frame_pixels * frame_count > MAX_PROFILE_UPLOAD_TOTAL_PIXELS:
+                    raise ValueError("animated_image_pixel_limit")
                 if suffix not in ALLOWED_UPLOAD_EXT[actual_format]:
                     raise ValueError("image_extension_mismatch")
                 if mime not in ALLOWED_UPLOAD_MIME[actual_format]:
@@ -101,33 +112,63 @@ def validate_static_image(
                 image.verify()
 
             with Image.open(io.BytesIO(data)) as image:
-                if bool(getattr(image, "is_animated", False)) or int(
-                    getattr(image, "n_frames", 1) or 1
-                ) != 1:
-                    raise ValueError("animated_images_not_allowed")
-                image.load()
-                if actual_format == "JPEG":
-                    clean = ImageOps.exif_transpose(image).convert("RGB")
-                elif actual_format == "PNG":
-                    clean = ImageOps.exif_transpose(image)
-                    has_alpha = "A" in clean.getbands() or "transparency" in clean.info
-                    clean = clean.convert("RGBA" if has_alpha else "RGB")
-                else:
-                    clean = ImageOps.exif_transpose(image)
-                    has_alpha = "A" in clean.getbands() or "transparency" in clean.info
-                    clean = clean.convert("RGBA" if has_alpha else "RGB")
-
                 output = io.BytesIO()
-                save_options: dict[str, Any] = {}
-                if actual_format == "PNG":
-                    save_options["optimize"] = True
-                elif actual_format == "JPEG":
-                    save_options.update(quality=90, optimize=True, progressive=True)
-                elif actual_format == "WEBP":
-                    save_options.update(quality=90, method=4)
-                clean.save(output, format=actual_format, **save_options)
+                normalized_frames = 1
+                animated = False
+                if actual_format == "GIF":
+                    normalized_frames = int(getattr(image, "n_frames", 1) or 1)
+                    if normalized_frames > MAX_PROFILE_UPLOAD_FRAMES:
+                        raise ValueError("animated_image_frame_limit")
+                    frames: list[Image.Image] = []
+                    durations: list[int] = []
+                    total_pixels = 0
+                    loop_count = max(0, min(65535, int(image.info.get("loop", 0) or 0)))
+                    for frame_index in range(normalized_frames):
+                        image.seek(frame_index)
+                        frame = image.convert("RGBA").copy()
+                        total_pixels += int(frame.width) * int(frame.height)
+                        if total_pixels > MAX_PROFILE_UPLOAD_TOTAL_PIXELS:
+                            raise ValueError("animated_image_pixel_limit")
+                        frames.append(frame)
+                        try:
+                            duration = int(image.info.get("duration", 100) or 100)
+                        except (TypeError, ValueError, OverflowError):
+                            duration = 100
+                        durations.append(max(20, min(10000, duration)))
+                    frames[0].save(
+                        output, format="GIF", save_all=True,
+                        append_images=frames[1:], duration=durations,
+                        loop=loop_count, disposal=2, optimize=False,
+                    )
+                    clean_width, clean_height = frames[0].size
+                    animated = normalized_frames > 1
+                else:
+                    if frame_count != 1:
+                        raise ValueError("animated_images_not_allowed")
+                    image.load()
+                    if actual_format == "JPEG":
+                        clean = ImageOps.exif_transpose(image).convert("RGB")
+                    elif actual_format == "PNG":
+                        clean = ImageOps.exif_transpose(image)
+                        has_alpha = "A" in clean.getbands() or "transparency" in clean.info
+                        clean = clean.convert("RGBA" if has_alpha else "RGB")
+                    else:
+                        clean = ImageOps.exif_transpose(image)
+                        has_alpha = "A" in clean.getbands() or "transparency" in clean.info
+                        clean = clean.convert("RGBA" if has_alpha else "RGB")
+
+                    save_options: dict[str, Any] = {}
+                    if actual_format == "PNG":
+                        save_options["optimize"] = True
+                    elif actual_format == "JPEG":
+                        save_options.update(quality=90, optimize=True, progressive=True)
+                    elif actual_format == "WEBP":
+                        save_options.update(quality=90, method=4)
+                    clean.save(output, format=actual_format, **save_options)
+                    clean_width, clean_height = clean.size
+
                 sanitized = output.getvalue()
-                if not sanitized or len(sanitized) > min(max_bytes, MAX_PROFILE_UPLOAD_BYTES):
+                if not sanitized or len(sanitized) > size_limit:
                     raise ValueError("sanitized_image_too_large")
                 return {
                     "data": sanitized,
@@ -136,15 +177,19 @@ def validate_static_image(
                         "PNG": "image/png",
                         "JPEG": "image/jpeg",
                         "WEBP": "image/webp",
+                        "GIF": "image/gif",
                     }[actual_format],
                     "extension": {
                         "PNG": ".png",
                         "JPEG": ".jpg",
                         "WEBP": ".webp",
+                        "GIF": ".gif",
                     }[actual_format],
-                    "width": int(clean.width),
-                    "height": int(clean.height),
+                    "width": int(clean_width),
+                    "height": int(clean_height),
                     "size": len(sanitized),
+                    "frames": int(normalized_frames),
+                    "animated": bool(animated),
                 }
     except ValueError:
         raise
@@ -251,6 +296,90 @@ def _payload_text(payload: dict, key: str, default: str, max_length: int, *, req
     return value
 
 
+def validate_category_payload(payload: dict, *, allow_parent: bool = True) -> dict:
+    """Validate a top-level store section or a child section without trusting the UI."""
+    if not isinstance(payload, dict):
+        raise ValueError("category_must_be_object")
+    name = _payload_text(payload, "name", "", 80, required=True)
+    if not _CATEGORY_RE.fullmatch(name) or name.strip().lower() == "all":
+        raise ValueError("invalid_category_name")
+    parent_id = payload.get("parent_id")
+    if not allow_parent and parent_id is not None:
+        raise ValueError("nested_subcategories_not_supported")
+    if parent_id in ("", 0, "0"):
+        parent_id = None
+    if parent_id is not None:
+        if isinstance(parent_id, bool) or not str(parent_id).isdigit() or int(parent_id) <= 0:
+            raise ValueError("invalid_parent_category")
+        parent_id = int(parent_id)
+    sort_order = payload.get("sort_order", 0)
+    if isinstance(sort_order, bool) or not isinstance(sort_order, int) or not 0 <= sort_order <= 1_000_000:
+        raise ValueError("invalid_category_order")
+    is_active = payload.get("is_active", True)
+    if not isinstance(is_active, bool):
+        raise ValueError("category_active_must_be_boolean")
+    return {"name": name.strip(), "parent_id": parent_id,
+            "sort_order": sort_order, "is_active": int(is_active)}
+
+
+async def _record_catalog_audit(
+    db, *, guild_id: int, actor_id: int | None, action: str,
+    entity_type: str, entity_id: int | None, before: dict | None, after: dict | None,
+) -> None:
+    """Persist an audit event in the same transaction as the catalog mutation."""
+    await db.execute(
+        """
+        INSERT INTO profile_store_catalog_audit
+            (guild_id, actor_user_id, action, entity_type, entity_id, before_json, after_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (int(guild_id), actor_id if actor_id and actor_id > 0 else None,
+         action[:48], entity_type, entity_id,
+         json.dumps(before or {}, ensure_ascii=False, separators=(",", ":")),
+         json.dumps(after or {}, ensure_ascii=False, separators=(",", ":"))),
+    )
+
+
+async def _ensure_category_rows(db, category: str, subcategory: str, actor_id: int | None = None) -> None:
+    """Keep the legacy item category strings backed by canonical manageable rows."""
+    category = str(category or "").strip()
+    subcategory = str(subcategory or "").strip()
+    if not category or category.lower() == "all":
+        return
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO profile_store_categories (name, parent_id, sort_order, is_active, created_by)
+        VALUES (?, NULL, 0, 1, ?)
+        """,
+        (category, actor_id),
+    )
+    async with db.execute(
+        "SELECT category_id FROM profile_store_categories WHERE parent_id IS NULL AND name = ? COLLATE NOCASE",
+        (category,),
+    ) as cursor:
+        parent = await cursor.fetchone()
+    if parent and subcategory:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO profile_store_categories (name, parent_id, sort_order, is_active, created_by)
+            VALUES (?, ?, 0, 1, ?)
+            """,
+            (subcategory, int(parent["category_id"]), actor_id),
+        )
+
+
+def _public_category(row) -> dict:
+    return {
+        "category_id": int(row["category_id"]),
+        "name": str(row["name"]),
+        "parent_id": int(row["parent_id"]) if row["parent_id"] is not None else None,
+        "sort_order": int(row["sort_order"]),
+        "is_active": bool(row["is_active"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
 def validate_catalog_item_payload(payload: dict) -> dict:
     """Validate all admin-supplied item metadata; asset_path is server-controlled."""
     if not isinstance(payload, dict):
@@ -319,12 +448,23 @@ def _parse_json_column(value: Any) -> dict:
     return decoded if isinstance(decoded, dict) else {}
 
 
+def _catalog_asset_exists(raw_path: Any) -> bool:
+    """Return true only for a safe catalog asset that exists on disk."""
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return False
+    try:
+        from profile_store_public import _resolve_asset_path
+        return _resolve_asset_path(raw_path) is not None
+    except (ImportError, OSError, ValueError):
+        return False
+
+
 def _public_item(row) -> dict:
     item = dict(row)
     item["style"] = _parse_json_column(item.pop("style_json", "{}"))
     item["metadata"] = _parse_json_column(item.pop("metadata_json", "{}"))
     path = item.pop("asset_path", None)
-    item["has_asset"] = bool(path)
+    item["has_asset"] = _catalog_asset_exists(path)
     item["asset_name"] = Path(path).name if path else None
     item.pop("created_by", None)
     return item
@@ -422,7 +562,8 @@ async def _write_item_asset(request, *, authorize):
     item_id = int(raw_id)
 
     async with database.connect(aiosqlite.Row) as db:
-        item = await _catalog_item_exists(db, item_id)
+        item_row = await _catalog_item_exists(db, item_id)
+        item = dict(item_row) if item_row is not None else None
     if item is None or item["deleted_at"]:
         return _json_error(404, "item_not_found")
     if item["item_type"] not in _ASSET_ITEM_TYPES:
@@ -441,7 +582,7 @@ async def _write_item_asset(request, *, authorize):
                 break
             if part.name != "file" or image_data is not None:
                 return _json_error(400, "expected_one_file_field")
-            declared_mime = part.headers.get("Content-Type", part.content_type or "")
+            declared_mime = part.headers.get("Content-Type") or ""
             filename = part.filename or ""
             buffer = bytearray()
             while True:
@@ -502,8 +643,9 @@ async def _write_item_asset(request, *, authorize):
         await asyncio.to_thread(temporary.write_bytes, normalized["data"])
         await asyncio.to_thread(os.chmod, temporary, 0o600)
         await asyncio.to_thread(os.replace, temporary, destination)
-        async with database.connect() as db:
-            await db.execute(
+        async with database.connect(aiosqlite.Row) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            cursor = await db.execute(
                 """
                 UPDATE profile_store_items
                 SET asset_path = ?, asset_url = NULL,
@@ -512,6 +654,20 @@ async def _write_item_asset(request, *, authorize):
                 WHERE item_id = ? AND deleted_at IS NULL
                 """,
                 (relative_path.as_posix(), generated_metadata_json, item_id),
+            )
+            if cursor.rowcount != 1:
+                await db.rollback()
+                await asyncio.to_thread(destination.unlink, missing_ok=True)
+                return _json_error(404, "item_not_found")
+            await _record_catalog_audit(
+                db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                action="asset_replaced" if item.get("asset_path") else "asset_uploaded",
+                entity_type="asset", entity_id=item_id,
+                before={"asset_path": item.get("asset_path"), "has_asset": bool(item.get("asset_path"))},
+                after={"asset_path": relative_path.as_posix(), "format": normalized["format"],
+                       "width": normalized["width"], "height": normalized["height"],
+                       "size": normalized["size"], "frames": normalized.get("frames", 1),
+                       "animated": normalized.get("animated", False)},
             )
             await db.commit()
     except Exception:
@@ -530,6 +686,8 @@ async def _write_item_asset(request, *, authorize):
         "width": normalized["width"],
         "height": normalized["height"],
         "size": normalized["size"],
+        "frames": normalized.get("frames", 1),
+        "animated": normalized.get("animated", False),
     }, status=201)
 
 
@@ -597,6 +755,14 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 (MAX_CATALOG_ITEMS,),
             ) as cursor:
                 rows = await cursor.fetchall()
+            async with db.execute(
+                """
+                SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at
+                FROM profile_store_categories
+                ORDER BY COALESCE(parent_id, 0), sort_order, category_id
+                """
+            ) as cursor:
+                category_rows = await cursor.fetchall()
 
         settings = dict(settings_row) if settings_row else {
             "enabled": 1,
@@ -607,7 +773,11 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             "session_ttl_seconds": profile_store_db.DEFAULT_SESSION_TTL_SECONDS,
         }
         items = [_public_item(row) for row in rows]
-        return web.json_response({"guild_id": str(guild.id), "settings": settings, "items": items})
+        categories = [_public_category(row) for row in category_rows]
+        return web.json_response({
+            "guild_id": str(guild.id), "settings": settings,
+            "items": items, "categories": categories,
+        })
 
     @routes.post("/api/guild/{guild_id}/profile-store/settings")
     async def profile_store_admin_settings_save(request):
@@ -682,6 +852,11 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                         int(_session.get("id", 0) or 0),
                     ),
                 )
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(_session.get("id", 0) or 0),
+                    action="settings_updated", entity_type="settings", entity_id=1,
+                    before=current, after=updated,
+                )
                 await db.commit()
             return web.json_response({"guild_id": str(guild.id), "settings": updated})
         except ValueError as error:
@@ -693,7 +868,10 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
         try:
             body = await _read_item_payload(request)
             item = validate_catalog_item_payload(body)
+            if item["is_active"] and item["item_type"] in _ASSET_ITEM_TYPES:
+                return _json_error(400, "asset_required_before_publish")
             async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
                 cursor = await db.execute(
                     """
                     INSERT INTO profile_store_items
@@ -710,10 +888,18 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     ),
                 )
                 item_id = int(cursor.lastrowid)
+                await _ensure_category_rows(db, item["category"], item["subcategory"],
+                                            int(session.get("id", 0) or 0))
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="item_created", entity_type="item", entity_id=item_id,
+                    before=None, after={k: item[k] for k in (
+                        "slug", "name", "item_type", "category", "subcategory",
+                        "price", "currency", "is_active", "is_featured",
+                    )},
+                )
                 await db.commit()
-                async with db.execute(
-                    "SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)
-                ) as cursor:
+                async with db.execute("SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)) as cursor:
                     row = await cursor.fetchone()
             return web.json_response({"item": _public_item(row)}, status=201)
         except ValueError as error:
@@ -723,7 +909,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
 
     @routes.put("/api/guild/{guild_id}/profile-store/items/{item_id}")
     async def profile_store_item_update(request):
-        _session, _guild = await store_authorize(request, write=True)
+        session, guild = await store_authorize(request, write=True)
         raw_id = str(request.match_info.get("item_id", ""))
         if not raw_id.isdigit() or int(raw_id) <= 0:
             return _json_error(404, "item_not_found")
@@ -732,13 +918,19 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             body = await _read_item_payload(request)
             item = validate_catalog_item_payload(body)
             async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
                 async with db.execute(
-                    "SELECT item_id FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
+                    "SELECT * FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
                     (item_id,),
                 ) as cursor:
-                    exists = await cursor.fetchone()
-                if not exists:
+                    before_row = await cursor.fetchone()
+                if not before_row:
+                    await db.rollback()
                     return _json_error(404, "item_not_found")
+                before_item = _public_item(before_row)
+                if item["is_active"] and item["item_type"] in _ASSET_ITEM_TYPES and not before_item["has_asset"]:
+                    await db.rollback()
+                    return _json_error(409, "asset_required_before_publish")
                 await db.execute(
                     """
                     UPDATE profile_store_items SET
@@ -755,10 +947,18 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                         item["is_active"], item["is_featured"], item_id,
                     ),
                 )
+                await _ensure_category_rows(db, item["category"], item["subcategory"],
+                                            int(session.get("id", 0) or 0))
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="item_updated", entity_type="item", entity_id=item_id,
+                    before=before_item, after={k: item[k] for k in (
+                        "slug", "name", "item_type", "category", "subcategory",
+                        "price", "currency", "is_active", "is_featured",
+                    )},
+                )
                 await db.commit()
-                async with db.execute(
-                    "SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)
-                ) as cursor:
+                async with db.execute("SELECT * FROM profile_store_items WHERE item_id = ?", (item_id,)) as cursor:
                     row = await cursor.fetchone()
             return web.json_response({"item": _public_item(row)})
         except ValueError as error:
@@ -768,12 +968,22 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
 
     @routes.delete("/api/guild/{guild_id}/profile-store/items/{item_id}")
     async def profile_store_item_delete(request):
-        _session, _guild = await store_authorize(request, write=True)
+        session, guild = await store_authorize(request, write=True)
         raw_id = str(request.match_info.get("item_id", ""))
         if not raw_id.isdigit() or int(raw_id) <= 0:
             return _json_error(404, "item_not_found")
         item_id = int(raw_id)
-        async with database.connect() as db:
+        async with database.connect(aiosqlite.Row) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            async with db.execute(
+                "SELECT * FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
+                (item_id,),
+            ) as cursor:
+                before_row = await cursor.fetchone()
+            if not before_row:
+                await db.rollback()
+                return _json_error(404, "item_not_found")
+            before_item = _public_item(before_row)
             cursor = await db.execute(
                 """
                 UPDATE profile_store_items
@@ -782,6 +992,11 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                 WHERE item_id = ? AND deleted_at IS NULL
                 """,
                 (item_id,),
+            )
+            await _record_catalog_audit(
+                db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                action="item_deleted", entity_type="item", entity_id=item_id,
+                before=before_item, after={"is_active": 0, "deleted": True},
             )
             await db.commit()
         if cursor.rowcount <= 0:
@@ -904,6 +1119,224 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox",
         })
+
+    @routes.post("/api/guild/{guild_id}/profile-store/categories")
+    async def profile_store_category_create(request):
+        session, guild = await store_authorize(request, write=True)
+        try:
+            body = await _read_item_payload(request)
+            item = validate_category_payload(body)
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                if item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT category_id FROM profile_store_categories WHERE category_id = ? AND parent_id IS NULL",
+                        (item["parent_id"],),
+                    ) as cursor:
+                        parent = await cursor.fetchone()
+                    if not parent:
+                        await db.rollback()
+                        return _json_error(400, "invalid_parent_category")
+                cursor = await db.execute(
+                    """
+                    INSERT INTO profile_store_categories (name, parent_id, sort_order, is_active, created_by)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (item["name"], item["parent_id"], item["sort_order"], item["is_active"],
+                     int(session.get("id", 0) or 0)),
+                )
+                category_id = int(cursor.lastrowid)
+                async with db.execute(
+                    "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
+                    (category_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                category = _public_category(row)
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="category_created", entity_type="category", entity_id=category_id,
+                    before=None, after=category,
+                )
+                await db.commit()
+            return web.json_response({"category": category}, status=201)
+        except ValueError as error:
+            return _validation_response(error)
+        except aiosqlite.IntegrityError:
+            return _json_error(409, "duplicate_category")
+
+    @routes.put("/api/guild/{guild_id}/profile-store/categories/reorder")
+    async def profile_store_category_reorder(request):
+        session, guild = await store_authorize(request, write=True)
+        try:
+            body = await _read_item_payload(request)
+            ids = body.get("category_ids")
+            if not isinstance(ids, list) or len(ids) > 500 or any(
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in ids
+            ) or len(ids) != len(set(ids)):
+                raise ValueError("invalid_category_order")
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                async with db.execute(
+                    "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                existing = {int(row["category_id"]): dict(row) for row in rows}
+                if set(ids) != set(existing):
+                    await db.rollback()
+                    return _json_error(409, "category_order_stale")
+                before = [{"category_id": key, "sort_order": row["sort_order"]} for key, row in existing.items()]
+                for order, category_id in enumerate(ids):
+                    await db.execute(
+                        "UPDATE profile_store_categories SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE category_id = ?",
+                        (order, category_id),
+                    )
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="categories_reordered", entity_type="category", entity_id=None,
+                    before={"categories": before},
+                    after={"category_ids": ids},
+                )
+                await db.commit()
+            return web.json_response({"ok": True, "category_ids": ids})
+        except ValueError as error:
+            return _validation_response(error)
+
+    @routes.put("/api/guild/{guild_id}/profile-store/categories/{category_id}")
+    async def profile_store_category_update(request):
+        session, guild = await store_authorize(request, write=True)
+        raw_id = str(request.match_info.get("category_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "category_not_found")
+        category_id = int(raw_id)
+        try:
+            body = await _read_item_payload(request)
+            item = validate_category_payload(body)
+            async with database.connect(aiosqlite.Row) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                async with db.execute(
+                    "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
+                    (category_id,),
+                ) as cursor:
+                    before_row = await cursor.fetchone()
+                if not before_row:
+                    await db.rollback()
+                    return _json_error(404, "category_not_found")
+                if item["parent_id"] == category_id:
+                    await db.rollback()
+                    return _json_error(400, "invalid_parent_category")
+                if item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT category_id FROM profile_store_categories WHERE category_id = ? AND parent_id IS NULL",
+                        (item["parent_id"],),
+                    ) as cursor:
+                        parent = await cursor.fetchone()
+                    if not parent:
+                        await db.rollback()
+                        return _json_error(400, "invalid_parent_category")
+                if before_row["parent_id"] is None and item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT 1 FROM profile_store_categories WHERE parent_id = ? LIMIT 1",
+                        (category_id,),
+                    ) as cursor:
+                        has_children = await cursor.fetchone()
+                    if has_children:
+                        await db.rollback()
+                        return _json_error(409, "category_has_children")
+                before = dict(before_row)
+                await db.execute(
+                    """
+                    UPDATE profile_store_categories
+                    SET name = ?, parent_id = ?, sort_order = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE category_id = ?
+                    """,
+                    (item["name"], item["parent_id"], item["sort_order"], item["is_active"], category_id),
+                )
+                # Keep existing item text fields aligned when a category is renamed.
+                old_parent_name = None
+                new_parent_name = None
+                if before["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT name FROM profile_store_categories WHERE category_id = ?",
+                        (before["parent_id"],),
+                    ) as cursor:
+                        old_parent_row = await cursor.fetchone()
+                    old_parent_name = str(old_parent_row["name"]) if old_parent_row else None
+                if item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT name FROM profile_store_categories WHERE category_id = ?",
+                        (item["parent_id"],),
+                    ) as cursor:
+                        new_parent_row = await cursor.fetchone()
+                    new_parent_name = str(new_parent_row["name"]) if new_parent_row else None
+
+                if before["parent_id"] is None and item["parent_id"] is None:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, updated_at = CURRENT_TIMESTAMP WHERE category = ? COLLATE NOCASE",
+                        (item["name"], before["name"]),
+                    )
+                elif before["parent_id"] is None and item["parent_id"] is not None:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, subcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE category = ? COLLATE NOCASE",
+                        (new_parent_name, item["name"], before["name"]),
+                    )
+                elif before["parent_id"] is not None and item["parent_id"] is None:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, subcategory = '', updated_at = CURRENT_TIMESTAMP WHERE subcategory = ? COLLATE NOCASE AND category = ? COLLATE NOCASE",
+                        (item["name"], before["name"], old_parent_name),
+                    )
+                elif old_parent_name and new_parent_name:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, subcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE subcategory = ? COLLATE NOCASE AND category = ? COLLATE NOCASE",
+                        (new_parent_name, item["name"], before["name"], old_parent_name),
+                    )
+                async with db.execute(
+                    "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
+                    (category_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                category = _public_category(row)
+                await _record_catalog_audit(
+                    db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                    action="category_updated", entity_type="category", entity_id=category_id,
+                    before=before, after=category,
+                )
+                await db.commit()
+            return web.json_response({"category": category})
+        except ValueError as error:
+            return _validation_response(error)
+        except aiosqlite.IntegrityError:
+            return _json_error(409, "duplicate_category")
+
+    @routes.delete("/api/guild/{guild_id}/profile-store/categories/{category_id}")
+    async def profile_store_category_delete(request):
+        session, guild = await store_authorize(request, write=True)
+        raw_id = str(request.match_info.get("category_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "category_not_found")
+        category_id = int(raw_id)
+        async with database.connect(aiosqlite.Row) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            async with db.execute(
+                "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
+                (category_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                await db.rollback()
+                return _json_error(404, "category_not_found")
+            before = dict(row)
+            # Categories are archived rather than hard-deleted to preserve product references.
+            await db.execute(
+                "UPDATE profile_store_categories SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE category_id = ?",
+                (category_id,),
+            )
+            await _record_catalog_audit(
+                db, guild_id=int(guild.id), actor_id=int(session.get("id", 0) or 0),
+                action="category_hidden", entity_type="category", entity_id=category_id,
+                before=before, after={**before, "is_active": False},
+            )
+            await db.commit()
+        return web.json_response({"category_id": category_id, "is_active": False})
 
     @routes.post("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
     async def profile_store_item_upload(request):

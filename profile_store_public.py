@@ -267,6 +267,21 @@ async def _store_state(request, session) -> dict:
             LEFT JOIN user_profile_inventory AS inv
               ON inv.guild_id = ? AND inv.user_id = ? AND inv.item_id = i.item_id
             WHERE i.is_active = 1 AND i.deleted_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM profile_store_categories AS parent
+                  WHERE parent.parent_id IS NULL
+                    AND parent.name = i.category COLLATE NOCASE
+                    AND parent.is_active = 0
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM profile_store_categories AS child
+                  JOIN profile_store_categories AS parent
+                    ON parent.category_id = child.parent_id
+                  WHERE child.name = i.subcategory COLLATE NOCASE
+                    AND parent.name = i.category COLLATE NOCASE
+                    AND child.is_active = 0
+              )
             ORDER BY i.is_featured DESC, i.item_type ASC, i.price ASC, i.item_id ASC
             """,
             (guild_id, user_id),
@@ -281,6 +296,15 @@ async def _store_state(request, session) -> dict:
             (guild_id, user_id),
         ) as cursor:
             settings_row = await cursor.fetchone()
+        async with db.execute(
+            """
+            SELECT category_id, name, parent_id, sort_order
+            FROM profile_store_categories
+            WHERE is_active = 1
+            ORDER BY COALESCE(parent_id, 0), sort_order, category_id
+            """
+        ) as cursor:
+            category_rows = await cursor.fetchall()
         settings = dict(settings_row) if settings_row else {}
         async with db.execute(
             """
@@ -345,6 +369,15 @@ async def _store_state(request, session) -> dict:
             "flag_item_id": settings.get("flag_item_id"),
             "slots": equipped_slots,
         },
+        "categories": [
+            {
+                "category_id": int(row["category_id"]),
+                "name": str(row["name"]),
+                "parent_id": int(row["parent_id"]) if row["parent_id"] is not None else None,
+                "sort_order": int(row["sort_order"]),
+            }
+            for row in category_rows
+        ],
         "items": catalog,
     }
 
@@ -387,7 +420,7 @@ def _resolve_asset_path(raw_path) -> Path | None:
             return None
         candidate = (trusted_root / relative).resolve()
 
-    if trusted_root not in candidate.parents or candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+    if trusted_root not in candidate.parents or candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
         return None
     return candidate if candidate.is_file() else None
 
@@ -483,8 +516,23 @@ async def _purchase_item(session, item_id: int) -> dict:
             async with db.execute(
                 """
                 SELECT item_id, slug, name, item_type, price, currency
-                FROM profile_store_items
-                WHERE item_id = ? AND is_active = 1 AND deleted_at IS NULL
+                FROM profile_store_items AS i
+                WHERE i.item_id = ? AND i.is_active = 1 AND i.deleted_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM profile_store_categories AS parent
+                      WHERE parent.parent_id IS NULL
+                        AND parent.name = i.category COLLATE NOCASE
+                        AND parent.is_active = 0
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM profile_store_categories AS child
+                      JOIN profile_store_categories AS parent
+                        ON parent.category_id = child.parent_id
+                      WHERE child.name = i.subcategory COLLATE NOCASE
+                        AND parent.name = i.category COLLATE NOCASE
+                        AND child.is_active = 0
+                  )
                 """,
                 (item_id,),
             ) as cursor:

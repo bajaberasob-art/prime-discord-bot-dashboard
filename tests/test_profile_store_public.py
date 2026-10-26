@@ -1,11 +1,14 @@
+import io
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from aiohttp import CookieJar, web
+from aiohttp import CookieJar, FormData, web
 from aiohttp.test_utils import TestClient, TestServer
+from PIL import Image
 
 import aiosqlite
 import database
@@ -57,6 +60,300 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             )
             await db.commit()
             return int(cursor.lastrowid)
+
+    async def test_category_admin_api_rejects_authenticated_non_owner(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"id": 555}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = SimpleNamespace(owner_id=None, owner_ids=set(), application=None)
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            with patch.dict(os.environ, {
+                "PROFILE_STORE_ADMIN_IDS": "", "BOT_OWNER_IDS": "", "BOT_OWNER_ID": "",
+            }):
+                await client.start_server()
+                response = await client.post(
+                    "/api/guild/99/profile-store/categories",
+                    json={"name": "forbidden-section", "parent_id": None, "sort_order": 0, "is_active": True},
+                )
+                self.assertEqual(response.status, 403, await response.text())
+                self.assertIn("profile_store_owner_required", await response.text())
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
+
+    async def test_server_rejects_publishing_image_products_without_a_valid_file(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            blocked_create = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "missing-image-active", "name": "Missing image",
+                    "item_type": "background", "category": "upload-tests",
+                    "price": 0, "currency": "moon", "is_active": True,
+                    "is_featured": False,
+                },
+            )
+            self.assertEqual(blocked_create.status, 400, await blocked_create.text())
+            self.assertIn("asset_required_before_publish", await blocked_create.text())
+
+            created = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "missing-image-hidden", "name": "Missing image hidden",
+                    "item_type": "background", "category": "upload-tests",
+                    "price": 0, "currency": "moon", "is_active": False,
+                    "is_featured": False,
+                },
+            )
+            self.assertEqual(created.status, 201, await created.text())
+            item_id = (await created.json())["item"]["item_id"]
+            publish = await client.put(
+                f"/api/guild/99/profile-store/items/{item_id}",
+                json={
+                    "slug": "missing-image-hidden", "name": "Missing image hidden",
+                    "item_type": "background", "category": "upload-tests",
+                    "price": 0, "currency": "moon", "is_active": True,
+                    "is_featured": False,
+                },
+            )
+            self.assertEqual(publish.status, 409, await publish.text())
+            self.assertIn("asset_required_before_publish", await publish.text())
+
+            async with database.connect() as db:
+                await db.execute(
+                    "UPDATE profile_store_items SET asset_path = ? WHERE item_id = ?",
+                    ("catalog/99/missing-file.png", item_id),
+                )
+                await db.commit()
+            catalog = await client.get("/api/guild/99/profile-store")
+            self.assertEqual(catalog.status, 200, await catalog.text())
+            item = next(v for v in (await catalog.json())["items"] if v["item_id"] == item_id)
+            self.assertFalse(item["has_asset"], "a DB path alone must not count as an existing image file")
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
+
+    async def test_admin_asset_upload_route_sanitizes_image_and_rejects_invalid_content(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            created = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "asset-upload-test", "name": "Upload test",
+                    "item_type": "background", "category": "upload-tests",
+                    "price": 0, "currency": "moon", "is_active": False,
+                    "is_featured": False,
+                },
+            )
+            self.assertEqual(created.status, 201, await created.text())
+            item_id = (await created.json())["item"]["item_id"]
+
+            buffer = io.BytesIO()
+            Image.new("RGBA", (72, 48), (36, 180, 220, 180)).save(buffer, format="PNG")
+            form = FormData()
+            form.add_field("file", buffer.getvalue(), filename="test.png", content_type="image/png")
+            uploaded = await client.post(
+                f"/api/guild/99/profile-store/items/{item_id}/asset", data=form,
+            )
+            self.assertEqual(uploaded.status, 201, await uploaded.text())
+            payload = await uploaded.json()
+            self.assertTrue(payload["has_asset"])
+            self.assertEqual(payload["format"], "PNG")
+
+            preview = await client.get(
+                f"/api/guild/99/profile-store/items/{item_id}/asset",
+            )
+            self.assertEqual(preview.status, 200)
+            self.assertEqual(preview.headers.get("Content-Type"), "image/png")
+            with Image.open(io.BytesIO(await preview.read())) as image:
+                self.assertEqual(image.size, (72, 48))
+
+            gif_buffer = io.BytesIO()
+            gif_frames = [
+                Image.new("RGB", (72, 48), (20, 140, 220)),
+                Image.new("RGB", (72, 48), (220, 80, 140)),
+            ]
+            gif_frames[0].save(
+                gif_buffer, format="GIF", save_all=True,
+                append_images=gif_frames[1:], duration=[80, 120], loop=0,
+            )
+            gif_form = FormData()
+            gif_form.add_field("file", gif_buffer.getvalue(), filename="motion.gif", content_type="image/gif")
+            gif_upload = await client.post(
+                f"/api/guild/99/profile-store/items/{item_id}/asset", data=gif_form,
+            )
+            self.assertEqual(gif_upload.status, 201, await gif_upload.text())
+            gif_payload = await gif_upload.json()
+            self.assertEqual(gif_payload["format"], "GIF")
+            self.assertEqual(gif_payload["frames"], 2)
+            self.assertTrue(gif_payload["animated"])
+
+            gif_preview = await client.get(
+                f"/api/guild/99/profile-store/items/{item_id}/asset",
+            )
+            self.assertEqual(gif_preview.status, 200)
+            self.assertEqual(gif_preview.headers.get("Content-Type"), "image/gif")
+            with Image.open(io.BytesIO(await gif_preview.read())) as image:
+                self.assertEqual(image.n_frames, 2)
+                image.seek(1)
+                self.assertEqual(image.info.get("duration"), 120)
+
+            invalid = FormData()
+            invalid.add_field("file", b"not an image", filename="bad.png", content_type="image/png")
+            rejected = await client.post(
+                f"/api/guild/99/profile-store/items/{item_id}/asset", data=invalid,
+            )
+            self.assertEqual(rejected.status, 400)
+            self.assertFalse((await rejected.json()).get("has_asset", False))
+
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT action, entity_type FROM profile_store_catalog_audit WHERE entity_id = ?",
+                    (item_id,),
+                ) as cursor:
+                    audit = await cursor.fetchall()
+            self.assertTrue(any(row["action"] == "asset_uploaded" and row["entity_type"] == "asset" for row in audit))
+            self.assertTrue(any(row["action"] == "asset_replaced" and row["entity_type"] == "asset" for row in audit))
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
+
+    async def test_admin_category_crud_audits_changes_and_hidden_sections_disappear_from_store(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        async def read_json_body(request):
+            return await request.json()
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize, read_json_body)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            created_category = await client.post(
+                "/api/guild/99/profile-store/categories",
+                json={"name": "test-section", "parent_id": None, "sort_order": 20, "is_active": True},
+            )
+            self.assertEqual(created_category.status, 201, await created_category.text())
+            category = (await created_category.json())["category"]
+            self.assertTrue(category["is_active"])
+
+            created_item = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "test-section-free", "name": "Free section item",
+                    "item_type": "card_color", "category": "test-section",
+                    "subcategory": "", "price": 0, "currency": "moon",
+                    "is_active": True, "is_featured": False,
+                },
+            )
+            self.assertEqual(created_item.status, 201, await created_item.text())
+            item = (await created_item.json())["item"]
+            self.assertEqual(item["price"], 0)
+
+            visible = await profile_store_public._store_state(
+                SimpleNamespace(app={"bot": None}), self.session,
+            )
+            self.assertIn(item["item_id"], {entry["item_id"] for entry in visible["items"]})
+            self.assertIn("test-section", {entry["name"] for entry in visible["categories"]})
+            visible_category = next(entry for entry in visible["categories"] if entry["name"] == "test-section")
+            self.assertEqual(visible_category["sort_order"], 20)
+            empty_category_response = await client.post(
+                "/api/guild/99/profile-store/categories",
+                json={"name": "empty-section", "parent_id": None, "sort_order": 21, "is_active": True},
+            )
+            self.assertEqual(empty_category_response.status, 201, await empty_category_response.text())
+            visible_with_empty = await profile_store_public._store_state(
+                SimpleNamespace(app={"bot": None}), self.session,
+            )
+            self.assertIn("empty-section", {entry["name"] for entry in visible_with_empty["categories"]})
+            admin_catalog = await client.get("/api/guild/99/profile-store")
+            category_rows = (await admin_catalog.json())["categories"]
+            ordered_ids = [row["category_id"] for row in category_rows]
+            section_index = next(i for i, row in enumerate(category_rows) if row["name"] == "test-section")
+            empty_index = next(i for i, row in enumerate(category_rows) if row["name"] == "empty-section")
+            ordered_ids[section_index], ordered_ids[empty_index] = ordered_ids[empty_index], ordered_ids[section_index]
+            reordered = await client.put(
+                "/api/guild/99/profile-store/categories/reorder",
+                json={"category_ids": ordered_ids},
+            )
+            self.assertEqual(reordered.status, 200, await reordered.text())
+            reordered_state = await profile_store_public._store_state(
+                SimpleNamespace(app={"bot": None}), self.session,
+            )
+            order_by_name = {row["name"]: row["sort_order"] for row in reordered_state["categories"]}
+            self.assertLess(order_by_name["empty-section"], order_by_name["test-section"])
+
+            hidden = await client.put(
+                f"/api/guild/99/profile-store/categories/{category['category_id']}",
+                json={"name": "test-section", "parent_id": None, "sort_order": 20, "is_active": False},
+            )
+            self.assertEqual(hidden.status, 200, await hidden.text())
+            hidden_state = await profile_store_public._store_state(
+                SimpleNamespace(app={"bot": None}), self.session,
+            )
+            self.assertNotIn(item["item_id"], {entry["item_id"] for entry in hidden_state["items"]})
+            self.assertNotIn("test-section", {entry["name"] for entry in hidden_state["categories"]})
+            with self.assertRaises(profile_store_public.StoreActionError) as purchase_error:
+                await profile_store_public._purchase_item(self.session, item["item_id"])
+            self.assertEqual(purchase_error.exception.code, "item_not_found")
+
+            settings_response = await client.post(
+                "/api/guild/99/profile-store/settings",
+                json={"enabled": True},
+            )
+            self.assertEqual(settings_response.status, 200, await settings_response.text())
+
+            async with database.connect(aiosqlite.Row) as db:
+                async with db.execute(
+                    "SELECT action, entity_type FROM profile_store_catalog_audit WHERE guild_id = 99 ORDER BY audit_id"
+                ) as cursor:
+                    audit = await cursor.fetchall()
+            self.assertTrue(any(row["action"] == "category_created" for row in audit))
+            self.assertTrue(any(row["action"] == "item_created" for row in audit))
+            self.assertTrue(any(row["action"] == "category_updated" for row in audit))
+            self.assertTrue(any(row["action"] == "settings_updated" and row["entity_type"] == "settings" for row in audit))
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
 
     async def test_admin_gem_grant_is_scoped_and_audited(self):
         original_registered = profile_store_admin._registered

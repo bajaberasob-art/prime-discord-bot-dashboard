@@ -2,7 +2,7 @@
   "use strict";
   const $ = (selector, parent = document) => parent.querySelector(selector);
   const state = {
-    items: [], wallet: { coins: 0, gems: 0, bank: 0 }, user: {}, guild: {}, equipped: {},
+    items: [], categories: [], wallet: { coins: 0, gems: 0, bank: 0 }, user: {}, guild: {}, equipped: {},
     category: "all", subcategory: "all", filter: "all", sort: "recommended", search: "",
     selectedId: null, busy: false, loaded: false, previewBusy: false, previewObjectUrl: null
   };
@@ -207,11 +207,18 @@
       ["الأشكال", "shape"], ["الإطارات", "shape"], ["frames", "shape"],
       ["شعارات الأندية", "club_logo"], ["الشعارات", "club_logo"], ["البانرات", "club_logo"], ["banners", "club_logo"],
     ]);
-    [...categoriesByName.entries()]
-      .sort(([a], [b]) => a.localeCompare(b, "ar"))
-      .forEach(([name, group]) => {
+    const managedOrder = state.categories
+      .filter(category => category.parent_id === null)
+      .slice()
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.category_id) - Number(b.category_id))
+      .map(category => String(category.name || "").trim());
+    const orderedNames = [...managedOrder, ...[...categoriesByName.keys()]
+      .filter(name => !managedOrder.includes(name))
+      .sort((a, b) => a.localeCompare(b, "ar"))];
+    orderedNames.forEach(name => {
+        const group = categoriesByName.get(name) || [];
         const equivalentType = typeByDefaultLabel.get(name.toLowerCase());
-        if (equivalentType && group.every(item => item.item_type === equivalentType)) return;
+        if (group.length && equivalentType && group.every(item => item.item_type === equivalentType)) return;
         const labelByKnownName = {
           templates: "قوالب البروفايل", القوالب: "قوالب البروفايل", backgrounds: "الخلفيات", stickers: "الاستكرات",
           flags: "الأعلام", banners: "البانرات", frames: "الإطارات",
@@ -223,7 +230,18 @@
   function renderSubcategories(items) {
     const root = $("#subcategoryTabs");
     root.replaceChildren();
-    const values = Array.from(new Set(items.map(subcategory).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ar"));
+    const valueSet = new Set(items.map(subcategory).filter(Boolean));
+    const parentName = String(items[0]?.category || "").trim();
+    const parent = state.categories.find(category => category.parent_id === null && category.name === parentName);
+    const managedChildren = parent ? state.categories
+      .filter(category => category.parent_id === parent.category_id)
+      .slice()
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.category_id) - Number(b.category_id))
+      .map(category => String(category.name || "").trim())
+      .filter(name => valueSet.has(name)) : [];
+    const values = [...managedChildren, ...[...valueSet]
+      .filter(name => !managedChildren.includes(name))
+      .sort((a, b) => a.localeCompare(b, "ar"))];
     if (values.length < 2) {
       root.hidden = true;
       state.subcategory = "all";
@@ -574,6 +592,7 @@
     try {
       const data = await api("/api/profile-store/state");
       state.items = Array.isArray(data.items) ? data.items : [];
+      state.categories = Array.isArray(data.categories) ? data.categories : [];
       state.wallet = data.wallet || { coins: 0, gems: 0, bank: 0 };
       state.user = data.user || {};
       state.guild = data.guild || {};

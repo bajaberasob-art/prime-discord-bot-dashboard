@@ -15,6 +15,7 @@ from profile_store_admin import (
     is_profile_store_owner,
     profile_asset_root,
     validate_catalog_item_payload,
+    validate_category_payload,
     validate_static_image,
 )
 
@@ -61,17 +62,30 @@ class StaticImageValidationTests(unittest.TestCase):
                     self.assertEqual(normalized.size, (64, 48))
                     self.assertFalse(getattr(normalized, "is_animated", False))
 
-    def test_rejects_animated_gif_apng_and_animated_webp(self):
-        cases = [
-            ("GIF", "image/gif", "animated.gif"),
-            ("PNG", "image/png", "animated.png"),
-        ]
-        for fmt, mime, filename in cases:
-            with self.subTest(format=fmt):
-                raw = image_bytes(fmt, animated=True)
-                with self.assertRaises(ValueError):
-                    validate_static_image(raw, declared_mime=mime, filename=filename)
+    def test_preserves_animated_gif_frames_and_rejects_animated_apng_webp(self):
+        animated_gif = image_bytes("GIF", animated=True)
+        result = validate_static_image(
+            animated_gif, declared_mime="image/gif", filename="animated.gif",
+        )
+        self.assertEqual(result["format"], "GIF")
+        self.assertEqual(result["mime"], "image/gif")
+        self.assertEqual(result["extension"], ".gif")
+        self.assertEqual(result["frames"], 2)
+        self.assertTrue(result["animated"])
+        with Image.open(io.BytesIO(result["data"])) as normalized:
+            self.assertEqual(normalized.format, "GIF")
+            self.assertEqual(normalized.n_frames, 2)
+            self.assertTrue(normalized.is_animated)
+            normalized.seek(0)
+            self.assertEqual(normalized.info.get("duration"), 100)
+            normalized.seek(1)
+            self.assertEqual(normalized.info.get("duration"), 100)
 
+        with self.assertRaisesRegex(ValueError, "animated_images_not_allowed"):
+            validate_static_image(
+                image_bytes("PNG", animated=True),
+                declared_mime="image/png", filename="animated.png",
+            )
         try:
             animated_webp = image_bytes("WEBP", animated=True)
         except (OSError, ValueError) as error:
@@ -80,6 +94,7 @@ class StaticImageValidationTests(unittest.TestCase):
             validate_static_image(
                 animated_webp, declared_mime="image/webp", filename="motion.webp",
             )
+
 
     def test_rejects_mime_extension_and_real_format_mismatches(self):
         png = image_bytes("PNG")
@@ -155,6 +170,31 @@ class ProfileCatalogPayloadTests(unittest.TestCase):
 
 
 
+
+    def test_category_payload_accepts_sections_and_subsections_and_rejects_bad_input(self):
+        section = validate_category_payload({
+            "name": "بانرات موسمية", "parent_id": None,
+            "sort_order": 12, "is_active": True,
+        })
+        child = validate_category_payload({
+            "name": "نيون", "parent_id": 7,
+            "sort_order": 3, "is_active": False,
+        })
+        self.assertEqual(section["name"], "بانرات موسمية")
+        self.assertIsNone(section["parent_id"])
+        self.assertEqual(section["sort_order"], 12)
+        self.assertEqual(child["parent_id"], 7)
+        self.assertEqual(child["is_active"], 0)
+        for payload, expected in (
+            ({"name": "all"}, "invalid_category_name"),
+            ({"name": "  "}, "required"),
+            ({"name": "valid", "sort_order": -1}, "invalid_category_order"),
+            ({"name": "valid", "is_active": 1}, "category_active_must_be_boolean"),
+            ({"name": "valid", "parent_id": True}, "invalid_parent_category"),
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaisesRegex(ValueError, expected):
+                    validate_category_payload(payload)
 
     def test_asset_root_rejects_public_dashboard_directory(self):
         public_root = Path(__file__).resolve().parents[1] / "dashboard"

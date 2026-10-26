@@ -1,12 +1,15 @@
 import io
 import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
 from profile_store_db import DEFAULT_PROFILE_TEMPLATES
-from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text, _fit_font, _display_text
+from profile_card_generator import render_profile_card, _safe_metadata, _draw_stat_text, _fit_font, _display_text, _resolve_local_asset
 
 
 class ProfileCardTemplateTests(unittest.TestCase):
@@ -75,6 +78,22 @@ class ProfileCardTemplateTests(unittest.TestCase):
                     self.assertEqual(card.getpixel((0, 0))[3], original_rgba.getpixel((0, 0))[3],
                                      f"Outer-corner alpha changed for {template['slug']}")
                 self.assertIsNotNone(card.getbbox(), f"Rendered content is empty for {template['slug']}")
+
+    def test_sanitized_gif_asset_is_allowed_for_profile_background_rendering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "catalog" / "99" / "motion.gif"
+            path.parent.mkdir(parents=True)
+            frames = [
+                Image.new("RGB", (72, 48), "#168CDC"),
+                Image.new("RGB", (72, 48), "#E34A99"),
+            ]
+            frames[0].save(
+                path, format="GIF", save_all=True, append_images=frames[1:],
+                duration=[80, 120], loop=0,
+            )
+            with patch.dict(os.environ, {"PROFILE_STORE_ASSET_DIR": temporary}):
+                resolved = _resolve_local_asset(str(path))
+            self.assertEqual(resolved, path.resolve())
 
     def test_approved_ultrawide_template_dimensions_are_preserved(self):
         metadata = _safe_metadata({

@@ -118,7 +118,7 @@ def _resolve_local_asset(raw_path: Any, *, allow_svg: bool = False) -> Path | No
         logger.warning("Blocked profile asset path outside approved asset roots")
         return None
     suffix = candidate.suffix.lower()
-    allowed = {".png", ".jpg", ".jpeg", ".webp"}
+    allowed = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     if allow_svg and candidate.is_relative_to(TEMPLATE_ROOT):
         allowed.add(".svg")
     if suffix not in allowed or not candidate.is_file():
