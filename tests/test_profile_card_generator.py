@@ -107,6 +107,38 @@ class ProfileCardTemplateTests(unittest.TestCase):
         self.assertEqual(fitted.getpixel((100, 50)), (30, 210, 100, 255))
         self.assertEqual(fitted.getpixel((199, 50)), (235, 45, 55, 255))
 
+    def test_background_is_visible_beneath_transparent_template_and_frame_is_foreground(self):
+        background_buffer = io.BytesIO()
+        Image.new("RGBA", (200, 100), "#2677FF").save(background_buffer, format="PNG")
+        frame = Image.new("RGBA", (640, 320), (0, 0, 0, 0))
+        ImageDraw.Draw(frame).rectangle((10, 140, 26, 180), fill=(255, 220, 20, 255))
+        frame_buffer = io.BytesIO()
+        frame.save(frame_buffer, format="PNG")
+        metadata = {
+            "width": 640, "height": 320, "layout": "wide",
+            "avatar": {"x": 560, "y": 20, "size": 52},
+            "name": {"x": 550, "y": 80, "max_width": 180, "anchor": "ra"},
+            "handle": {"x": 550, "y": 104, "max_width": 180, "anchor": "ra"},
+            "level": {"x": 50, "y": 190, "max_width": 140, "anchor": "la"},
+            "xp_bar": {"x": 50, "y": 220, "width": 300, "height": 10, "enabled": False},
+            "badges": {"x": 50, "y": 250, "size": 20, "limit": 0},
+            "stats": [],
+        }
+        result = render_profile_card(
+            {"display_name": "Member", "username": "member"},
+            background_bytes=background_buffer.getvalue(),
+            template_bytes=frame_buffer.getvalue(),
+            template={"metadata": metadata},
+        )
+        with Image.open(result) as rendered:
+            self.assertEqual(rendered.size, (640, 320))
+            frame_pixel = rendered.getpixel((18, 160))
+            self.assertGreater(frame_pixel[0], 240)
+            self.assertGreater(frame_pixel[1], 190)
+            background_pixel = rendered.getpixel((320, 80))
+            self.assertGreater(background_pixel[2], background_pixel[1])
+            self.assertGreater(background_pixel[1], background_pixel[0])
+
     def test_background_with_invalid_target_size_is_rejected(self):
         with self.assertRaises(ValueError):
             _fit_background_to_card(Image.new("RGB", (10, 10)), (0, 100))
