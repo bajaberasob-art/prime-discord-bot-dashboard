@@ -1029,10 +1029,12 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     if field not in body:
                         item[field] = before_row[field]
                 if item["sale_price"] is not None and int(item["sale_price"]) > int(item["price"]):
+                    await db.rollback()
                     raise ValueError("sale_price_exceeds_base_price")
                 if item["sale_starts_at"] and item["sale_ends_at"] and item["sale_ends_at"] <= item["sale_starts_at"]:
+                    await db.rollback()
                     raise ValueError("sale_end_must_follow_start")
-                if item["is_active"] and item["item_type"] in _ASSET_ITEM_TYPES and not before_item["has_asset":
+                if item["is_active"] and item["item_type"] in _ASSET_ITEM_TYPES and not before_item["has_asset"]:
                     await db.rollback()
                     return _json_error(409, "asset_required_before_publish")
                 await db.execute(
