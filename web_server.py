@@ -6418,6 +6418,7 @@ async def static_asset(req):
         "interactive-info-panel.css": "text/css",
         "interactive-info-panel.js": "application/javascript",
         "app.js": "application/javascript",
+        "profile-store-admin.js": "application/javascript",
     }
     if name not in types:
         raise web.HTTPNotFound()
