@@ -109,7 +109,7 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         admin = (root / "profile_store_admin.py").read_text("utf-8")
         for control in ("layoutEditorPanel", "layoutStage", "layoutField", "layoutX",
                         "layoutY", "layoutWidth", "layoutHeight", "layoutXpEnabled",
-                        "stat:streak", "تطبيق الموضع والحجم"):
+                        "stat:streak", "تطبيق الموضع والحجم", "saveLayout"):
             with self.subTest(control=control):
                 self.assertIn(control, page)
         self.assertIn("pointermove", client)
