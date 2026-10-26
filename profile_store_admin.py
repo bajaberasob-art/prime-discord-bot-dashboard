@@ -171,6 +171,58 @@ def profile_asset_root() -> Path:
     return root
 
 
+def default_uploaded_template_metadata(width: int, height: int) -> dict[str, Any]:
+    """Give a newly uploaded PNG template a safe, useful default composition."""
+    if (
+        isinstance(width, bool) or isinstance(height, bool)
+        or not isinstance(width, int) or not isinstance(height, int)
+        or width < 640 or height < 320 or width > 16000 or height > 16000
+    ):
+        raise ValueError("template_dimensions_too_small_or_large")
+    ratio = width / height
+    if ratio < 0.4 or ratio > 4.0:
+        raise ValueError("template_aspect_ratio_not_supported")
+
+    # The renderer caps card canvases at 2.5 MP and 2048x1600. Scale geometry
+    # and canvas metadata together so larger uploads are reduced without distortion.
+    scale = min(1.0, 2048 / width, 1600 / height, (2_500_000 / (width * height)) ** 0.5)
+    w, h = int(width * scale), int(height * scale)
+    layout = "portrait" if h > w * 1.08 else ("square" if w <= h * 1.08 else "wide")
+    stats = []
+    keys = (("balance", "الرصيد"), ("messages", "الرسائل"),
+            ("rank", "الترتيب"), ("voice", "الصوت"))
+    if layout == "wide":
+        stat_boxes = [(0.025, 0.755, 0.220, 0.145), (0.265, 0.755, 0.220, 0.145),
+                      (0.505, 0.755, 0.220, 0.145), (0.745, 0.755, 0.220, 0.145)]
+        avatar = {"x": int(w*.785), "y": int(h*.075), "size": int(min(w,h)*.185)}
+        name = {"x": int(w*.755), "y": int(h*.335), "max_width": int(w*.405), "anchor": "ra"}
+        handle = {"x": int(w*.755), "y": int(h*.385), "max_width": int(w*.405), "anchor": "ra"}
+        level = {"x": int(w*.055), "y": int(h*.455), "max_width": int(w*.405), "anchor": "la"}
+        xp = {"x": int(w*.055), "y": int(h*.520), "width": int(w*.685), "height": max(8,int(h*.014))}
+        badges = {"x": int(w*.055), "y": int(h*.580), "size": max(24,int(h*.030)), "limit": 5}
+    else:
+        stat_boxes = [(0.055, 0.655, 0.410, 0.115), (0.535, 0.655, 0.410, 0.115),
+                      (0.055, 0.805, 0.410, 0.115), (0.535, 0.805, 0.410, 0.115)]
+        avatar = {"x": int(w*.675), "y": int(h*.075), "size": int(min(w,h)*.165)}
+        name = {"x": int(w*.925), "y": int(h*.295), "max_width": int(w*.425), "anchor": "ra"}
+        handle = {"x": int(w*.925), "y": int(h*.340), "max_width": int(w*.425), "anchor": "ra"}
+        level = {"x": int(w*.065), "y": int(h*.405), "max_width": int(w*.430), "anchor": "la"}
+        xp = {"x": int(w*.065), "y": int(h*.470), "width": int(w*.865), "height": max(8,int(h*.012))}
+        badges = {"x": int(w*.065), "y": int(h*.535), "size": max(24,int(h*.028)), "limit": 5}
+
+    for (key, label), (x, y, box_w, box_h) in zip(keys, stat_boxes):
+        stats.append({"key": key, "label": label, "x": int(w*x), "y": int(h*y),
+                      "w": int(w*box_w), "h": int(h*box_h)})
+    return {
+        "layout": layout, "width": w, "height": h,
+        "orientation": "portrait" if layout == "portrait" else ("square" if layout == "square" else "landscape"),
+        "avatar": avatar, "name": name, "handle": handle, "level": level,
+        "xp_bar": xp, "badges": badges,
+        "flag": {"x": int(w*.045), "y": int(h*.035), "width": max(24,int(w*.055)), "height": max(18,int(h*.035))},
+        "stats": stats,
+    }
+
+
 def _json_object(value: Any, field: str) -> dict:
     if value is None:
         return {}
@@ -416,6 +468,24 @@ async def _write_item_asset(request, *, authorize):
         logger.exception("Profile catalog asset upload failed guild=%s item=%s", guild.id, item_id)
         return _json_error(500, "asset_upload_failed")
 
+    generated_metadata_json = None
+    if str(item["item_type"]) == "card_template":
+        existing_metadata = _parse_json_column(item.get("metadata_json"))
+        if not (
+            isinstance(existing_metadata.get("stats"), list)
+            and len(existing_metadata.get("stats")) == 4
+            and isinstance(existing_metadata.get("avatar"), dict)
+        ):
+            try:
+                generated_metadata = default_uploaded_template_metadata(
+                    int(normalized["width"]), int(normalized["height"]),
+                )
+            except ValueError as error:
+                return _json_error(400, str(error))
+            generated_metadata_json = json.dumps(
+                generated_metadata, ensure_ascii=False, separators=(",", ":"),
+            )
+
     filename = f"{uuid.uuid4().hex}{normalized['extension']}"
     relative_path = Path("catalog") / str(int(guild.id)) / filename
     root = profile_asset_root()
@@ -436,10 +506,12 @@ async def _write_item_asset(request, *, authorize):
             await db.execute(
                 """
                 UPDATE profile_store_items
-                SET asset_path = ?, asset_url = NULL, updated_at = CURRENT_TIMESTAMP
+                SET asset_path = ?, asset_url = NULL,
+                    metadata_json = COALESCE(?, metadata_json),
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE item_id = ? AND deleted_at IS NULL
                 """,
-                (relative_path.as_posix(), item_id),
+                (relative_path.as_posix(), generated_metadata_json, item_id),
             )
             await db.commit()
     except Exception:
@@ -478,6 +550,31 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
             )
         return session, guild
 
+    @routes.get("/profile-store-admin/{guild_id}")
+    async def profile_store_admin_page(request):
+        session, _guild = await store_authorize(request)
+        page_path = Path(__file__).resolve().parent / "dashboard" / "profile-store-admin.html"
+        try:
+            html = await asyncio.to_thread(page_path.read_text, "utf-8")
+        except OSError:
+            return _json_error(503, "store_admin_ui_unavailable")
+        # The token comes from the authenticated server session, not a client parameter.
+        csrf_token = str(session.get("csrf", ""))
+        safe_csrf = json.dumps(csrf_token, ensure_ascii=True)
+        safe_guild_id = json.dumps(str(_guild.id), ensure_ascii=True)
+        html = html.replace('data-guild-id="" data-csrf=""',
+                            f'data-guild-id={safe_guild_id} data-csrf={safe_csrf}')
+        return web.Response(
+            text=html,
+            content_type="text/html",
+            charset="utf-8",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "same-origin",
+            },
+        )
+
     @routes.get("/api/guild/{guild_id}/profile-store")
     async def profile_store_admin_get(request):
         _session, guild = await store_authorize(request)
@@ -493,6 +590,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                        style_json, metadata_json, is_active, is_featured,
                        created_at, updated_at, deleted_at
                 FROM profile_store_items
+                WHERE deleted_at IS NULL
                 ORDER BY is_active DESC, item_id DESC
                 LIMIT ?
                 """,
@@ -780,6 +878,32 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
         except Exception:
             logger.exception("PRIME gem wallet adjustment failed guild=%s user=%s", guild.id, user_id)
             return _json_error(500, "gem_adjustment_failed")
+
+    @routes.get("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
+    async def profile_store_item_asset_read(request):
+        _session, _guild = await store_authorize(request)
+        raw_id = str(request.match_info.get("item_id", ""))
+        if not raw_id.isdigit() or int(raw_id) <= 0:
+            return _json_error(404, "item_not_found")
+        async with database.connect(aiosqlite.Row) as db:
+            async with db.execute(
+                "SELECT asset_path FROM profile_store_items WHERE item_id = ? AND deleted_at IS NULL",
+                (int(raw_id),),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row or not row["asset_path"]:
+            return _json_error(404, "asset_not_found")
+        # Resolve both repository-approved default template PNGs and private uploaded
+        # catalog assets through the same traversal-safe resolver used by the store.
+        from profile_store_public import _resolve_asset_path
+        path = _resolve_asset_path(row["asset_path"])
+        if path is None:
+            return _json_error(404, "asset_not_found")
+        return web.FileResponse(path, headers={
+            "Cache-Control": "private, max-age=60",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        })
 
     @routes.post("/api/guild/{guild_id}/profile-store/items/{item_id}/asset")
     async def profile_store_item_upload(request):

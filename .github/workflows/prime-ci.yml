@@ -33,6 +33,7 @@ jobs:
           node --check dashboard/app.js
           node --check dashboard/ai-control.js
           node --check dashboard/profile-store.js
+          node --check dashboard/profile-store-admin.js
 
       - name: Install dependencies
         run: pip install -r requirements.txt

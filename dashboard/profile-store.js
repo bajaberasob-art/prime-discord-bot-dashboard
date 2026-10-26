@@ -156,29 +156,69 @@
   function renderCategories() {
     const root = $("#categoryTabs");
     root.replaceChildren();
-    const counts = { all: state.items.length };
-    state.items.forEach(item => { counts[item.item_type] = (counts[item.item_type] || 0) + 1; });
-    ["all", "background", "card_color", "card_template", "flag", "badge", "shape", "club_logo"].forEach(key => {
-      if (key !== "all" && !counts[key]) return;
-      const meta = CATEGORIES[key];
+    const typeCounts = { all: state.items.length };
+    state.items.forEach(item => {
+      typeCounts[item.item_type] = (typeCounts[item.item_type] || 0) + 1;
+    });
+
+    const appendTab = (key, label, icon, count) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "category-tab" + (state.category === key ? " is-active" : "");
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", String(state.category === key));
       button.dataset.category = key;
-      const icon = document.createElement("span");
-      icon.className = "tab-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = meta.icon;
-      const label = document.createElement("span");
-      label.textContent = meta.label;
-      const count = document.createElement("span");
-      count.className = "tab-count";
-      count.textContent = fmt(counts[key] || 0);
-      button.append(icon, label, count);
+      const iconNode = document.createElement("span");
+      iconNode.className = "tab-icon";
+      iconNode.setAttribute("aria-hidden", "true");
+      iconNode.textContent = icon;
+      const labelNode = document.createElement("span");
+      labelNode.textContent = label;
+      const countNode = document.createElement("span");
+      countNode.className = "tab-count";
+      countNode.textContent = fmt(count || 0);
+      button.append(iconNode, labelNode, countNode);
       root.append(button);
+    };
+
+    ["all", "background", "card_color", "card_template", "flag", "badge", "shape", "club_logo"].forEach(key => {
+      if (key !== "all" && !typeCounts[key]) return;
+      const meta = CATEGORIES[key];
+      appendTab(key, meta.label, meta.icon, typeCounts[key] || 0);
     });
+
+    // Store section labels are chosen by the owner in the admin studio. A section
+    // can group several item types while the original item_type remains authoritative
+    // for equipping and gameplay. Default labels that merely repeat a type tab are
+    // omitted to keep the navigation compact.
+    const categoriesByName = new Map();
+    state.items.forEach(item => {
+      const name = String(item.category || "").trim();
+      if (!name || name.toLowerCase() === "all") return;
+      if (!categoriesByName.has(name)) categoriesByName.set(name, []);
+      categoriesByName.get(name).push(item);
+    });
+    const typeByDefaultLabel = new Map([
+      ["الخلفيات", "background"], ["backgrounds", "background"],
+      ["ألوان البطاقة", "card_color"], ["colors", "card_color"],
+      ["قوالب البروفايل", "card_template"], ["القوالب", "card_template"], ["templates", "card_template"],
+      ["الأعلام", "flag"], ["flags", "flag"],
+      ["الشارات", "badge"], ["الاستكرات", "badge"], ["stickers", "badge"],
+      ["الأشكال", "shape"], ["الإطارات", "shape"], ["frames", "shape"],
+      ["شعارات الأندية", "club_logo"], ["الشعارات", "club_logo"], ["البانرات", "club_logo"], ["banners", "club_logo"],
+    ]);
+    [...categoriesByName.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, "ar"))
+      .forEach(([name, group]) => {
+        const equivalentType = typeByDefaultLabel.get(name.toLowerCase());
+        if (equivalentType && group.every(item => item.item_type === equivalentType)) return;
+        const labelByKnownName = {
+          templates: "قوالب البروفايل", القوالب: "قوالب البروفايل", backgrounds: "الخلفيات", stickers: "الاستكرات",
+          flags: "الأعلام", banners: "البانرات", frames: "الإطارات",
+          colors: "الألوان", profile: "البروفايل",
+        };
+        appendTab("custom:" + name, labelByKnownName[name.toLowerCase()] || name, "▦", group.length);
+      });
   }
   function renderSubcategories(items) {
     const root = $("#subcategoryTabs");
@@ -203,7 +243,12 @@
   }
   function visibleItems() {
     let items = state.items.slice();
-    if (state.category !== "all") items = items.filter(item => item.item_type === state.category);
+    if (state.category.startsWith("custom:")) {
+      const selectedSection = state.category.slice("custom:".length);
+      items = items.filter(item => String(item.category || "").trim() === selectedSection);
+    } else if (state.category !== "all") {
+      items = items.filter(item => item.item_type === state.category);
+    }
     if (state.subcategory !== "all") items = items.filter(item => subcategory(item) === state.subcategory);
     if (state.filter === "owned") items = items.filter(isOwned);
     if (state.filter === "affordable") items = items.filter(canAfford);
