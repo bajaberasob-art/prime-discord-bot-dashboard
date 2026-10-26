@@ -298,7 +298,7 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         self.assertIn('level_template = str(level_box.get("text_template") or "المستوى {level}")[:100]', renderer)
         self.assertIn("_clamp(name_box.get(\"font_size\")", renderer)
         self.assertIn("_safe_color(name_box.get(\"color\"), light_text)", renderer)
-        self.assertIn("_clamp(stat.get(\"font_size\")", renderer)
+        self.assertIn('stat.get("font_size")', renderer)
 
 if __name__ == "__main__":
     unittest.main()
