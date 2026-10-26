@@ -76,11 +76,23 @@ def _safe_metadata(template: dict) -> dict:
         layout = "portrait" if height > width else ("square" if width == height else "wide")
     metadata["layout"] = layout
     metadata.setdefault("orientation", "portrait" if height > width else ("square" if width == height else "landscape"))
-    # Missing background geometry means legacy full-card behavior. The admin editor
-    # writes a dedicated inset area when a template is explicitly configured.
+    # Existing catalog rows predate background geometry. Give them a conservative
+    # inset default immediately (matching the admin editor), while preserving manual
+    # per-template coordinates wherever they have already been saved.
     area = metadata.get("background_area")
     if not isinstance(area, dict):
-        area = {"x": 0, "y": 0, "width": width, "height": height, "fit": "cover"}
+        if width > height * 1.08:
+            area = {
+                "x": round(width * 0.05), "y": round(height * 0.06),
+                "width": round(width * 0.90), "height": round(height * 0.85),
+                "fit": "cover",
+            }
+        else:
+            area = {
+                "x": round(width * 0.07), "y": round(height * 0.045),
+                "width": round(width * 0.86), "height": round(height * 0.90),
+                "fit": "cover",
+            }
     area_x = _clamp(area.get("x"), 0, width - 1, 0)
     area_y = _clamp(area.get("y"), 0, height - 1, 0)
     area_width = _clamp(area.get("width"), 1, width - area_x, width - area_x)
