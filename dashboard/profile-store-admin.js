@@ -172,6 +172,18 @@ function displayLayoutLeft(box){return box.kind==='text'?(box.anchor==='ra'?box.
 function updateLayoutOverlayStyle(element,key){
  const box=getLayoutBox(key),meta=normalizeLayoutMetadata();
  element.style.left=(displayLayoutLeft(box)/meta.width*100)+'%';element.style.top=(box.y/meta.height*100)+'%';element.style.width=(box.width/meta.width*100)+'%';element.style.height=(box.height/meta.height*100)+'%';
+ const label=element.querySelector('span');
+ if(label&&(box.kind==='text'||box.kind==='stat')){
+  const stage=$('layoutStage'),ratio=stage.clientWidth/Math.max(1,meta.width);
+  label.style.color=box.color||'';
+  label.style.fontSize=Math.max(7,Math.min(22,(Number(box.font_size)||13)*ratio))+'px';
+  label.style.fontWeight=box.bold===false?'500':'800';
+  const family=box.font_family||'modern';
+  label.style.fontFamily=family==='elegant'?'Georgia,serif':family==='tech'?'Arial Narrow,Arial,sans-serif':family==='soft'?'system-ui,sans-serif':'system-ui,sans-serif';
+  const stroke=Math.max(0,Math.min(6,Number(box.stroke_width)||0))*ratio;
+  label.style.webkitTextStrokeWidth=stroke+'px';
+  label.style.webkitTextStrokeColor='rgba(0,0,0,.72)';
+ }
 }
 function renderLayoutEditor(){
  const panel=$('layoutEditorPanel');if(!panel)return;const active=$('type').value==='card_template';panel.classList.toggle('hidden',!active);if(!active)return;
@@ -190,6 +202,14 @@ function renderLayoutEditor(){
 }
 function updateBackgroundPreview(){const preview=$('layoutBackgroundPreview'),select=$('layoutBackgroundSource');if(!preview||!select)return;const id=select.value,item=items.find(value=>String(value.item_id)===String(id)&&value.item_type==='background'&&value.has_asset),meta=normalizeLayoutMetadata(),area=meta.background_area;if(!item){preview.removeAttribute('src');preview.classList.add('hidden');preview.dataset.source='';return}const source=assetUrl(item.item_id);if(preview.dataset.source!==source){preview.dataset.source=source;preview.src=source}preview.classList.remove('hidden');preview.style.left=(area.x/meta.width*100)+'%';preview.style.top=(area.y/meta.height*100)+'%';preview.style.width=(area.width/meta.width*100)+'%';preview.style.height=(area.height/meta.height*100)+'%';preview.style.objectFit=area.fit==='contain'?'contain':'cover';preview.style.background='rgba(8,11,20,.5)'}
 function syncLayoutEditor(force){if(force)layoutImageSource='';renderLayoutEditor()}
+function defaultElementFontSize(key,box,meta){
+ const short=Math.min(meta.width,meta.height);
+ if(key==='name')return Math.max(28,Math.min(64,Math.floor(short*.056)));
+ if(key==='handle')return Math.max(20,Math.min(36,Math.floor(short*.034)));
+ if(key==='level')return Math.max(30,Math.min(60,Math.floor(short*.052)));
+ const height=Number(box.h)||Math.max(28,Math.round(meta.height*.1));
+ return Math.max(32,Math.min(72,Math.floor(height*.43)));
+}
 function updateLayoutControls(){
  const key=$('layoutField').value||'avatar';ensureLayoutField(key);const box=getLayoutBox(key),meta=normalizeLayoutMetadata();
  $('layoutX').max=meta.width;$('layoutY').max=meta.height;$('layoutWidth').max=meta.width;$('layoutHeight').max=meta.height;
@@ -197,7 +217,33 @@ function updateLayoutControls(){
  $('layoutAnchor').disabled=box.kind!=='text';$('layoutAnchor').value=box.anchor==='la'?'la':'ra';
  $('backgroundFit').disabled=key!=='background_area';$('backgroundFit').value=meta.background_area.fit||'cover';
  $('layoutXpEnabled').disabled=key!=='xp_bar';$('layoutXpEnabled').checked=!!(meta.xp_bar&&meta.xp_bar.enabled);
+ const styleable=box.kind==='text'||box.kind==='stat';
+ const item=items.find(value=>String(value.item_id)===String($('itemId').value||''));
+ const defaultFamily=item&&item.style&&['modern','tech','elegant','soft'].includes(item.style.font_family)?item.style.font_family:'modern';
+ $('layoutFontSize').value=Number(box.font_size)||defaultElementFontSize(key,box,meta);
+ $('layoutFontFamily').value=['modern','tech','elegant','soft'].includes(box.font_family)?box.font_family:defaultFamily;
+ $('layoutTextColor').value=/^#[0-9a-fA-F]{6}$/.test(String(box.color||''))?box.color:'#FFFFFF';
+ $('layoutAutoColor').checked=!box.color;
+ $('layoutBold').checked=typeof box.bold==='boolean'?box.bold:(box.kind==='stat'||key==='name'||key==='level');
+ $('layoutStrokeWidth').value=Number.isFinite(Number(box.stroke_width))&&box.stroke_width!==''?Math.max(0,Math.min(6,Math.round(Number(box.stroke_width)))):(key==='handle'?1:2);
+ for(const id of ['layoutFontSize','layoutFontFamily','layoutAutoColor','layoutBold','layoutStrokeWidth','applyElementStyle'])$(id).disabled=!styleable;
+ $('layoutTextColor').disabled=!styleable||$('layoutAutoColor').checked;
+ $('layoutStyleHelp').textContent=styleable?'تُحفظ إعدادات الخط واللون والحد لهذا العنصر فقط. اضغط تطبيق مظهر العنصر، ثم حفظ التخطيط لتثبيت التغييرات واستخدامها في بطاقة البروفايل.':'إعدادات النص تظهر عند اختيار الاسم أو اسم الحساب أو المستوى أو أحد الإحصاءات النصية.';
  $('layoutHelp').textContent=key==='background_area'?'حدد مساحة ظهور صورة الخلفية داخل القالب بالسحب أو بتعديل X/Y والعرض والارتفاع. تُركّب صورة الخلفية داخل هذا المستطيل فقط، ويبقى إطار القالب فوقها. اختر ملء المساحة للقص المتناسب أو إظهار الصورة كاملة دون قص.':key==='xp_bar'?'يمكن تحديد موضع شريط الخبرة وحجمه. تفعيل الرسم يرسم نسبة XP الحقيقية؛ اتركه متوقفاً إذا كان الشريط مرسوماً داخل صورة القالب.':box.kind==='text'?'يتحكم العرض في المساحة القصوى للنص، وتحدد المحاذاة اتجاه تثبيت نقطة الإحداثيات.':'اسحب العنصر فوق الصورة، أو أدخل قيم X/Y والعرض والارتفاع بدقة.';
+}
+function applyElementStyle(){
+ const key=$('layoutField').value||'avatar',box=ensureLayoutField(key);
+ if(!['text','stat'].includes(layoutKind(key))){notice('اختر عنصرًا نصيًا قبل تعديل مظهره.',true);return}
+ const fontSize=Number($('layoutFontSize').value),strokeWidth=Number($('layoutStrokeWidth').value);
+ if(!Number.isFinite(fontSize)||fontSize<8||fontSize>120||!Number.isFinite(strokeWidth)||strokeWidth<0||strokeWidth>6){notice('حجم الخط يجب أن يكون بين 8 و120، وحد النص بين 0 و6.',true);return}
+ box.font_size=Math.round(fontSize);
+ box.font_family=['modern','tech','elegant','soft'].includes($('layoutFontFamily').value)?$('layoutFontFamily').value:'modern';
+ box.bold=$('layoutBold').checked;
+ box.stroke_width=Math.round(strokeWidth);
+ if($('layoutAutoColor').checked)delete box.color;
+ else box.color=$('layoutTextColor').value;
+ renderLayoutEditor();
+ notice('تم تطبيق المظهر في الاستوديو. اضغط «حفظ التخطيط» لتثبيت التغييرات.');
 }
 function applyLayoutInputs(){
  const key=$('layoutField').value||'avatar',box=getLayoutBox(key);let x=Number($('layoutX').value),y=Number($('layoutY').value),w=Number($('layoutWidth').value),h=Number($('layoutHeight').value);
@@ -226,6 +272,8 @@ function moveLayoutPointer(event){
 function endLayoutPointer(event){if(!layoutDrag||event.pointerId!==layoutDrag.pointerId)return;layoutDrag=null;renderLayoutEditor()}
 $('layoutBackgroundSource').addEventListener('change',updateBackgroundPreview);
 $('layoutField').addEventListener('change',()=>{ensureLayoutField($('layoutField').value);renderLayoutEditor()});
+$('layoutAutoColor').addEventListener('change',()=>{$('layoutTextColor').disabled=$('layoutAutoColor').checked||!['text','stat'].includes(layoutKind($('layoutField').value||'avatar'))});
+$('applyElementStyle').addEventListener('click',applyElementStyle);
 $('applyLayout').addEventListener('click',applyLayoutInputs);
 $('saveLayout').addEventListener('click',async()=>{const id=String($('itemId').value||'');if(!id){notice('احفظ المنتج أولاً، ثم احفظ تخطيط القالب.',true);return}const item=items.find(value=>String(value.item_id)===id);if(!item||item.item_type!=='card_template'){notice('اختر قالباً محفوظاً أولاً.',true);return}const button=$('saveLayout');button.disabled=true;try{const desired=payload();const result=await api('/items/'+id,{method:'PUT',body:JSON.stringify({...desired,is_active:!!item.is_active,is_featured:!!item.is_featured})});const saved=result.item;if(!saved||JSON.stringify(saved.metadata||{})!==JSON.stringify(desired.metadata)){await load();const fresh=items.find(value=>String(value.item_id)===id);if(!fresh||JSON.stringify(fresh.metadata||{})!==JSON.stringify(desired.metadata))throw new Error('لم تتطابق الإعدادات بعد إعادة قراءتها من قاعدة البيانات.')}await load();edit(Number(id));notice('تم حفظ التخطيط والتحقق منه بعد إعادة تحميل بيانات المتجر.')}catch(error){notice('تعذر حفظ التخطيط: '+error.message,true)}finally{button.disabled=false}});
 $('backgroundFit').addEventListener('change',()=>{ensureLayoutField('background_area').fit=$('backgroundFit').value==='contain'?'contain':'cover';renderLayoutEditor()});
