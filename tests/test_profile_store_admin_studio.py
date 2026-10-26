@@ -52,6 +52,20 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         self.assertIn("image/gif", client)
         self.assertIn("image/gif", (Path(__file__).resolve().parents[1] / "dashboard" / "profile-store-admin.html").read_text("utf-8"))
 
+    def test_admin_metrics_count_paid_and_hidden_products_using_category_visibility(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
+        client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        for metric_id in ("countAll", "countActive", "countFree", "countPaid", "countHidden", "countMissing"):
+            with self.subTest(metric_id=metric_id):
+                self.assertIn(f'id="{metric_id}"', page)
+                self.assertIn(f"$('{'"'}{metric_id}{'"'}')", client)
+        self.assertIn("function isShopVisible(item)", client)
+        self.assertIn("if(parent&&!parent.is_active)return false", client)
+        self.assertIn("if(child&&!child.is_active)return false", client)
+        self.assertIn("items.filter(i=>Number(i.price)>0).length", client)
+        self.assertIn("items.filter(i=>!isShopVisible(i)).length", client)
+
     def test_uploaded_template_receives_safe_default_layout_metadata(self):
         portrait = default_uploaded_template_metadata(1024, 1536)
         wide = default_uploaded_template_metadata(1860, 845)
