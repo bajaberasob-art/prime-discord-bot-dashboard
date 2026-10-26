@@ -7,7 +7,26 @@ function refreshBackgroundPreviewOptions(){const select=$('layoutBackgroundSourc
 function notice(message,error=false){const n=$('notice');n.textContent=message;n.classList.toggle('error',error);n.style.display='block';window.setTimeout(()=>n.style.display='none',6000)}
 async function api(path,opts={}){const headers=new Headers(opts.headers||{});headers.set('X-CSRF-Token',csrf);if(opts.body&&!(opts.body instanceof FormData))headers.set('Content-Type','application/json');const res=await fetch(endpoint(path),{...opts,headers,credentials:'same-origin'});let data={};try{data=await res.json()}catch{}if(!res.ok)throw new Error(data.message||data.error||('HTTP '+res.status));return data}
 function parseItem(i){return {...i,style:i.style||{},metadata:i.metadata||{}}}
-async function load(){try{const data=await api('');items=(data.items||[]).map(parseItem);categories=(data.categories||[]).map(c=>({...c,category_id:Number(c.category_id),parent_id:c.parent_id==null?null:Number(c.parent_id),sort_order:Number(c.sort_order)||0,is_active:!!c.is_active}));settings=data.settings||{};refreshBackgroundPreviewOptions();const sales=data.sales||{};$('salesPurchases').textContent=fmtNumber(sales.purchases);$('salesBuyers').textContent=fmtNumber(sales.buyers);$('salesMoon').textContent=fmtNumber(sales.moon_revenue);$('salesGems').textContent=fmtNumber(sales.gem_revenue);$('storeEnabled').checked=!!Number(settings.enabled);$('customEnabled').checked=!!Number(settings.custom_upload_enabled);$('customPrice').value=settings.custom_upload_price||0;$('customCurrency').value=settings.custom_upload_currency||'moon';$('maxUpload').value=Math.max(0.001,Number(settings.max_custom_upload_bytes||5242880)/1048576).toFixed(3);$('sessionTtl').value=settings.session_ttl_seconds||900;render();}catch(e){notice('تعذر تحميل المتجر: '+e.message,true)}}
+function switchAdminTab(name){
+ const valid=new Set(['overview','products','design','categories','settings']);
+ if(!valid.has(name))name='overview';
+ document.querySelectorAll('[data-admin-pane]').forEach(p=>p.classList.toggle('hidden',p.dataset.adminPane!==name));
+ document.querySelectorAll('[data-admin-tab]').forEach(b=>{const active=b.dataset.adminTab===name;b.classList.toggle('is-active',active);b.setAttribute('aria-selected',active?'true':'false');});
+ if(name==='design')renderLayoutEditor();
+}
+function updateDesignTemplateOptions(){
+ const select=$('designTemplateSelect');if(!select)return;
+ const previous=select.value;
+ const current=items.find(item=>String(item.item_id)===String($('itemId').value||'')&&item.item_type==='card_template');
+ const templates=items.filter(item=>item.item_type==='card_template');
+ select.innerHTML='<option value="">اختر قالبًا محفوظًا</option>'+templates.map(item=>'<option value="'+escape(item.item_id)+'">'+escape(item.name)+' · '+escape(item.slug)+'</option>').join('');
+ if(templates.some(item=>String(item.item_id)===previous))select.value=previous;
+ else if(current)select.value=String(current.item_id);
+ else select.value='';
+ $('designLoadTemplate').disabled=templates.length===0;
+ $('designStatus').textContent=templates.length?'اختر القالب ثم افتحه في الاستوديو. القوالب غير المعدّلة تبقى كما هي حتى تحفظ تغييراتك.':'لا توجد قوالب بطاقات محفوظة بعد. أنشئ قالبًا من قسم المنتجات والقوالب أولًا.';
+}
+async function load(){try{const data=await api('');items=(data.items||[]).map(parseItem);updateDesignTemplateOptions();categories=(data.categories||[]).map(c=>({...c,category_id:Number(c.category_id),parent_id:c.parent_id==null?null:Number(c.parent_id),sort_order:Number(c.sort_order)||0,is_active:!!c.is_active}));settings=data.settings||{};refreshBackgroundPreviewOptions();const sales=data.sales||{};$('salesPurchases').textContent=fmtNumber(sales.purchases);$('salesBuyers').textContent=fmtNumber(sales.buyers);$('salesMoon').textContent=fmtNumber(sales.moon_revenue);$('salesGems').textContent=fmtNumber(sales.gem_revenue);$('storeEnabled').checked=!!Number(settings.enabled);$('customEnabled').checked=!!Number(settings.custom_upload_enabled);$('customPrice').value=settings.custom_upload_price||0;$('customCurrency').value=settings.custom_upload_currency||'moon';$('maxUpload').value=Math.max(0.001,Number(settings.max_custom_upload_bytes||5242880)/1048576).toFixed(3);$('sessionTtl').value=settings.session_ttl_seconds||900;render();}catch(e){notice('تعذر تحميل المتجر: '+e.message,true)}}
 function fmtNumber(value){return Number(value||0).toLocaleString('ar')}
 function localDateTimeValue(value){if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}
 function utcDateTimeValue(value){if(!value)return null;const d=new Date(value);if(Number.isNaN(d.getTime()))throw new Error('تأكد من صحة وقت بداية العرض ونهايته.');return d.toISOString()}
@@ -225,6 +244,20 @@ $('layoutStageImage').addEventListener('load',()=>{
  if(img.naturalWidth&&img.naturalHeight&&layoutNeedsDefault){layoutMetadata=defaultLayoutMetadata(img.naturalWidth,img.naturalHeight);layoutNeedsDefault=false;renderLayoutEditor()}
 });
 
+document.querySelectorAll('[data-admin-tab]').forEach(button=>button.addEventListener('click',()=>switchAdminTab(button.dataset.adminTab)));
+$('designLoadTemplate').addEventListener('click',()=>{
+ const selected=items.find(item=>String(item.item_id)===String($('designTemplateSelect').value)&&item.item_type==='card_template');
+ if(!selected){notice('اختر قالب بطاقة محفوظًا أولًا.',true);return}
+ edit(Number(selected.item_id));
+ switchAdminTab('design');
+ $('designStatus').textContent='القالب «'+selected.name+'» مفتوح للتحرير. حرّك العناصر أو اضبط قيمها ثم اضغط حفظ التخطيط.';
+});
+$('designTemplateSelect').addEventListener('change',()=>{
+ const selected=items.find(item=>String(item.item_id)===String($('designTemplateSelect').value)&&item.item_type==='card_template');
+ $('designStatus').textContent=selected?'سيتم فتح «'+selected.name+'» في الاستوديو عند الضغط على زر الفتح.':'اختر قالبًا محفوظًا لبدء التحرير.';
+});
+$('designManageProducts').addEventListener('click',()=>switchAdminTab('products'));
+switchAdminTab('overview');
 updateAssetField();resetCategory();
 load();
 })();
