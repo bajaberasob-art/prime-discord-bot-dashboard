@@ -44,9 +44,69 @@
 @media(max-width:760px){.admin-tabs{grid-template-columns:repeat(3,minmax(0,1fr));position:static}.admin-tab{font-size:13px;padding:9px 6px}}
 @media(max-width:460px){.admin-tabs{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:6px}.admin-tab{min-height:40px}}
 
+
+/* PRIME Creator Studio — premium visual pass */
+:root{--bg:#070b13;--panel:#101827;--line:#26384f;--muted:#91a4bd;--text:#f4f8ff;--accent:#78e2ff;--violet:#a99aff;--ok:#75e6b4;--bad:#ff8298;--gold:#f5d18a;--surface:#0b1220}
+body{background:radial-gradient(ellipse at 8% -10%,rgba(112,76,205,.20),transparent 34%),radial-gradient(ellipse at 95% 4%,rgba(39,175,218,.16),transparent 32%),linear-gradient(180deg,#080d17 0%,#070b13 55%,#090d17 100%);background-attachment:fixed}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;opacity:.16;background-image:linear-gradient(rgba(143,177,218,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(143,177,218,.08) 1px,transparent 1px);background-size:44px 44px;mask-image:linear-gradient(to bottom,black,transparent 75%)}
+.wrap{max-width:1500px;padding:clamp(14px,2.6vw,34px)}
+.top{position:relative;overflow:hidden;padding:clamp(20px,3vw,34px);border:1px solid rgba(120,226,255,.2);border-radius:24px;background:linear-gradient(118deg,rgba(15,29,48,.97),rgba(17,20,42,.94) 62%,rgba(31,25,62,.92));box-shadow:0 22px 70px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.045)}
+.top:after{content:"";position:absolute;left:-45px;top:-130px;width:340px;height:340px;border-radius:50%;border:1px solid rgba(120,226,255,.11);box-shadow:0 0 0 26px rgba(120,226,255,.025),0 0 0 54px rgba(169,154,255,.025);pointer-events:none}
+.top>div{position:relative;z-index:1}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid rgba(120,226,255,.24);border-radius:999px;background:rgba(120,226,255,.07);font-size:10px;font-weight:800;letter-spacing:.15em}
+.eyebrow:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+h1{font-size:clamp(28px,4.2vw,44px);letter-spacing:-.04em;line-height:1.2;margin:13px 0 9px}
+.top .muted{max-width:660px;font-size:14px;line-height:1.9}
+.top .actions{margin-top:0}
+button,a{transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease}
+button{border-color:#344b67;background:linear-gradient(180deg,#1a2a40,#132034);box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+button:hover:not(:disabled){transform:translateY(-1px);border-color:rgba(120,226,255,.55);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+button.primary{background:linear-gradient(115deg,#1b91ad 0%,#426fc0 48%,#7058c5 100%);box-shadow:0 8px 24px rgba(60,113,193,.22),inset 0 1px 0 rgba(255,255,255,.18)}
+.admin-tabs{margin:18px 0 10px;padding:7px;border-radius:18px;border-color:rgba(132,163,202,.17);background:rgba(9,15,26,.88);box-shadow:0 12px 35px rgba(0,0,0,.16);gap:7px}
+.admin-tab{position:relative;overflow:hidden;border-radius:12px;min-height:48px;color:#a9bad0}
+.admin-tab:before{content:"";position:absolute;inset:0;background:linear-gradient(110deg,rgba(120,226,255,.07),rgba(169,154,255,.07));opacity:0;transition:opacity .18s}
+.admin-tab:hover:before,.admin-tab[aria-selected="true"]:before{opacity:1}
+.admin-tab[aria-selected="true"]{color:#f6fbff;border-color:rgba(120,226,255,.3);background:linear-gradient(120deg,rgba(24,119,149,.24),rgba(95,74,159,.25));box-shadow:inset 0 0 0 1px rgba(120,226,255,.04),0 6px 20px rgba(0,0,0,.13)}
+.admin-tab[aria-selected="true"]:after{content:"";position:absolute;bottom:0;left:25%;right:25%;height:2px;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--violet));box-shadow:0 0 12px rgba(120,226,255,.55)}
+.panel{position:relative;border-color:rgba(132,163,202,.17);border-radius:20px;padding:clamp(15px,2vw,23px);margin-top:16px;background:linear-gradient(145deg,rgba(17,27,44,.96),rgba(11,17,29,.97));box-shadow:0 16px 48px rgba(0,0,0,.17),inset 0 1px 0 rgba(255,255,255,.025)}
+.panel h2{letter-spacing:-.02em;font-size:18px}
+.sectionhead{margin-bottom:14px}
+.sectionhead .muted{font-size:12px;line-height:1.75;max-width:760px}
+.stats{gap:10px;margin-top:16px}
+.stat{position:relative;overflow:hidden;border-radius:16px;border-color:rgba(132,163,202,.16);background:linear-gradient(145deg,rgba(19,32,51,.95),rgba(12,20,33,.95));padding:16px;box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}
+.stat:after{content:"";position:absolute;top:-24px;left:-22px;width:78px;height:78px;border-radius:50%;background:rgba(120,226,255,.045);filter:blur(2px)}
+.stat strong{font-size:clamp(23px,2vw,29px);letter-spacing:-.035em;margin-top:5px}
+.stat .muted{font-size:12px}
+.items{gap:14px}
+.item{border-color:rgba(132,163,202,.19);border-radius:17px;background:linear-gradient(150deg,#101b2c,#0a111d);box-shadow:0 8px 24px rgba(0,0,0,.12);transition:transform .18s,border-color .18s,box-shadow .18s}
+.item:hover{transform:translateY(-3px);border-color:rgba(120,226,255,.35);box-shadow:0 16px 35px rgba(0,0,0,.22)}
+.thumb{height:160px;background:radial-gradient(ellipse at 20% 0,rgba(120,226,255,.15),transparent 55%),linear-gradient(135deg,#17263a,#211e42)}
+.itembody{padding:15px}
+.itemtitle strong{font-size:14px;line-height:1.6}
+.pill{border:1px solid rgba(120,226,255,.13);background:rgba(120,226,255,.08);color:#c8f2ff;padding:4px 9px}
+input,select,textarea{border-color:#2a3c55;border-radius:12px;background:linear-gradient(180deg,#080f1b,#0a111d);padding:12px;outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:rgba(120,226,255,.65);box-shadow:0 0 0 3px rgba(120,226,255,.09)}
+input[type="checkbox"]{accent-color:#78e2ff}
+label{font-weight:650;color:#c5d4e8}
+.field{gap:8px}
+.fields{gap:14px}
+textarea{line-height:1.7}
+.layout-editor-panel{border-color:rgba(120,226,255,.22);border-radius:19px;background:linear-gradient(145deg,rgba(9,19,32,.96),rgba(13,15,30,.96));box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+.layout-stage-shell{border-radius:16px;border-color:rgba(132,163,202,.18);background:#070c15;box-shadow:inset 0 0 35px rgba(0,0,0,.22)}
+.layout-controls{padding:2px}
+.layout-help{border-radius:12px;border-color:rgba(120,226,255,.17);background:rgba(120,226,255,.045)}
+#designTemplatePicker{border-color:rgba(169,154,255,.23);background:linear-gradient(120deg,rgba(19,28,47,.98),rgba(20,18,42,.96))}
+#designStatus{margin-bottom:0;line-height:1.8}
+#notice{position:sticky;top:10px;z-index:30;box-shadow:0 10px 30px rgba(0,0,0,.25);backdrop-filter:blur(12px)}
+.category-card{border-color:rgba(132,163,202,.17);border-radius:15px;background:linear-gradient(145deg,#111d2e,#0a111d)}
+.foot{border-top:1px solid rgba(132,163,202,.12);padding-top:18px}
+@media(max-width:760px){.top{padding:20px;border-radius:19px}.top .actions{width:100%}.top .actions button{flex:1}.admin-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}.admin-tab{font-size:12px;line-height:1.4}}
+@media(max-width:460px){.admin-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.stat{padding:13px}.itembody{padding:12px}.thumb{height:145px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+
 </style></head>
 <body><main class="wrap" id="app" data-guild-id="" data-csrf="">
-<header class="top"><div><div class="eyebrow">PRIME CONTROL / CREATOR STUDIO</div><h1>إدارة متجر البروفايل</h1><div class="muted">أنشئ الأقسام والمنتجات، ارفع صورك، وحدد السعر والظهور من مكان واحد.</div></div><div class="actions"><a href="/" style="color:var(--accent);align-self:center">العودة للوحة</a><button id="refresh">تحديث البيانات ↻</button></div></header>
+<header class="top"><div><div class="eyebrow">PRIME CONTROL / CREATOR STUDIO</div><h1>إدارة متجر البروفايل</h1><div class="muted">مساحة إدارة متكاملة لقوالب البروفايل وأصول المتجر — نظّم منتجاتك، واضبط تخطيطاتك، وراجع إعدادات البيع من واجهة واحدة مرتبة.</div></div><div class="actions"><a href="/" style="color:var(--accent);align-self:center">العودة للوحة</a><button id="refresh">تحديث البيانات ↻</button></div></header>
 <nav class="admin-tabs" role="tablist" aria-label="أقسام إدارة متجر البروفايل">
 <button type="button" class="admin-tab" role="tab" data-admin-tab="overview" aria-controls="pane-overview" aria-selected="true">نظرة عامة</button>
 <button type="button" class="admin-tab" role="tab" data-admin-tab="products" aria-controls="pane-products" aria-selected="false">المنتجات والقوالب</button>
@@ -136,4 +196,4 @@
 <section class="panel"><div class="sectionhead"><div><h2>كتالوج المنتجات</h2><div class="muted">ابحث بالاسم أو صفِّ حسب النوع والحالة.</div></div><div class="toolbar"><input id="search" placeholder="ابحث عن منتج..."><select id="filterType"><option value="">كل الأنواع</option><option value="background">خلفيات</option><option value="card_template">قوالب</option><option value="badge">استكرات / شارات</option><option value="flag">أعلام</option><option value="shape">إطارات</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان</option></select><select id="filterCategory"><option value="">كل الأقسام</option></select><select id="filterStatus"><option value="">كل الحالات</option><option value="active">معروض</option><option value="inactive">مخفي</option><option value="free">مجاني</option><option value="paid">مدفوع</option></select></div></div><div id="items" class="items"><p class="muted">جارٍ تحميل المنتجات...</p></div></section>
 </div>
 <div class="foot">PRIME Store Studio · الإدارة محمية بصلاحيات المالك. كل التغييرات تُحفظ في قاعدة بيانات المتجر الحالية.</div>
-</main><script src="/static/profile-store-admin.js?v=admin-tabs-studio-1" defer></script></body></html>
+</main><script src="/static/profile-store-admin.js?v=admin-tabs-studio-premium-2" defer></script></body></html>
