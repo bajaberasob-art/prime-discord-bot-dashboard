@@ -59,7 +59,7 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         for metric_id in ("countAll", "countActive", "countFree", "countPaid", "countHidden", "countMissing"):
             with self.subTest(metric_id=metric_id):
                 self.assertIn(f'id="{metric_id}"', page)
-                self.assertIn(f"$('{'"'}{metric_id}{'"'}')", client)
+                self.assertIn("$(" + "'" + metric_id + "'" + ")", client)
         self.assertIn("function isShopVisible(item)", client)
         self.assertIn("if(parent&&!parent.is_active)return false", client)
         self.assertIn("if(child&&!child.is_active)return false", client)
