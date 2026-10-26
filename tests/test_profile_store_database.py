@@ -34,6 +34,8 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             "user_profile_gem_wallets",
             "profile_store_transactions",
             "profile_store_admin_audit",
+            "profile_store_categories",
+            "profile_store_catalog_audit",
         }
         async with database.connect() as db:
             async with db.execute(
@@ -63,8 +65,28 @@ class ProfileStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             "idx_profile_store_web_sessions_expiry",
             "idx_profile_store_transactions_owner",
             "idx_profile_store_admin_audit_target",
+            "idx_profile_store_categories_parent_name",
+            "idx_profile_store_categories_order",
+            "idx_profile_store_catalog_audit_time",
         }.issubset(indexes))
         self.assertEqual(tuple(settings), (1, 0, 0, "moon", 5 * 1024 * 1024, 900))
+
+    async def test_category_migration_seeds_legacy_catalog_without_changing_items(self):
+        async with database.connect() as db:
+            async with db.execute(
+                "SELECT category_id, name, parent_id, is_active FROM profile_store_categories"
+            ) as cursor:
+                rows = await cursor.fetchall()
+            async with db.execute(
+                "SELECT slug, category, subcategory FROM profile_store_items ORDER BY item_id"
+            ) as cursor:
+                items_before = await cursor.fetchall()
+        self.assertTrue(rows)
+        self.assertTrue(any(row[1] == "templates" and row[2] is None for row in rows))
+        self.assertTrue(all(row[3] == 1 for row in rows))
+        # The migration introduces management metadata but leaves legacy catalog fields intact.
+        self.assertTrue(any(row[1] == "profile-neon-wide" for row in items_before))
+        self.assertTrue(any(row[1] == "templates" for row in items_before))
 
     async def test_schema_initialization_is_idempotent(self):
         await profile_store_db.ensure_profile_store_schema()
