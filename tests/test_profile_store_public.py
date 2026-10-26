@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from aiohttp import CookieJar, FormData, web
 from aiohttp.test_utils import TestClient, TestServer
@@ -59,6 +60,34 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             )
             await db.commit()
             return int(cursor.lastrowid)
+
+    async def test_category_admin_api_rejects_authenticated_non_owner(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"id": 555}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = SimpleNamespace(owner_id=None, owner_ids=set(), application=None)
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            with patch.dict(os.environ, {
+                "PROFILE_STORE_ADMIN_IDS": "", "BOT_OWNER_IDS": "", "BOT_OWNER_ID": "",
+            }):
+                await client.start_server()
+                response = await client.post(
+                    "/api/guild/99/profile-store/categories",
+                    json={"name": "forbidden-section", "parent_id": None, "sort_order": 0, "is_active": True},
+                )
+                self.assertEqual(response.status, 403, await response.text())
+                self.assertIn("profile_store_owner_required", await response.text())
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
 
     async def test_admin_asset_upload_route_sanitizes_image_and_rejects_invalid_content(self):
         original_registered = profile_store_admin._registered
