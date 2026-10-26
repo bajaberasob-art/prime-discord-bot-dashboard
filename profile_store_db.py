@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 import database
 
-PROFILE_STORE_SCHEMA_VERSION = 4
+PROFILE_STORE_SCHEMA_VERSION = 5
 DEFAULT_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -245,6 +245,43 @@ _SCHEMA_STATEMENTS = (
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         deleted_at TEXT
     )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS profile_store_categories (
+        category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 80),
+        parent_id INTEGER REFERENCES profile_store_categories(category_id) ON DELETE RESTRICT,
+        sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order BETWEEN 0 AND 1000000),
+        is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+        created_by INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_store_categories_parent_name
+        ON profile_store_categories(COALESCE(parent_id, 0), name COLLATE NOCASE)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profile_store_categories_order
+        ON profile_store_categories(parent_id, is_active, sort_order, category_id)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS profile_store_catalog_audit (
+        audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id INTEGER NOT NULL CHECK (guild_id > 0),
+        actor_user_id INTEGER CHECK (actor_user_id IS NULL OR actor_user_id > 0),
+        action TEXT NOT NULL CHECK (length(trim(action)) BETWEEN 1 AND 48),
+        entity_type TEXT NOT NULL CHECK (entity_type IN ('item', 'category', 'asset')),
+        entity_id INTEGER,
+        before_json TEXT NOT NULL DEFAULT '{}',
+        after_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_profile_store_catalog_audit_time
+        ON profile_store_catalog_audit(guild_id, created_at DESC)
     """,
     """
     CREATE TABLE IF NOT EXISTS user_profile_inventory (
@@ -498,12 +535,54 @@ async def ensure_profile_store_schema() -> None:
                   AND item_type = 'card_template'
                 """
             )
+            # Create canonical category rows from the existing text-based catalog without
+            # changing item IDs, prices, ownership, or purchase history.
+            async with db.execute(
+                """
+                SELECT DISTINCT category FROM profile_store_items
+                WHERE deleted_at IS NULL AND trim(category) NOT IN ('', 'all')
+                ORDER BY category COLLATE NOCASE
+                """
+            ) as cursor:
+                category_rows = await cursor.fetchall()
+            for category_row in category_rows:
+                category_name = str(category_row["category"]).strip()
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO profile_store_categories (name, parent_id, sort_order, is_active)
+                    VALUES (?, NULL, 0, 1)
+                    """,
+                    (category_name,),
+                )
+            async with db.execute(
+                """
+                SELECT DISTINCT category, subcategory FROM profile_store_items
+                WHERE deleted_at IS NULL AND trim(category) NOT IN ('', 'all')
+                  AND trim(subcategory) <> ''
+                ORDER BY category COLLATE NOCASE, subcategory COLLATE NOCASE
+                """
+            ) as cursor:
+                subcategory_rows = await cursor.fetchall()
+            for row in subcategory_rows:
+                async with db.execute(
+                    "SELECT category_id FROM profile_store_categories WHERE parent_id IS NULL AND name = ? COLLATE NOCASE",
+                    (str(row["category"]).strip(),),
+                ) as cursor:
+                    parent = await cursor.fetchone()
+                if parent:
+                    await db.execute(
+                        """
+                        INSERT OR IGNORE INTO profile_store_categories (name, parent_id, sort_order, is_active)
+                        VALUES (?, ?, 0, 1)
+                        """,
+                        (str(row["subcategory"]).strip(), int(parent["category_id"])),
+                    )
             await db.execute(
                 """
                 INSERT OR IGNORE INTO profile_store_migrations (version, description)
                 VALUES (?, ?)
                 """,
-                (PROFILE_STORE_SCHEMA_VERSION, "Add audited admin gem adjustments to the PRIME storefront"),
+                (PROFILE_STORE_SCHEMA_VERSION, "Add manageable profile-store categories and catalog audit trail"),
             )
             await db.commit()
         except BaseException:
