@@ -200,6 +200,7 @@ function moveLayoutPointer(event){
  let x=layoutDrag.x,y=layoutDrag.y,w=layoutDrag.width,h=layoutDrag.height;
  if(layoutDrag.mode==='move'){x+=dx;y+=dy}else if(layoutDrag.key==='background_area'){const c=layoutDrag.corner;if(c.includes('w')){x+=dx;w-=dx}else{w+=dx}if(c.includes('n')){y+=dy;h-=dy}else{h+=dy}}else{w+=(layoutDrag.kind==='text'&&layoutDrag.anchor==='ra'?-dx:dx);h+=dy}
  writeLayoutBox(layoutDrag.key,x,y,w,h);
+ if(layoutDrag.key==='background_area')updateBackgroundPreview();
  const el=layoutDrag.target;if(el&&el.isConnected)updateLayoutOverlayStyle(el,layoutDrag.key);
  const box=getLayoutBox(layoutDrag.key);$('layoutX').value=Math.round(box.x);$('layoutY').value=Math.round(box.y);$('layoutWidth').value=Math.round(box.width);$('layoutHeight').value=Math.round(box.height);
 }
