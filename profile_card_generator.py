@@ -890,7 +890,7 @@ def _draw_stat_text(
     center_x = x + width // 2
     label = str(stat.get("label", ""))
     selected_family = stat.get("font_family")
-    if selected_family not in _FONT_FAMILY_FILES:
+    if not isinstance(selected_family, str) or selected_family not in _FONT_FAMILY_FILES:
         selected_family = font_family
     label_size = max(8, min(120, _clamp(
         stat.get("label_font_size"),
@@ -1085,7 +1085,7 @@ def render_profile_card(
     name_default_size = max(28, min(64, int(min(width, height) * .056)))
     name_font_size = _clamp(name_box.get("font_size"), 8, 120, name_default_size)
     name_family = name_box.get("font_family")
-    if name_family not in _FONT_FAMILY_FILES:
+    if not isinstance(name_family, str) or name_family not in _FONT_FAMILY_FILES:
         name_family = font_family
     name_bold = name_box.get("bold") if isinstance(name_box.get("bold"), bool) else True
     name_font = _fit_font(
@@ -1098,7 +1098,7 @@ def render_profile_card(
     handle_default_size = max(20, min(36, int(min(width, height) * .034)))
     handle_font_size = _clamp(handle_box.get("font_size"), 8, 120, handle_default_size)
     handle_family = handle_box.get("font_family")
-    if handle_family not in _FONT_FAMILY_FILES:
+    if not isinstance(handle_family, str) or handle_family not in _FONT_FAMILY_FILES:
         handle_family = font_family
     handle_bold = handle_box.get("bold") if isinstance(handle_box.get("bold"), bool) else False
     handle_font = _fit_font(
@@ -1140,12 +1140,13 @@ def render_profile_card(
     level_x = _scale_position(level_box, "x", inset * 3, width)
     level_y = _scale_position(level_box, "y", int(height * .48), height)
     level = _number(profile.get("level"), 0)
-    level_text = f"المستوى {level}"
+    level_template = str(level_box.get("text_template") or "المستوى {level}")[:100]
+    level_text = level_template.replace("{level}", str(level))
     level_available = _clamp(level_box.get("max_width"), 100, width, int(width * .44))
     level_default_size = max(30, min(60, int(min(width, height) * .052)))
     level_font_size = _clamp(level_box.get("font_size"), 8, 120, level_default_size)
     level_family = level_box.get("font_family")
-    if level_family not in _FONT_FAMILY_FILES:
+    if not isinstance(level_family, str) or level_family not in _FONT_FAMILY_FILES:
         level_family = font_family
     level_bold = level_box.get("bold") if isinstance(level_box.get("bold"), bool) else True
     progress_font = _fit_font(
