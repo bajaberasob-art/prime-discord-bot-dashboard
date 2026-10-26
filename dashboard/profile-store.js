@@ -201,11 +201,11 @@
     const typeByDefaultLabel = new Map([
       ["الخلفيات", "background"], ["backgrounds", "background"],
       ["ألوان البطاقة", "card_color"], ["colors", "card_color"],
-      ["قوالب البروفايل", "card_template"], ["templates", "card_template"],
+      ["قوالب البروفايل", "card_template"], ["القوالب", "card_template"], ["templates", "card_template"],
       ["الأعلام", "flag"], ["flags", "flag"],
       ["الشارات", "badge"], ["الاستكرات", "badge"], ["stickers", "badge"],
       ["الأشكال", "shape"], ["الإطارات", "shape"], ["frames", "shape"],
-      ["شعارات الأندية", "club_logo"], ["البانرات", "club_logo"], ["banners", "club_logo"],
+      ["شعارات الأندية", "club_logo"], ["الشعارات", "club_logo"], ["البانرات", "club_logo"], ["banners", "club_logo"],
     ]);
     [...categoriesByName.entries()]
       .sort(([a], [b]) => a.localeCompare(b, "ar"))
@@ -213,7 +213,7 @@
         const equivalentType = typeByDefaultLabel.get(name.toLowerCase());
         if (equivalentType && group.every(item => item.item_type === equivalentType)) return;
         const labelByKnownName = {
-          templates: "قوالب البروفايل", backgrounds: "الخلفيات", stickers: "الاستكرات",
+          templates: "قوالب البروفايل", القوالب: "قوالب البروفايل", backgrounds: "الخلفيات", stickers: "الاستكرات",
           flags: "الأعلام", banners: "البانرات", frames: "الإطارات",
           colors: "الألوان", profile: "البروفايل",
         };
