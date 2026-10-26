@@ -153,6 +153,63 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             await client.close()
             profile_store_admin._registered = original_registered
 
+
+    async def test_legacy_empty_metadata_update_preserves_template_layout(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+        old_metadata = {
+            "width": 1280, "height": 460, "layout": "wide",
+            "avatar": {"x": 990, "y": 35, "size": 92},
+            "stats": [{"key": "balance", "label": "الرصيد", "x": 30, "y": 330, "w": 280, "h": 55}],
+        }
+        async with database.connect() as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO profile_store_items
+                    (slug, name, description, item_type, category, subcategory,
+                     rarity, price, currency, style_json, metadata_json, is_active, is_featured)
+                VALUES ('layout-preserve-test', 'Layout preserve', '', 'card_template',
+                        'templates', '', 'common', 150, 'moon', '{}', ?, 0, 0)
+                """,
+                (json.dumps(old_metadata, ensure_ascii=False),),
+            )
+            await db.commit()
+            item_id = int(cursor.lastrowid)
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            response = await client.put(
+                f"/api/guild/99/profile-store/items/{item_id}",
+                json={
+                    "slug": "layout-preserve-test", "name": "Layout preserve updated",
+                    "description": "updated", "item_type": "card_template",
+                    "category": "templates", "subcategory": "", "rarity": "common",
+                    "price": 200, "currency": "moon", "style": {},
+                    "is_active": False, "is_featured": False,
+                },
+            )
+            self.assertEqual(response.status, 200, await response.text())
+            async with database.connect() as db:
+                async with db.execute(
+                    "SELECT price, metadata_json FROM profile_store_items WHERE item_id = ?",
+                    (item_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+            self.assertEqual(int(row[0]), 200)
+            self.assertEqual(json.loads(row[1]), old_metadata)
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
+
     async def test_admin_asset_upload_route_sanitizes_image_and_rejects_invalid_content(self):
         original_registered = profile_store_admin._registered
         profile_store_admin._registered = False
