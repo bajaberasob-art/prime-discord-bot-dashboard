@@ -14,7 +14,7 @@ function render(){
  const priorCategory=$('filterCategory').value;
  $('filterCategory').innerHTML='<option value="">كل الأقسام</option>'+itemCategories.map(v=>'<option value="'+escape(v)+'">'+escape(v)+'</option>').join('');
  if(itemCategories.includes(priorCategory))$('filterCategory').value=priorCategory;
- const suggestions=Array.from(new Set(['الخلفيات','القوالب','البانرات','الاستكرات','الأعلام','الإطارات','الشعارات','ألوان البطاقات',...categories.filter(v=>v.parent_id===null).map(v=>v.name),...itemCategories]));
+ const suggestions=Array.from(new Set(['الخلفيات','القوالب','البانرات','الاستكرات','الأعلام','الإطارات','الشعارات','ألوان البطاقات',...categories.map(v=>v.parent_id===null?v.name:null).filter(Boolean),...itemCategories]));
  $('categories').innerHTML=suggestions.map(v=>'<option value="'+escape(v)+'"></option>').join('');
  const categoryCounts=new Map();items.forEach(i=>{const name=String(i.category||'').trim();if(name&&name!=='all')categoryCounts.set(name,(categoryCounts.get(name)||0)+1)});
  $('sections').innerHTML=activeTop.length?activeTop.map(v=>'<button type="button" data-section="'+escape(v.name)+'">'+escape(v.name)+' <span class="pill">'+(categoryCounts.get(v.name)||0)+'</span></button>').join(''):'<span class="muted">لا توجد أقسام نشطة بعد. أضف قسمًا من إدارة الأقسام.</span>';
