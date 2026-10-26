@@ -237,6 +237,9 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertNotIn(item["item_id"], {entry["item_id"] for entry in hidden_state["items"]})
             self.assertNotIn("test-section", {entry["name"] for entry in hidden_state["categories"]})
+            with self.assertRaises(profile_store_public.StoreActionError) as purchase_error:
+                await profile_store_public._purchase_item(self.session, item["item_id"])
+            self.assertEqual(purchase_error.exception.code, "item_not_found")
 
             settings_response = await client.post(
                 "/api/guild/99/profile-store/settings",
