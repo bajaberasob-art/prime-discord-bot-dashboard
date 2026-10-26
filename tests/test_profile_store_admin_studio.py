@@ -16,7 +16,6 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
             "السعر (0 = مجاني)",
             "type=\"file\"",
             "profile-store-admin.js",
-            "/items/",
             "filterType",
             "filterStatus",
             "storeEnabled",
@@ -36,6 +35,9 @@ class ProfileStoreAdminStudioUITests(unittest.TestCase):
         self.assertIn("X-CSRF-Token", client)
         self.assertIn("data-section", client)
         self.assertIn("categories.map", client)
+        self.assertIn("/items/", client)
+        self.assertIn("filterCategory", client)
+        self.assertIn("custom:", (Path(__file__).resolve().parents[1] / "dashboard" / "profile-store.js").read_text("utf-8"))
 
 
 if __name__ == "__main__":
