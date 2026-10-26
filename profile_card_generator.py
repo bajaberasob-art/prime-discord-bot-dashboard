@@ -796,6 +796,27 @@ def _find_best_identity_block(
     elif name_prior:
         prior_center = name_prior
 
+    # Metadata is the template author's semantic intent (where identity belongs). Image
+    # texture is only a tie-breaker inside that zone; it must never drag text to an unrelated
+    # empty corner simply because that corner is darker.
+    prior_name_box = name_metadata if isinstance(name_metadata, dict) else {}
+    prior_x = float(prior_name_box.get("x", width * 0.5))
+    prior_anchor = str(prior_name_box.get("anchor") or "la").lower()
+    if prior_anchor.startswith("r"):
+        prior_x -= min(int(prior_name_box.get("max_width") or width * 0.42),
+                       _text_width(name_prior_font, display_name)) / 2
+    elif prior_anchor.startswith("m"):
+        pass
+    else:
+        prior_x += min(int(prior_name_box.get("max_width") or width * 0.42),
+                       _text_width(name_prior_font, display_name)) / 2
+    prior_y = float(prior_name_box.get("y", height * 0.35))
+    # Permit modest correction around art-directed coordinates, not arbitrary relocation.
+    x_window = max(int(width * 0.13), int(width * 0.06))
+    y_window = max(int(height * 0.12), int(height * 0.06))
+    if name_prior and handle_prior:
+        prior_x = prior_center[0]
+        prior_y = prior_center[1]
     best: tuple[float, dict] | None = None
     width_fractions = (0.28, 0.36, 0.44, 0.52, 0.60, 0.66)
     top_min = max(margin, int(height * 0.10))
@@ -809,6 +830,11 @@ def _find_best_identity_block(
                                 minimum_size=13, font_family=font_family)
         name_height = _font_height(name_font, display_name)
         handle_height = _font_height(handle_font, handle)
+        # Pillow's font fitter returns its minimum size even when an unbroken username
+        # cannot fit. Reject that candidate explicitly instead of rendering clipped text.
+        if (_text_width(name_font, display_name) > text_width
+                or _text_width(handle_font, handle) > text_width):
+            continue
         block_height = pad_y * 2 + name_height + gap + handle_height
         if top_max - top_min < block_height:
             continue
@@ -816,6 +842,11 @@ def _find_best_identity_block(
         for top in range(top_min, max(top_min + 1, top_max - block_height + 1), step_y):
             for left in range(margin, max(margin + 1, x_max + 1), step_x):
                 rect = (left, top, left + box_width, top + block_height)
+                if prior_center:
+                    candidate_cx, candidate_cy = left + box_width / 2, top + block_height / 2
+                    if (abs(candidate_cx - prior_x) > x_window
+                            or abs(candidate_cy - prior_y) > y_window):
+                        continue
                 if any(_rect_overlaps(rect, item) for item in reserved):
                     continue
                 visual = _score_analyzed_region(analysis, rect)
@@ -826,7 +857,8 @@ def _find_best_identity_block(
                         (center_x - prior_center[0]) / max(1, width),
                         (center_y - prior_center[1]) / max(1, height),
                     )
-                    prior_penalty = min(0.10, distance * 0.12)
+                    # Location consistency outranks tiny differences in background texture.
+                    prior_penalty = min(0.24, distance * 0.55)
                 readability_penalty = (
                     max(0, preferred_name_size - int(getattr(name_font, "size", preferred_name_size)))
                     / max(1, preferred_name_size) * 0.025
@@ -878,11 +910,27 @@ def _find_best_level_box(
                            minimum_size=18, bold=True, font_family=font_family)
     prior = _prior_box_center(metadata_box, text, prior_font,
                               int(width * 0.40), _font_height(prior_font, text))
+    prior_box = metadata_box if isinstance(metadata_box, dict) else {}
+    prior_x = float(prior_box.get("x", width * 0.5))
+    prior_anchor = str(prior_box.get("anchor") or "la").lower()
+    if prior_anchor.startswith("r"):
+        prior_x -= min(int(prior_box.get("max_width") or width * 0.40),
+                       _text_width(prior_font, text)) / 2
+    elif not prior_anchor.startswith("m"):
+        prior_x += min(int(prior_box.get("max_width") or width * 0.40),
+                       _text_width(prior_font, text)) / 2
+    prior_y = float(prior_box.get("y", height * 0.5))
+    x_window = max(int(width * 0.16), int(width * 0.07))
+    y_window = max(int(height * 0.15), int(height * 0.07))
+    if prior:
+        prior_x, prior_y = prior
     for fraction in (0.22, 0.28, 0.34, 0.40, 0.48, 0.56):
         box_width = min(width - margin * 2, max(140, int(width * fraction)))
         text_width = max(120, box_width - max(10, int(box_width * 0.05)))
         font = _fit_font(text, text_width, preferred_size, minimum_size=18,
                          bold=True, font_family=font_family)
+        if _text_width(font, text) > text_width:
+            continue
         text_height = _font_height(font, text)
         pad = max(5, int(minimum * 0.01))
         box_height = text_height + pad * 2
@@ -891,6 +939,10 @@ def _find_best_level_box(
         for top in range(top_min, max(top_min + 1, top_max + 1), step_y):
             for left in range(margin, max(margin + 1, width - box_width - margin + 1), step_x):
                 rect = (left, top, left + box_width, top + box_height)
+                candidate_cx, candidate_cy = left + box_width / 2, top + box_height / 2
+                if prior and (abs(candidate_cx - prior_x) > x_window
+                              or abs(candidate_cy - prior_y) > y_window):
+                    continue
                 if any(_rect_overlaps(rect, item) for item in reserved):
                     continue
                 visual = _score_analyzed_region(analysis, rect)
@@ -901,7 +953,7 @@ def _find_best_level_box(
                         (center_x - prior[0]) / max(1, width),
                         (center_y - prior[1]) / max(1, height),
                     )
-                    prior_penalty = min(0.08, distance * 0.09)
+                    prior_penalty = min(0.24, distance * 0.55)
                 readability_penalty = max(
                     0, preferred_size - int(getattr(font, "size", preferred_size))
                 ) / max(1, preferred_size) * 0.025
