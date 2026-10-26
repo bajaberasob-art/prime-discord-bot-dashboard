@@ -1018,7 +1018,7 @@ def register_profile_store_public_routes(routes) -> None:
             async with database.connect(aiosqlite.Row) as db:
                 await db.execute("BEGIN IMMEDIATE")
                 async with db.execute(
-                    "SELECT enabled, custom_upload_enabled, custom_upload_price, custom_upload_currency FROM profile_store_settings WHERE settings_id = 1"
+                    "SELECT enabled, custom_upload_enabled, custom_upload_price, custom_upload_currency, max_custom_upload_bytes FROM profile_store_settings WHERE settings_id = 1"
                 ) as cursor:
                     current_settings = await cursor.fetchone()
                 if not current_settings or not int(current_settings["enabled"]):
@@ -1027,6 +1027,13 @@ def register_profile_store_public_routes(routes) -> None:
                 if not int(current_settings["custom_upload_enabled"]):
                     await db.rollback()
                     raise StoreActionError(403, "custom_upload_disabled", "رفع الخلفيات المخصصة غير مفعّل حالياً.")
+                current_max_bytes = max(1024, min(
+                    5 * 1024 * 1024,
+                    int(current_settings["max_custom_upload_bytes"] or profile_store_db.DEFAULT_MAX_UPLOAD_BYTES),
+                ))
+                if int(normalized["size"]) > current_max_bytes:
+                    await db.rollback()
+                    raise StoreActionError(413, "image_too_large", "تم تغيير الحد الأقصى للرفع. اختر صورة أصغر ثم حاول مجدداً.")
 
                 price = max(0, int(current_settings["custom_upload_price"] or 0))
                 currency = str(current_settings["custom_upload_currency"] or "moon")
