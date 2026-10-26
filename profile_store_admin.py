@@ -448,12 +448,23 @@ def _parse_json_column(value: Any) -> dict:
     return decoded if isinstance(decoded, dict) else {}
 
 
+def _catalog_asset_exists(raw_path: Any) -> bool:
+    """Return true only for a safe catalog asset that exists on disk."""
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return False
+    try:
+        from profile_store_public import _resolve_asset_path
+        return _resolve_asset_path(raw_path) is not None
+    except (ImportError, OSError, ValueError):
+        return False
+
+
 def _public_item(row) -> dict:
     item = dict(row)
     item["style"] = _parse_json_column(item.pop("style_json", "{}"))
     item["metadata"] = _parse_json_column(item.pop("metadata_json", "{}"))
     path = item.pop("asset_path", None)
-    item["has_asset"] = bool(path)
+    item["has_asset"] = _catalog_asset_exists(path)
     item["asset_name"] = Path(path).name if path else None
     item.pop("created_by", None)
     return item
@@ -857,6 +868,8 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
         try:
             body = await _read_item_payload(request)
             item = validate_catalog_item_payload(body)
+            if item["is_active"] and item["item_type"] in _ASSET_ITEM_TYPES:
+                return _json_error(400, "asset_required_before_publish")
             async with database.connect(aiosqlite.Row) as db:
                 await db.execute("BEGIN IMMEDIATE")
                 cursor = await db.execute(
@@ -915,6 +928,9 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     await db.rollback()
                     return _json_error(404, "item_not_found")
                 before_item = _public_item(before_row)
+                if item["is_active"] and item["item_type"] in _ASSET_ITEM_TYPES and not before_item["has_asset"]:
+                    await db.rollback()
+                    return _json_error(409, "asset_required_before_publish")
                 await db.execute(
                     """
                     UPDATE profile_store_items SET

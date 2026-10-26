@@ -89,6 +89,70 @@ class PrimeProfilePublicStoreTests(unittest.IsolatedAsyncioTestCase):
             await client.close()
             profile_store_admin._registered = original_registered
 
+    async def test_server_rejects_publishing_image_products_without_a_valid_file(self):
+        original_registered = profile_store_admin._registered
+        profile_store_admin._registered = False
+
+        async def authorize(_request, *, write=False, management_tier=None):
+            return {"_local_dev": True, "id": 777}, SimpleNamespace(id=99)
+
+        routes = web.RouteTableDef()
+        profile_store_admin.register_profile_store_admin_routes(routes, authorize)
+        app = web.Application()
+        app["bot"] = None
+        app.add_routes(routes)
+        client = TestClient(TestServer(app))
+        try:
+            await client.start_server()
+            blocked_create = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "missing-image-active", "name": "Missing image",
+                    "item_type": "background", "category": "upload-tests",
+                    "price": 0, "currency": "moon", "is_active": True,
+                    "is_featured": False,
+                },
+            )
+            self.assertEqual(blocked_create.status, 400, await blocked_create.text())
+            self.assertIn("asset_required_before_publish", await blocked_create.text())
+
+            created = await client.post(
+                "/api/guild/99/profile-store/items",
+                json={
+                    "slug": "missing-image-hidden", "name": "Missing image hidden",
+                    "item_type": "background", "category": "upload-tests",
+                    "price": 0, "currency": "moon", "is_active": False,
+                    "is_featured": False,
+                },
+            )
+            self.assertEqual(created.status, 201, await created.text())
+            item_id = (await created.json())["item"]["item_id"]
+            publish = await client.put(
+                f"/api/guild/99/profile-store/items/{item_id}",
+                json={
+                    "slug": "missing-image-hidden", "name": "Missing image hidden",
+                    "item_type": "background", "category": "upload-tests",
+                    "price": 0, "currency": "moon", "is_active": True,
+                    "is_featured": False,
+                },
+            )
+            self.assertEqual(publish.status, 409, await publish.text())
+            self.assertIn("asset_required_before_publish", await publish.text())
+
+            async with database.connect() as db:
+                await db.execute(
+                    "UPDATE profile_store_items SET asset_path = ? WHERE item_id = ?",
+                    ("catalog/99/missing-file.png", item_id),
+                )
+                await db.commit()
+            catalog = await client.get("/api/guild/99/profile-store")
+            self.assertEqual(catalog.status, 200, await catalog.text())
+            item = next(v for v in (await catalog.json())["items"] if v["item_id"] == item_id)
+            self.assertFalse(item["has_asset"], "a DB path alone must not count as an existing image file")
+        finally:
+            await client.close()
+            profile_store_admin._registered = original_registered
+
     async def test_admin_asset_upload_route_sanitizes_image_and_rejects_invalid_content(self):
         original_registered = profile_store_admin._registered
         profile_store_admin._registered = False
