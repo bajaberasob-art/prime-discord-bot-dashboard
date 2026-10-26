@@ -546,7 +546,7 @@ async def ensure_profile_store_schema() -> None:
             ) as cursor:
                 category_rows = await cursor.fetchall()
             for category_row in category_rows:
-                category_name = str(category_row["category"]).strip()
+                category_name = str(category_row[0]).strip()
                 await db.execute(
                     """
                     INSERT OR IGNORE INTO profile_store_categories (name, parent_id, sort_order, is_active)
@@ -566,7 +566,7 @@ async def ensure_profile_store_schema() -> None:
             for row in subcategory_rows:
                 async with db.execute(
                     "SELECT category_id FROM profile_store_categories WHERE parent_id IS NULL AND name = ? COLLATE NOCASE",
-                    (str(row["category"]).strip(),),
+                    (str(row[0]).strip(),),
                 ) as cursor:
                     parent = await cursor.fetchone()
                 if parent:
@@ -575,7 +575,7 @@ async def ensure_profile_store_schema() -> None:
                         INSERT OR IGNORE INTO profile_store_categories (name, parent_id, sort_order, is_active)
                         VALUES (?, ?, 0, 1)
                         """,
-                        (str(row["subcategory"]).strip(), int(parent["category_id"])),
+                        (str(row[1]).strip(), int(parent[0])),
                     )
             await db.execute(
                 """
