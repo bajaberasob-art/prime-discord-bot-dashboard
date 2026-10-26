@@ -244,7 +244,28 @@ $('layoutStageImage').addEventListener('load',()=>{
  if(img.naturalWidth&&img.naturalHeight&&layoutNeedsDefault){layoutMetadata=defaultLayoutMetadata(img.naturalWidth,img.naturalHeight);layoutNeedsDefault=false;renderLayoutEditor()}
 });
 
-document.querySelectorAll('[data-admin-tab]').forEach(button=>button.addEventListener('click',()=>switchAdminTab(button.dataset.adminTab)));
+const adminTabs=[...document.querySelectorAll('[data-admin-tab]')];
+function focusAdminTab(index){
+ if(!adminTabs.length)return;
+ const next=(index+adminTabs.length)%adminTabs.length;
+ adminTabs.forEach((tab,i)=>tab.tabIndex=i===next?0:-1);
+ adminTabs[next].focus();
+ switchAdminTab(adminTabs[next].dataset.adminTab);
+}
+adminTabs.forEach((button,index)=>{
+ button.tabIndex=button.dataset.adminTab==='overview'?0:-1;
+ button.addEventListener('click',()=>switchAdminTab(button.dataset.adminTab));
+ button.addEventListener('keydown',event=>{
+  let next=index;
+  if(event.key==='ArrowLeft'||event.key==='ArrowDown')next=index+1;
+  else if(event.key==='ArrowRight'||event.key==='ArrowUp')next=index-1;
+  else if(event.key==='Home')next=0;
+  else if(event.key==='End')next=adminTabs.length-1;
+  else return;
+  event.preventDefault();
+  focusAdminTab(next);
+ });
+});
 $('designLoadTemplate').addEventListener('click',()=>{
  const selected=items.find(item=>String(item.item_id)===String($('designTemplateSelect').value)&&item.item_type==='card_template');
  if(!selected){notice('اختر قالب بطاقة محفوظًا أولًا.',true);return}
