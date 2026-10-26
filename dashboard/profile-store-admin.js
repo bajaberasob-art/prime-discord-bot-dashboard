@@ -72,6 +72,7 @@ function defaultLayoutMetadata(width,height){
  width=Math.max(640,Number(width)||1280);height=Math.max(320,Number(height)||460);
  const scale=Math.min(1,2048/width,1600/height,Math.sqrt(2500000/(width*height)));const w=Math.round(width*scale),h=Math.round(height*scale);
  const portrait=h>w*1.08,layout=portrait?'portrait':(w<=h*1.08?'square':'wide');
+ const backgroundArea=layout==='wide'?{x:Math.round(w*.05),y:Math.round(h*.06),width:Math.round(w*.90),height:Math.round(h*.85),fit:'cover'}:{x:Math.round(w*.07),y:Math.round(h*.045),width:Math.round(w*.86),height:Math.round(h*.90),fit:'cover'};
  const avatar=layout==='wide'?{x:Math.round(w*.785),y:Math.round(h*.075),size:Math.round(Math.min(w,h)*.185)}:{x:Math.round(w*.675),y:Math.round(h*.075),size:Math.round(Math.min(w,h)*.165)};
  const name=layout==='wide'?{x:Math.round(w*.755),y:Math.round(h*.335),max_width:Math.round(w*.405),anchor:'ra'}:{x:Math.round(w*.925),y:Math.round(h*.295),max_width:Math.round(w*.425),anchor:'ra'};
  const handle=layout==='wide'?{x:Math.round(w*.755),y:Math.round(h*.385),max_width:Math.round(w*.405),anchor:'ra'}:{x:Math.round(w*.925),y:Math.round(h*.340),max_width:Math.round(w*.425),anchor:'ra'};
