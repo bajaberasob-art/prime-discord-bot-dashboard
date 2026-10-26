@@ -154,5 +154,31 @@ class ProfileCardTemplateTests(unittest.TestCase):
                 self.assertLessEqual(stat["y"] + stat["h"], height + 1, template["slug"])
 
 
+    def test_custom_template_can_render_positioned_xp_bar_and_streak_stat(self):
+        artwork = io.BytesIO()
+        Image.new("RGBA", (640, 320), "#102030").save(artwork, format="PNG")
+        metadata = {
+            "width": 640, "height": 320, "layout": "wide",
+            "avatar": {"x": 500, "y": 30, "size": 80},
+            "name": {"x": 470, "y": 120, "max_width": 250, "anchor": "ra"},
+            "handle": {"x": 470, "y": 154, "max_width": 220, "anchor": "ra"},
+            "level": {"x": 60, "y": 180, "max_width": 220, "anchor": "la"},
+            "xp_bar": {"x": 70, "y": 230, "width": 420, "height": 12, "enabled": True},
+            "badges": {"x": 60, "y": 270, "size": 24, "limit": 2},
+            "flag": {"x": 24, "y": 16, "width": 36, "height": 24},
+            "stats": [{"key": "streak", "label": "الأيام", "x": 250, "y": 255, "w": 120, "h": 32}],
+        }
+        result = render_profile_card(
+            {"display_name": "Member", "username": "member", "level": 4,
+             "xp": 50, "required_xp": 100, "streak_days": 12},
+            template_bytes=artwork.getvalue(),
+            template={"metadata": metadata},
+        )
+        with Image.open(result) as image:
+            self.assertEqual(image.size, (640, 320))
+            self.assertEqual(image.format, "PNG")
+            self.assertNotEqual(image.getpixel((100, 235)), ImageColor.getrgb("#102030") + (255,))
+
+
 if __name__ == "__main__":
     unittest.main()
