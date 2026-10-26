@@ -103,6 +103,16 @@ textarea{line-height:1.7}
 @media(max-width:760px){.top{padding:20px;border-radius:19px}.top .actions{width:100%}.top .actions button{flex:1}.admin-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}.admin-tab{font-size:12px;line-height:1.4}}
 @media(max-width:460px){.admin-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.stat{padding:13px}.itembody{padding:12px}.thumb{height:145px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+.layout-style-panel{padding:13px;border:1px solid rgba(169,154,255,.2);border-radius:14px;background:linear-gradient(145deg,rgba(20,23,43,.72),rgba(10,17,29,.8));display:grid;gap:10px}
+.layout-style-panel h4{margin:0;font-size:14px;color:#e8e5ff}
+.layout-style-panel .layout-number-grid{gap:10px}
+.layout-style-panel input[type="color"]{height:42px;padding:4px;cursor:pointer}
+.layout-style-panel .checks{align-items:center}
+.layout-style-panel .checks span{display:flex;align-items:center;gap:8px}
+.layout-style-panel button{width:100%}
+.layout-style-help{font-size:12px;color:var(--muted);line-height:1.75}
+.layout-style-panel :disabled{opacity:.48;cursor:not-allowed}
+
 
 </style></head>
 <body><main class="wrap" id="app" data-guild-id="" data-csrf="">
@@ -162,6 +172,19 @@ textarea{line-height:1.7}
       </div>
       <label for="layoutAnchor">محاذاة النص</label>
       <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="la">محاذاة من اليسار</option></select>
+      <section class="layout-style-panel" id="layoutStylePanel" aria-labelledby="layoutStyleHeading">
+        <h4 id="layoutStyleHeading">مظهر العنصر المحدد</h4>
+        <div class="layout-number-grid">
+          <label for="layoutFontSize">حجم الخط (px)<input id="layoutFontSize" type="number" min="8" max="120" step="1" value="32"></label>
+          <label for="layoutFontFamily">نوع الخط<select id="layoutFontFamily"><option value="modern">حديث</option><option value="tech">تقني</option><option value="elegant">أنيق</option><option value="soft">ناعم</option></select></label>
+          <label for="layoutTextColor">لون النص<input id="layoutTextColor" type="color" value="#FFFFFF"></label>
+          <label for="layoutStrokeWidth">سُمك الحد حول النص<input id="layoutStrokeWidth" type="number" min="0" max="6" step="1" value="2"></label>
+        </div>
+        <label class="checks"><span><input id="layoutAutoColor" type="checkbox" checked> تباين تلقائي للون النص</span></label>
+        <label class="checks"><span><input id="layoutBold" type="checkbox" checked> خط عريض</span></label>
+        <div class="layout-style-help" id="layoutStyleHelp">تُحفظ هذه الخيارات لهذا العنصر فقط، وتُستخدم عند إنشاء بطاقة البروفايل الفعلية.</div>
+        <button type="button" id="applyElementStyle" class="primary">تطبيق مظهر العنصر</button>
+      </section>
       <label for="layoutBackgroundSource">صورة تجريبية للمعاينة</label><select id="layoutBackgroundSource"><option value="">بدون صورة تجريبية</option></select><div class="muted">اختر منتج خلفية محفوظًا في المتجر لتشاهد كيف يظهر داخل المساحة المحددة. هذا الاختيار للمعاينة فقط ولا يغيّر خلفية العميل.</div><label for="backgroundFit">طريقة ملاءمة صورة الخلفية</label>
       <select id="backgroundFit"><option value="cover">ملء المساحة المحددة مع قص الأطراف الزائدة</option><option value="contain">إظهار الصورة كاملة دون قص</option></select>
       <label class="checks"><span><input id="layoutXpEnabled" type="checkbox"> رسم شريط خبرة فعلي في هذا الموضع</span></label>
@@ -196,4 +219,4 @@ textarea{line-height:1.7}
 <section class="panel"><div class="sectionhead"><div><h2>كتالوج المنتجات</h2><div class="muted">ابحث بالاسم أو صفِّ حسب النوع والحالة.</div></div><div class="toolbar"><input id="search" placeholder="ابحث عن منتج..."><select id="filterType"><option value="">كل الأنواع</option><option value="background">خلفيات</option><option value="card_template">قوالب</option><option value="badge">استكرات / شارات</option><option value="flag">أعلام</option><option value="shape">إطارات</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان</option></select><select id="filterCategory"><option value="">كل الأقسام</option></select><select id="filterStatus"><option value="">كل الحالات</option><option value="active">معروض</option><option value="inactive">مخفي</option><option value="free">مجاني</option><option value="paid">مدفوع</option></select></div></div><div id="items" class="items"><p class="muted">جارٍ تحميل المنتجات...</p></div></section>
 </div>
 <div class="foot">PRIME Store Studio · الإدارة محمية بصلاحيات المالك. كل التغييرات تُحفظ في قاعدة بيانات المتجر الحالية.</div>
-</main><script src="/static/profile-store-admin.js?v=admin-tabs-studio-premium-2" defer></script></body></html>
+</main><script src="/static/profile-store-admin.js?v=element-style-studio-1" defer></script></body></html>
