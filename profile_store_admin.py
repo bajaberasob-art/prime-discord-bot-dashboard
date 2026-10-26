@@ -1149,6 +1149,15 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     if not parent:
                         await db.rollback()
                         return _json_error(400, "invalid_parent_category")
+                if before_row["parent_id"] is None and item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT 1 FROM profile_store_categories WHERE parent_id = ? LIMIT 1",
+                        (category_id,),
+                    ) as cursor:
+                        has_children = await cursor.fetchone()
+                    if has_children:
+                        await db.rollback()
+                        return _json_error(409, "category_has_children")
                 before = dict(before_row)
                 await db.execute(
                     """
@@ -1159,22 +1168,43 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                     (item["name"], item["parent_id"], item["sort_order"], item["is_active"], category_id),
                 )
                 # Keep existing item text fields aligned when a category is renamed.
+                old_parent_name = None
+                new_parent_name = None
+                if before["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT name FROM profile_store_categories WHERE category_id = ?",
+                        (before["parent_id"],),
+                    ) as cursor:
+                        old_parent_row = await cursor.fetchone()
+                    old_parent_name = str(old_parent_row["name"]) if old_parent_row else None
+                if item["parent_id"] is not None:
+                    async with db.execute(
+                        "SELECT name FROM profile_store_categories WHERE category_id = ?",
+                        (item["parent_id"],),
+                    ) as cursor:
+                        new_parent_row = await cursor.fetchone()
+                    new_parent_name = str(new_parent_row["name"]) if new_parent_row else None
+
                 if before["parent_id"] is None and item["parent_id"] is None:
                     await db.execute(
                         "UPDATE profile_store_items SET category = ?, updated_at = CURRENT_TIMESTAMP WHERE category = ? COLLATE NOCASE",
                         (item["name"], before["name"]),
                     )
-                elif before["parent_id"] is not None and item["parent_id"] is not None:
-                    async with db.execute(
-                        "SELECT name FROM profile_store_categories WHERE category_id = ?",
-                        (item["parent_id"],),
-                    ) as cursor:
-                        parent_row = await cursor.fetchone()
-                    if parent_row:
-                        await db.execute(
-                            "UPDATE profile_store_items SET subcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE subcategory = ? COLLATE NOCASE AND category = ? COLLATE NOCASE",
-                            (item["name"], before["name"], parent_row["name"]),
-                        )
+                elif before["parent_id"] is None and item["parent_id"] is not None:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, subcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE category = ? COLLATE NOCASE",
+                        (new_parent_name, item["name"], before["name"]),
+                    )
+                elif before["parent_id"] is not None and item["parent_id"] is None:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, subcategory = '', updated_at = CURRENT_TIMESTAMP WHERE subcategory = ? COLLATE NOCASE AND category = ? COLLATE NOCASE",
+                        (item["name"], before["name"], old_parent_name),
+                    )
+                elif old_parent_name and new_parent_name:
+                    await db.execute(
+                        "UPDATE profile_store_items SET category = ?, subcategory = ?, updated_at = CURRENT_TIMESTAMP WHERE subcategory = ? COLLATE NOCASE AND category = ? COLLATE NOCASE",
+                        (new_parent_name, item["name"], before["name"], old_parent_name),
+                    )
                 async with db.execute(
                     "SELECT category_id, name, parent_id, sort_order, is_active, created_at, updated_at FROM profile_store_categories WHERE category_id = ?",
                     (category_id,),
