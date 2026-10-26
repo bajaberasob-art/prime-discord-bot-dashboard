@@ -7,7 +7,7 @@ This change extends the existing PRIME Profile Store. It does not create a secon
 - `profile_store_items` remains the source of truth for product IDs, prices, currency, asset references, active/featured state, and item type.
 - `user_profile_inventory`, `user_profile_card_settings`, `user_profile_equipped_items`, and `profile_store_transactions` continue to own purchase and equip state.
 - `profile_store_categories` stores manageable top-level sections and one level of subcategories. Existing `category` and `subcategory` text values are backfilled during schema initialization; existing product IDs and inventory are unchanged.
-- `profile_store_catalog_audit` records catalog, category, and asset changes with actor, timestamp, entity, and before/after snapshots.
+- `profile_store_catalog_audit` records catalog, category, asset, and sensitive settings changes with actor, timestamp, entity, and before/after snapshots.
 
 Categories are archived by setting `is_active = 0`, not hard-deleted. Hiding a parent or child section removes its products from the customer catalog without deleting the products or ownership records. Renaming a section updates the legacy category text fields on matching products in the same database transaction.
 
