@@ -68,6 +68,8 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertNotIn("current.name_y =", script)
         self.assertNotIn("current.avatar_x =", script)
         self.assertIn("get_welcome_background_asset(guild.id)", renderer)
+        self.assertIn('"welcome_canvas_config": (', renderer)
+        self.assertIn('"welcome_canvas_config": {}', renderer)
         database = (ROOT / "database.py").read_text(encoding="utf-8")
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE IF NOT EXISTS welcome_background_assets", database)
@@ -87,14 +89,46 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         # The background file is only replaced after the complete image has been verified.
         self.assertLess(server.index("image.verify()"), server.index("temporary.replace(path)"))
 
+    def test_welcome_canvas_formats_render_with_distinct_aspect_ratios(self):
+        avatar = self._avatar_bytes()
+        cases = [
+            ("banner", (1200, 420)),
+            ("landscape", (1200, 675)),
+            ("square", (1000, 1000)),
+            ("portrait", (800, 1200)),
+        ]
+        for canvas_format, expected_size in cases:
+            with self.subTest(canvas_format=canvas_format):
+                output = Engagement._render_welcome_image(
+                    avatar, "Test Member", "Test Server", 42, "#7c3aed",
+                    canvas_config={"canvas_format": canvas_format},
+                )
+                self.assertEqual(Image.open(output).size, expected_size)
+
+    def test_auto_canvas_uses_uploaded_background_aspect_ratio(self):
+        avatar = self._avatar_bytes()
+        background = Image.new("RGB", (400, 800), (25, 40, 60))
+        stream = BytesIO()
+        background.save(stream, format="PNG")
+        output = Engagement._render_welcome_image(
+            avatar, "Test Member", "Test Server", 42, "#7c3aed",
+            canvas_config={
+                "canvas_format": "auto",
+                "use_custom_background": True,
+                "_background_image_data": stream.getvalue(),
+            },
+            guild_id=123,
+        )
+        self.assertEqual(Image.open(output).size, (600, 1200))
+
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v62", server)
+        self.assertIn("prime-dashboard-shell-v63", server)
         self.assertIn("welcome-editor.css?v=welcome-editor-8", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-8", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-9", server)
         self.assertIn("welcome-editor.css?v=welcome-editor-8", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-8", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-9", index)
 
 
 if __name__ == "__main__":
