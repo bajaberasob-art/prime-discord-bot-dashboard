@@ -5035,6 +5035,7 @@ ONBOARDING_KEYS = {
     "welcome_embed_footer",
     "welcome_embed_show_avatar",
     "welcome_generated_image_enabled",
+    "welcome_canvas_config",
     "leave_embed_enabled",
     "leave_embed_color",
     "leave_embed_title",
