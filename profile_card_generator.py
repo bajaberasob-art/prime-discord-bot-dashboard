@@ -955,7 +955,7 @@ def _draw_stat_text(
         label, available_width, label_size,
         minimum_size=8 if stat.get("label_font_size") is not None else 15,
         font_family=selected_family,
-        use_family_for_arabic=element_family_is_explicit,
+        use_family_for_arabic=True,
     )
     value_text = str(value)
     value_bold = stat.get("bold") if isinstance(stat.get("bold"), bool) else True
@@ -963,7 +963,7 @@ def _draw_stat_text(
         value_text, available_width, value_size,
         minimum_size=8 if stat.get("font_size") is not None else 14,
         bold=value_bold, font_family=selected_family,
-        use_family_for_arabic=element_family_is_explicit,
+        use_family_for_arabic=True,
     )
     can_sample = image is not None and auto_contrast
     label_color = (
@@ -1043,12 +1043,21 @@ def render_profile_card(
     accent2 = _safe_color(style.get("accent2") or style.get("glow") or accent, "#F9F7FF")
     # The settings-table default is white; treat it as auto-contrast unless a
     # real custom color was selected. A template may opt out via style.text_color.
-    configured_font_color = str(profile.get("font_color") or "").strip().upper()
-    explicit_text_color = bool(style.get("text_color")) or (
-        configured_font_color not in {"", "#FFFFFF", "#F9F7FF"}
+    configured_font_color = str(profile.get("font_color") or "").strip()
+    normalized_profile_font_color = configured_font_color.upper()
+    profile_font_color_is_custom = normalized_profile_font_color not in {
+        "", "#FFFFFF", "#F9F7FF"
+    }
+    # The database default is white; treating it as explicit masked the selected
+    # store color item text_color. A customized member color still has priority.
+    selected_text_color = (
+        configured_font_color
+        if profile_font_color_is_custom
+        else style.get("text_color") or configured_font_color
     )
+    explicit_text_color = profile_font_color_is_custom or bool(style.get("text_color"))
     light_text = _safe_color(
-        profile.get("font_color") or style.get("text_color"),
+        selected_text_color,
         _mix_hex(accent2, "#FFFFFF", 0.34),
     )
     muted_light = _mix_hex(style.get("muted") or accent2, "#DCE5F3", 0.42)
@@ -1154,7 +1163,7 @@ def render_profile_card(
         name, name_available, name_font_size,
         minimum_size=8 if name_box.get("font_size") is not None else 18,
         bold=name_bold, font_family=name_family,
-        use_family_for_arabic=name_family_is_explicit,
+        use_family_for_arabic=True,
     )
     handle_text = handle
     handle_available = _clamp(handle_box.get("max_width"), 100, width, name_available)
@@ -1171,7 +1180,7 @@ def render_profile_card(
         handle_text, handle_available, handle_font_size,
         minimum_size=8 if handle_box.get("font_size") is not None else 13,
         bold=handle_bold, font_family=handle_family,
-        use_family_for_arabic=handle_family_is_explicit,
+        use_family_for_arabic=True,
     )
     name_color = (
         _safe_color(name_box.get("color"), light_text)
@@ -1229,7 +1238,7 @@ def render_profile_card(
         level_text, level_available, level_font_size,
         minimum_size=8 if level_box.get("font_size") is not None else 18,
         bold=level_bold, font_family=level_family,
-        use_family_for_arabic=level_family_is_explicit,
+        use_family_for_arabic=True,
     )
     level_color = (
         _safe_color(level_box.get("color"), light_text)
