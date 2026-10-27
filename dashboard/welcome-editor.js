@@ -9,7 +9,7 @@
   let root = null, current = null;
   const clamp = (v, min, max) => Math.max(min, Math.min(max, Number(v) || min));
   const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
-  function close() { if (root) root.remove(); root = null; current = null; }
+  function close() { if (root) root.remove(); document.removeEventListener("keydown", onEscape); root = null; current = null; }
   function open({ config = {}, onSave } = {}) {
     close();
     current = { ...DEFAULTS, ...(config && typeof config === "object" ? config : {}) };
