@@ -1351,7 +1351,10 @@ class Engagement(commands.Cog):
         )
         if target is None:
             return {"ok": False, "error": "channel_not_found"}
-        member = getattr(guild, "me", None)
+        # A dashboard test should preview the operator's own avatar/name, not the bot's.
+        member = guild.get_member(int(actor_user_id))
+        if member is None:
+            member = getattr(guild, "me", None)
         if member is None:
             member = SimpleNamespace(
                 id=int(actor_user_id),
