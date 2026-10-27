@@ -283,6 +283,11 @@ class Engagement(commands.Cog):
                 "welcome_generated_image_enabled": bool(
                     values.get("welcome_generated_image_enabled", False)
                 ),
+                "welcome_canvas_config": (
+                    values.get("welcome_canvas_config")
+                    if isinstance(values.get("welcome_canvas_config"), dict)
+                    else {}
+                ),
                 "leave_embed_enabled": bool(values.get("leave_embed_enabled", False)),
                 "leave_embed_color": values.get("leave_embed_color", "#334155"),
                 "leave_embed_title": values.get("leave_embed_title", "{username} غادر {server}"),
@@ -334,6 +339,7 @@ class Engagement(commands.Cog):
                 "welcome_embed_footer": "PRIME | TEAM • تطوير abood2026",
                 "welcome_embed_show_avatar": True,
                 "welcome_generated_image_enabled": False,
+                "welcome_canvas_config": {},
                 "leave_embed_enabled": False,
                 "leave_embed_color": "#334155",
                 "leave_embed_title": "{username} غادر {server}",
@@ -818,8 +824,34 @@ class Engagement(commands.Cog):
         accent: str, canvas_config: Optional[dict[str, Any]] = None,
         guild_id: Optional[int] = None,
     ) -> io.BytesIO:
-        width, height = 1200, 420
         layout = canvas_config if isinstance(canvas_config, dict) else {}
+        canvas_format = str(layout.get("canvas_format") or "banner")
+        format_sizes = {
+            "banner": (1200, 420),
+            "landscape": (1200, 675),
+            "square": (1000, 1000),
+            "portrait": (800, 1200),
+        }
+        background_data = layout.get("_background_image_data")
+        if not isinstance(background_data, (bytes, bytearray)):
+            background_data = None
+        if layout.get("use_custom_background") and guild_id and not background_data:
+            legacy_path = Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds" / f"{int(guild_id)}.png"
+            try:
+                background_data = legacy_path.read_bytes() if legacy_path.is_file() else None
+            except OSError:
+                background_data = None
+        if canvas_format == "auto" and background_data:
+            try:
+                with Image.open(io.BytesIO(bytes(background_data))) as source_image:
+                    source_width, source_height = source_image.size
+                scale = min(1200 / max(1, source_width), 1200 / max(1, source_height))
+                width = max(1, int(round(source_width * scale)))
+                height = max(1, int(round(source_height * scale)))
+            except (OSError, ValueError):
+                width, height = format_sizes["banner"]
+        else:
+            width, height = format_sizes.get(canvas_format, format_sizes["banner"])
         def pct(key: str, default: float) -> float:
             try: return max(0.0, min(100.0, float(layout.get(key, default)))) / 100.0
             except (TypeError, ValueError): return default / 100.0
@@ -838,23 +870,24 @@ class Engagement(commands.Cog):
         image = gradient.resize((width, height))
         if layout.get("use_custom_background") and guild_id:
             try:
-                background_data = layout.get("_background_image_data")
-                if not isinstance(background_data, (bytes, bytearray)):
-                    background_path = (Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds" / f"{int(guild_id)}.png").resolve()
-                    background_data = background_path.read_bytes() if background_path.is_file() else None
                 if background_data:
-                    custom = Image.open(io.BytesIO(background_data)).convert("RGB")
-                    # Use a blurred fill behind the full uploaded artwork to avoid
-                    # cropping important content when the image aspect ratio differs.
-                    backdrop = ImageOps.fit(custom, (width, height), method=Image.Resampling.LANCZOS)
-                    backdrop = backdrop.filter(ImageFilter.GaussianBlur(radius=22))
-                    foreground = ImageOps.contain(custom, (width, height), method=Image.Resampling.LANCZOS)
+                    with Image.open(io.BytesIO(bytes(background_data))) as opened:
+                        custom_rgba = ImageOps.exif_transpose(opened).convert("RGBA")
+                    # Build the blurred cover over the theme color, then layer the full
+                    # original artwork above it without cropping transparent PNG content.
+                    opaque_base = Image.new("RGBA", custom_rgba.size, (*start, 255))
+                    opaque_base.alpha_composite(custom_rgba)
+                    backdrop = ImageOps.fit(
+                        opaque_base.convert("RGB"), (width, height),
+                        method=Image.Resampling.LANCZOS,
+                    ).filter(ImageFilter.GaussianBlur(radius=22))
+                    foreground = ImageOps.contain(custom_rgba, (width, height), method=Image.Resampling.LANCZOS)
                     x_offset = (width - foreground.width) // 2
                     y_offset = (height - foreground.height) // 2
-                    backdrop.paste(foreground, (x_offset, y_offset))
+                    backdrop.paste(foreground, (x_offset, y_offset), foreground.getchannel("A"))
                     image = backdrop
             except (OSError, ValueError):
-                logger.warning("Could not load custom welcome background for guild %s", guild_id)
+                logger.warning("Could not load custom welcome background for guild %s", guild_id, exc_info=True)
         elements = layout.get("elements")
         if isinstance(elements, list):
             # Editable layers are rendered from the same persisted element model used by Welcome Studio.
