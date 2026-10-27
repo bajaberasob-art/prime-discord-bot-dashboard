@@ -812,7 +812,7 @@ class Engagement(commands.Cog):
     def _welcome_image_text(value: str) -> str:
         """Shape Arabic glyphs and resolve bidirectional runs before drawing with Pillow."""
         text = str(value or "")
-        if not any("\\u0600" <= char <= "\\u06ff" or "\\u0750" <= char <= "\\u077f" for char in text):
+        if not any(0x0600 <= ord(char) <= 0x06FF or 0x0750 <= ord(char) <= 0x077F for char in text):
             return text
         try:
             import arabic_reshaper
