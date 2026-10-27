@@ -85,7 +85,7 @@
               <label class="welcome-editor-file-label">خلفية التصميم
                 <input type="file" accept="image/png,image/jpeg,image/webp" id="welcome-editor-background-file">
               </label>
-              <span class="welcome-editor-upload-hint">PNG / JPG / WEBP — حتى 5MB</span>
+              <span class="welcome-editor-upload-hint">PNG / JPG / WEBP — حتى 15MB، بأي أبعاد</span>
               <div class="welcome-editor-upload-actions"><button type="button" class="btn" data-action="upload-background">رفع الخلفية</button><button type="button" class="btn" data-action="clear-background">إزالة الخلفية المخصصة</button></div>
             </div>
             <div class="welcome-editor-background-colors">
@@ -138,7 +138,7 @@
       const file = fileInput.files && fileInput.files[0];
       if (!file) return setStatus("اختر صورة أولاً.");
       if (!["image/png","image/jpeg","image/webp"].includes(file.type)) return setStatus("الصيغ المدعومة PNG وJPG وWEBP فقط.");
-      if (file.size > 5 * 1024 * 1024) return setStatus("الحد الأقصى لحجم الخلفية 5 ميجابايت.");
+      if (file.size > 15 * 1024 * 1024) return setStatus("الحد الأقصى لحجم الخلفية 15 ميجابايت.");
       const button = modal.querySelector('[data-action="upload-background"]');
       button.disabled = true; setStatus("جارٍ رفع الخلفية والتحقق منها…");
       try {
@@ -158,7 +158,7 @@
               }
               return setStatus(result.fields?.file || "تعذر رفع الخلفية والتحقق منها.");
             }
-            checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderStage(); setStatus("تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.");
+            checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderStage(); setStatus("تم رفع الخلفية على الخادم. احفظ التصميم لتثبيت استخدامها في الترحيب والتجربة.");
             uploaded = true;
           } catch (_) {
             if (attempt === 0) {
