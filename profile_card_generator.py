@@ -319,6 +319,7 @@ def _fit_background_to_area(
     background: Image.Image | None,
     size: tuple[int, int],
     fit: str = "cover",
+    centering: tuple[float, float] = (0.5, 0.5),
 ) -> Image.Image | None:
     """Fit a background to a template-defined rectangle without distorting it.
 
@@ -338,11 +339,13 @@ def _fit_background_to_area(
         result = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         result.alpha_composite(contained, ((width - contained.width) // 2, (height - contained.height) // 2))
         return result
+    focus_x = max(0.0, min(1.0, float(centering[0])))
+    focus_y = max(0.0, min(1.0, float(centering[1])))
     return ImageOps.fit(
         source,
         (width, height),
         method=method,
-        centering=(0.5, 0.5),
+        centering=(focus_x, focus_y),
     )
 
 
@@ -1059,6 +1062,10 @@ def render_profile_card(
             bg,
             (area_width, area_height),
             str(area.get("fit") or "cover"),
+            centering=(
+                _clamp(round(float(area.get("focus_x", 0.5)) * 100), 0, 100, 50) / 100,
+                _clamp(round(float(area.get("focus_y", 0.5)) * 100), 0, 100, 50) / 100,
+            ),
         )
         if fitted_background is not None:
             canvas.alpha_composite(fitted_background, (area_x, area_y))
