@@ -281,56 +281,55 @@ def connect(row_factory=None) -> _Connection:
     return _Connection(row_factory)
 
 
-async def save_welcome_background_asset(guild_id: int, image_data: bytes) -> None:
-    """Persist welcome artwork in the same durable SQLite database as guild settings."""
+async def save_welcome_background_asset(
+    guild_id: int, image_data: bytes, slot: int = 1
+) -> None:
+    """Persist one of up to four welcome background images for a guild."""
+    slot = int(slot)
+    if not 1 <= slot <= 4:
+        raise ValueError("welcome background slot must be between 1 and 4")
+    data = bytes(image_data or b"")
+    if not data or len(data) > 30 * 1024 * 1024:
+        raise ValueError("welcome background image is empty or too large")
     async with connect() as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS welcome_background_assets (
-                guild_id INTEGER PRIMARY KEY,
-                image_data BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
         await db.execute(
-            "INSERT INTO welcome_background_assets (guild_id, image_data, updated_at) "
-            "VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(guild_id) DO UPDATE SET "
-            "image_data = excluded.image_data, updated_at = CURRENT_TIMESTAMP",
-            (int(guild_id), bytes(image_data)),
+            """
+            INSERT INTO welcome_background_assets (guild_id, slot, image_data, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(guild_id, slot) DO UPDATE SET
+                image_data = excluded.image_data,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (int(guild_id), slot, data),
         )
         await db.commit()
 
 
-async def get_welcome_background_asset(guild_id: int) -> Optional[bytes]:
-    """Load the guild's saved welcome artwork from SQLite."""
+async def get_welcome_background_asset(
+    guild_id: int, slot: int = 1
+) -> Optional[bytes]:
+    """Load the selected saved welcome artwork from SQLite."""
+    slot = int(slot)
+    if not 1 <= slot <= 4:
+        return None
     async with connect() as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS welcome_background_assets (
-                guild_id INTEGER PRIMARY KEY,
-                image_data BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
         async with db.execute(
-            "SELECT image_data FROM welcome_background_assets WHERE guild_id = ?",
-            (int(guild_id),),
+            "SELECT image_data FROM welcome_background_assets WHERE guild_id = ? AND slot = ?",
+            (int(guild_id), slot),
         ) as cur:
             row = await cur.fetchone()
     return bytes(row[0]) if row and row[0] is not None else None
 
 
-async def delete_welcome_background_asset(guild_id: int) -> None:
-    """Delete the guild's saved welcome artwork from SQLite."""
+async def delete_welcome_background_asset(guild_id: int, slot: int = 1) -> None:
+    """Delete one saved background slot without affecting the other three."""
+    slot = int(slot)
+    if not 1 <= slot <= 4:
+        raise ValueError("welcome background slot must be between 1 and 4")
     async with connect() as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS welcome_background_assets (
-                guild_id INTEGER PRIMARY KEY,
-                image_data BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
         await db.execute(
-            "DELETE FROM welcome_background_assets WHERE guild_id = ?",
-            (int(guild_id),),
+            "DELETE FROM welcome_background_assets WHERE guild_id = ? AND slot = ?",
+            (int(guild_id), slot),
         )
         await db.commit()
 
@@ -1827,6 +1826,35 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_onboarding_delivery_guild_time "
                 "ON onboarding_delivery_logs(guild_id, id DESC);"
             )
+            # Four durable background slots per guild; migrate older single-image rows to slot 1.
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS welcome_background_assets (
+                    guild_id INTEGER NOT NULL,
+                    slot INTEGER NOT NULL DEFAULT 1 CHECK (slot BETWEEN 1 AND 4),
+                    image_data BLOB NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (guild_id, slot)
+                );
+            """)
+            async with db.execute("PRAGMA table_info(welcome_background_assets)") as cur:
+                welcome_asset_columns = {str(row[1]) for row in await cur.fetchall()}
+            if "slot" not in welcome_asset_columns:
+                await db.execute("ALTER TABLE welcome_background_assets RENAME TO welcome_background_assets_legacy")
+                await db.execute("""
+                    CREATE TABLE welcome_background_assets (
+                        guild_id INTEGER NOT NULL,
+                        slot INTEGER NOT NULL DEFAULT 1 CHECK (slot BETWEEN 1 AND 4),
+                        image_data BLOB NOT NULL,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (guild_id, slot)
+                    );
+                """)
+                await db.execute("""
+                    INSERT OR IGNORE INTO welcome_background_assets (guild_id, slot, image_data, updated_at)
+                    SELECT guild_id, 1, image_data, updated_at
+                    FROM welcome_background_assets_legacy
+                """)
+                await db.execute("DROP TABLE welcome_background_assets_legacy")
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS logging_channels (
                     guild_id INTEGER PRIMARY KEY,
