@@ -284,10 +284,13 @@ function updateLayoutOverlayStyle(element,key){
   label.style.fontSize=Math.max(7,Math.min(22,(Number(box.font_size)||13)*ratio))+'px';
   label.style.fontWeight=box.bold===false?'500':'800';
   const family=box.font_family||'modern';
-  label.style.fontFamily=family==='elegant'?'Georgia,serif':family==='tech'?'Arial Narrow,Arial,sans-serif':family==='soft'?'system-ui,sans-serif':'system-ui,sans-serif';
+  label.style.fontFamily=family==='elegant'?'Georgia,serif':family==='tech'?'Arial Narrow,Arial,sans-serif':family==='mono'?'ui-monospace,SFMono-Regular,Consolas,monospace':'system-ui,sans-serif';
+  label.style.textAlign=box.anchor==='ma'?'center':box.anchor==='la'?'left':'right';
   const stroke=Math.max(0,Math.min(6,Number(box.stroke_width)||0))*ratio;
   label.style.webkitTextStrokeWidth=stroke+'px';
-  label.style.webkitTextStrokeColor='rgba(0,0,0,.72)';
+  label.style.webkitTextStrokeColor=box.stroke_color||'#000000';
+  const shadowOffset=Math.max(0,Math.min(12,Number(box.shadow_offset)||0))*ratio;
+  label.style.textShadow=box.shadow?`${shadowOffset}px ${shadowOffset}px ${Math.max(1,shadowOffset)}px ${box.shadow_color||'#000000'}`:'none';
  }
 }
 function renderLayoutEditor(){
@@ -319,26 +322,55 @@ function updateLayoutControls(){
  const key=$('layoutField').value||'avatar';ensureLayoutField(key);const box=getLayoutBox(key),meta=normalizeLayoutMetadata();
  $('layoutX').max=meta.width;$('layoutY').max=meta.height;$('layoutWidth').max=meta.width;$('layoutHeight').max=meta.height;
  $('layoutX').value=Math.round(box.x);$('layoutY').value=Math.round(box.y);$('layoutWidth').value=Math.round(box.width);$('layoutHeight').value=Math.round(box.height);
- $('layoutAnchor').disabled=box.kind!=='text';$('layoutAnchor').value=box.anchor==='la'?'la':'ra';
+ $('layoutAnchor').disabled=box.kind!=='text';$('layoutAnchor').value=box.anchor==='la'?'la':box.anchor==='ma'?'ma':'ra';
  $('backgroundFit').disabled=key!=='background_area';$('backgroundFit').value=meta.background_area.fit||'cover';
  $('layoutXpEnabled').disabled=key!=='xp_bar';$('layoutXpEnabled').checked=!!(meta.xp_bar&&meta.xp_bar.enabled);
  const styleable=box.kind==='text'||box.kind==='stat';
  const editableText=key==='level'||box.kind==='stat';
  const item=items.find(value=>String(value.item_id)===String($('itemId').value||''));
- const defaultFamily=item&&item.style&&['modern','tech','elegant','soft'].includes(item.style.font_family)?item.style.font_family:'modern';
+ const defaultFamily=item&&item.style&&['modern','tech','elegant','soft','mono'].includes(item.style.font_family)?item.style.font_family:'modern';
  $('layoutFontSize').value=Number(box.font_size)||defaultElementFontSize(key,box,meta);
- $('layoutFontFamily').value=['modern','tech','elegant','soft'].includes(box.font_family)?box.font_family:defaultFamily;
+ $('layoutFontFamily').value=['modern','tech','elegant','soft','mono'].includes(box.font_family)?box.font_family:defaultFamily;
  $('layoutTextColor').value=/^#[0-9a-fA-F]{6}$/.test(String(box.color||''))?box.color:'#FFFFFF';
  $('layoutAutoColor').checked=!box.color;
  $('layoutBold').checked=typeof box.bold==='boolean'?box.bold:(box.kind==='stat'||key==='name'||key==='level');
  $('layoutStrokeWidth').value=Number.isFinite(Number(box.stroke_width))&&box.stroke_width!==''?Math.max(0,Math.min(6,Math.round(Number(box.stroke_width)))):(key==='handle'?1:2);
- for(const id of ['layoutFontSize','layoutFontFamily','layoutAutoColor','layoutBold','layoutStrokeWidth','applyElementStyle'])$(id).disabled=!styleable;
+ $('layoutStrokeColor').value=/^#[0-9a-fA-F]{6}$/.test(String(box.stroke_color||''))?box.stroke_color:'#000000';
+ $('layoutShadow').checked=box.shadow===true;
+ $('layoutShadowColor').value=/^#[0-9a-fA-F]{6}$/.test(String(box.shadow_color||''))?box.shadow_color:'#000000';
+ $('layoutShadowOffset').value=Number.isFinite(Number(box.shadow_offset))&&box.shadow_offset!==''?Math.max(0,Math.min(12,Math.round(Number(box.shadow_offset)))):3;
+ for(const id of ['layoutFontSize','layoutFontFamily','layoutAutoColor','layoutBold','layoutStrokeWidth','layoutStrokeColor','layoutShadow','layoutShadowColor','layoutShadowOffset','applyElementStyle'])$(id).disabled=!styleable;
  $('layoutTextColor').disabled=!styleable||$('layoutAutoColor').checked;
+ $('layoutStrokeColor').disabled=!styleable;
+ $('layoutShadowColor').disabled=!styleable||!$('layoutShadow').checked;
+ $('layoutShadowOffset').disabled=!styleable||!$('layoutShadow').checked;
  $('layoutTextContent').value=key==='level'?String(box.text_template||'المستوى {level}'):box.kind==='stat'?String(box.label||layoutLabels[key.slice(5)]||''):'';
  $('layoutTextContent').placeholder=key==='level'?'مثال: المستوى {level}':box.kind==='stat'?'عنوان الإحصائية':'هذا النص ديناميكي ويُجلب من بيانات العضو';
  $('layoutTextContent').disabled=!editableText;
  $('layoutStyleHelp').textContent=key==='level'?'يمكنك تخصيص تنسيق المستوى. استخدم {level} مكان رقم مستوى العضو.':box.kind==='stat'?'تتحكم هذه الإعدادات في قيمة الإحصائية؛ ويمكنك أيضًا تغيير عنوانها.':styleable?'تُحفظ إعدادات الخط واللون والحد لهذا العنصر فقط. اضغط تطبيق مظهر العنصر، ثم حفظ التخطيط لتثبيت التغييرات واستخدامها في بطاقة البروفايل.':'إعدادات النص تظهر عند اختيار الاسم أو اسم الحساب أو المستوى أو أحد الإحصاءات النصية.';
  $('layoutHelp').textContent=key==='background_area'?'حدد مساحة ظهور صورة الخلفية داخل القالب بالسحب أو بتعديل X/Y والعرض والارتفاع. تُركّب صورة الخلفية داخل هذا المستطيل فقط، ويبقى إطار القالب فوقها. اختر ملء المساحة للقص المتناسب أو إظهار الصورة كاملة دون قص.':key==='xp_bar'?'يمكن تحديد موضع شريط الخبرة وحجمه. تفعيل الرسم يرسم نسبة XP الحقيقية؛ اتركه متوقفاً إذا كان الشريط مرسوماً داخل صورة القالب.':box.kind==='text'?'يتحكم العرض في المساحة القصوى للنص، وتحدد المحاذاة اتجاه تثبيت نقطة الإحداثيات.':'اسحب العنصر فوق الصورة، أو أدخل قيم X/Y والعرض والارتفاع بدقة.';
+}
+function applyLiveElementStyle(){
+ const key=$('layoutField').value||'avatar';if(!['text','stat'].includes(layoutKind(key)))return;
+ const box=ensureLayoutField(key),fontSize=Number($('layoutFontSize').value),strokeWidth=Number($('layoutStrokeWidth').value);
+ if(Number.isFinite(fontSize))box.font_size=Math.max(8,Math.min(120,Math.round(fontSize)));
+ if(Number.isFinite(strokeWidth))box.stroke_width=Math.max(0,Math.min(6,Math.round(strokeWidth)));
+ box.font_family=['modern','tech','elegant','soft','mono'].includes($('layoutFontFamily').value)?$('layoutFontFamily').value:'modern';
+ box.bold=$('layoutBold').checked;box.stroke_color=$('layoutStrokeColor').value||'#000000';
+ box.shadow=$('layoutShadow').checked;box.shadow_color=$('layoutShadowColor').value||'#000000';
+ box.shadow_offset=Math.max(0,Math.min(12,Math.round(Number($('layoutShadowOffset').value)||0)));
+ if(layoutKind(key)==='text')box.anchor=$('layoutAnchor').value==='ma'?'ma':$('layoutAnchor').value==='la'?'la':'ra';
+ if($('layoutAutoColor').checked)delete box.color;else box.color=$('layoutTextColor').value||'#FFFFFF';
+ const textContent=$('layoutTextContent').value.trim().slice(0,100);
+ if(key==='level')box.text_template=textContent||'المستوى {level}';else if(box.kind==='stat')box.label=textContent||layoutLabels[key.slice(5)]||key.slice(5);
+ const focusedId=document.activeElement&&document.activeElement.id;
+ const selectionStart=focusedId==='layoutTextContent'?$('layoutTextContent').selectionStart:null;
+ const selectionEnd=focusedId==='layoutTextContent'?$('layoutTextContent').selectionEnd:null;
+ renderLayoutEditor();
+ if(focusedId==='layoutTextContent'){
+  const input=$('layoutTextContent');input.focus({preventScroll:true});
+  if(selectionStart!==null&&selectionEnd!==null)try{input.setSelectionRange(selectionStart,selectionEnd)}catch{}
+ }
 }
 function applyElementStyle(){
  const key=$('layoutField').value||'avatar',box=ensureLayoutField(key);
@@ -347,9 +379,14 @@ function applyElementStyle(){
  if(!Number.isFinite(fontSize)||fontSize<8||fontSize>120||!Number.isFinite(strokeWidth)||strokeWidth<0||strokeWidth>6){notice('حجم الخط يجب أن يكون بين 8 و120، وحد النص بين 0 و6.',true);return}
  pushLayoutHistory();
  box.font_size=Math.round(fontSize);
- box.font_family=['modern','tech','elegant','soft'].includes($('layoutFontFamily').value)?$('layoutFontFamily').value:'modern';
+ box.font_family=['modern','tech','elegant','soft','mono'].includes($('layoutFontFamily').value)?$('layoutFontFamily').value:'modern';
  box.bold=$('layoutBold').checked;
  box.stroke_width=Math.round(strokeWidth);
+ box.stroke_color=$('layoutStrokeColor').value||'#000000';
+ box.shadow=$('layoutShadow').checked;
+ box.shadow_color=$('layoutShadowColor').value||'#000000';
+ box.shadow_offset=Math.max(0,Math.min(12,Math.round(Number($('layoutShadowOffset').value)||0)));
+ if(layoutKind(key)==='text')box.anchor=$('layoutAnchor').value==='ma'?'ma':$('layoutAnchor').value==='la'?'la':'ra';
  if($('layoutAutoColor').checked)delete box.color;
  else box.color=$('layoutTextColor').value;
  const textContent=$('layoutTextContent').value.trim().slice(0,100);
@@ -386,9 +423,11 @@ function moveLayoutPointer(event){
 function endLayoutPointer(event){if(!layoutDrag||event.pointerId!==layoutDrag.pointerId)return;layoutDrag=null;renderLayoutEditor()}
 $('layoutBackgroundSource').addEventListener('change',updateBackgroundPreview);
 $('layoutField').addEventListener('change',()=>{ensureLayoutField($('layoutField').value);renderLayoutEditor()});
-$('layoutAutoColor').addEventListener('change',()=>{$('layoutTextColor').disabled=$('layoutAutoColor').checked||!['text','stat'].includes(layoutKind($('layoutField').value||'avatar'))});
-$('layoutTextColor').addEventListener('input',()=>{const key=$('layoutField').value||'avatar';if(!['text','stat'].includes(layoutKind(key)))return;const box=ensureLayoutField(key);box.color=$('layoutTextColor').value; $('layoutAutoColor').checked=false;renderLayoutEditor();});
-$('layoutAutoColor').addEventListener('change',()=>{const key=$('layoutField').value||'avatar';if(!['text','stat'].includes(layoutKind(key)))return;const box=ensureLayoutField(key);if($('layoutAutoColor').checked)delete box.color;else box.color=$('layoutTextColor').value;renderLayoutEditor();});
+$('layoutTextColor').addEventListener('input',()=>{if($('layoutAutoColor').checked)$('layoutAutoColor').checked=false;applyLiveElementStyle()});
+$('layoutAutoColor').addEventListener('change',applyLiveElementStyle);
+for(const id of ['layoutFontSize','layoutFontFamily','layoutStrokeWidth','layoutStrokeColor','layoutShadow','layoutShadowColor','layoutShadowOffset','layoutBold','layoutTextContent','layoutAnchor']){
+ const control=$(id);if(!control)continue;control.addEventListener(control.tagName==='SELECT'||control.type==='checkbox'?'change':'input',applyLiveElementStyle);
+}
 
 $('applyElementStyle').addEventListener('click',applyElementStyle);
 $('applyLayout').addEventListener('click',applyLayoutInputs);
