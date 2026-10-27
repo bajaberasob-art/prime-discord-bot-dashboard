@@ -115,6 +115,25 @@ textarea{line-height:1.7}
 .layout-style-panel :disabled{opacity:.48;cursor:not-allowed}
 
 
+
+.studio-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.studio-toolbar button{min-height:40px}
+.studio-report{margin:10px 0;padding:13px;border:1px solid rgba(120,226,255,.22);border-radius:13px;background:rgba(9,18,31,.86);line-height:1.8}
+.studio-report h4{margin:0 0 6px;font-size:14px}
+.studio-report ul{margin:6px 0;padding-inline-start:22px}
+.studio-report li{margin:4px 0}
+.studio-report .report-good{color:#75e6b4}
+.studio-report .report-warn{color:#f5d18a}
+.studio-report .report-error{color:#ff9aa9}
+.studio-layers{margin-top:14px;padding:12px;border:1px solid rgba(132,163,202,.16);border-radius:14px;background:rgba(8,14,25,.65)}
+.studio-layers h4{margin:0}
+.studio-layer-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.studio-layer{display:flex;align-items:center;gap:8px;text-align:start;min-width:0;padding:9px;border:1px solid rgba(132,163,202,.16);border-radius:10px;background:#0d1726;color:#c5d4e8}
+.studio-layer[aria-pressed="true"]{border-color:rgba(120,226,255,.65);background:linear-gradient(110deg,rgba(20,117,146,.25),rgba(87,70,149,.24));color:#f5fbff}
+.studio-layer span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-layer .layer-dot{width:8px;height:8px;flex:0 0 8px;border-radius:50%;background:#78e2ff;box-shadow:0 0 9px rgba(120,226,255,.45)}
+@media(max-width:520px){.studio-layer-list{grid-template-columns:1fr}.studio-toolbar button{flex:1}}
+
 </style></head>
 <body><main class="wrap" id="app" data-guild-id="" data-csrf="">
 <header class="top"><div><div class="eyebrow">PRIME CONTROL / CREATOR STUDIO</div><h1>إدارة متجر البروفايل</h1><div class="muted">مساحة إدارة متكاملة لقوالب البروفايل وأصول المتجر — نظّم منتجاتك، واضبط تخطيطاتك، وراجع إعدادات البيع من واجهة واحدة مرتبة.</div></div><div class="actions"><a href="/" style="color:var(--accent);align-self:center">العودة للوحة</a><button id="refresh">تحديث البيانات ↻</button></div></header>
@@ -158,6 +177,18 @@ textarea{line-height:1.7}
 </section>
 <section id="layoutEditorPanel" class="layout-editor-panel hidden" aria-labelledby="layoutEditorHeading">
   <div class="layout-editor-heading"><div><h3 id="layoutEditorHeading">محرر تخطيط القالب</h3><div class="muted">اختر «مساحة الخلفية» لتحديد مكان الصورة وحجمها داخل القالب. اسحب الإطار الأخضر أو غيّر X/Y والعرض والارتفاع، ثم احفظ التخطيط.</div></div><span class="pill">تحرير مرئي</span></div>
+  <div class="studio-toolbar" role="toolbar" aria-label="أدوات الاستوديو">
+    <button type="button" id="layoutUndo" disabled>↶ تراجع</button>
+    <button type="button" id="layoutRedo" disabled>↷ إعادة</button>
+    <button type="button" id="layoutQualityCheck">فحص جودة التصميم</button>
+    <button type="button" id="layoutSmartSuggest" class="primary">اقتراح تحسينات ذكية</button>
+  </div>
+  <section id="layoutQualityReport" class="studio-report hidden" aria-live="polite"></section>
+  <section id="layoutSmartReport" class="studio-report hidden" aria-live="polite"></section>
+  <section class="studio-layers" aria-labelledby="studioLayersHeading">
+    <div class="sectionhead"><div><h4 id="studioLayersHeading">عناصر التصميم</h4><div class="muted">اختر عنصرًا من القائمة لتحديده على المعاينة وتعديل خصائصه.</div></div></div>
+    <div id="studioLayerList" class="studio-layer-list"></div>
+  </section>
   <div class="layout-editor-grid">
     <div class="layout-stage-shell"><div id="layoutStage" class="layout-stage" style="aspect-ratio:2/1"><img id="layoutBackgroundPreview" class="layout-background-preview hidden" alt="معاينة صورة الخلفية داخل المساحة المحددة"><img id="layoutStageImage" alt="معاينة قالب البروفايل"><div id="layoutOverlayLayer" class="layout-overlay-layer"></div><div id="layoutStageEmpty" class="layout-empty">ارفع صورة للقالب أو اختر قالباً موجوداً لبدء ضبط العناصر.</div></div></div>
     <div class="layout-controls">
@@ -221,4 +252,4 @@ textarea{line-height:1.7}
 <section class="panel"><div class="sectionhead"><div><h2>كتالوج المنتجات</h2><div class="muted">ابحث بالاسم أو صفِّ حسب النوع والحالة.</div></div><div class="toolbar"><input id="search" placeholder="ابحث عن منتج..."><select id="filterType"><option value="">كل الأنواع</option><option value="background">خلفيات</option><option value="card_template">قوالب</option><option value="badge">استكرات / شارات</option><option value="flag">أعلام</option><option value="shape">إطارات</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان</option></select><select id="filterCategory"><option value="">كل الأقسام</option></select><select id="filterStatus"><option value="">كل الحالات</option><option value="active">معروض</option><option value="inactive">مخفي</option><option value="free">مجاني</option><option value="paid">مدفوع</option></select></div></div><div id="items" class="items"><p class="muted">جارٍ تحميل المنتجات...</p></div></section>
 </div>
 <div class="foot">PRIME Store Studio · الإدارة محمية بصلاحيات المالك. كل التغييرات تُحفظ في قاعدة بيانات المتجر الحالية.</div>
-</main><script src="/static/profile-store-admin.js?v=element-style-studio-2" defer></script></body></html>
+</main><script src="/static/profile-store-admin.js?v=creative-studio-1" defer></script></body></html>
