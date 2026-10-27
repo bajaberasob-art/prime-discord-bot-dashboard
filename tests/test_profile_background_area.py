@@ -292,6 +292,15 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
             self.assertEqual(card.format, "PNG")
             self.assertEqual(card.size, (640, 320))
 
+    def test_cover_fit_respects_focal_point(self):
+        source = Image.new("RGBA", (120, 40), (0, 0, 0, 255))
+        from PIL import ImageDraw
+        ImageDraw.Draw(source).rectangle((90, 0, 119, 39), fill=(255, 0, 0, 255))
+        left_focus = _fit_background_to_area(source, (40, 40), "cover", centering=(0.0, 0.5))
+        right_focus = _fit_background_to_area(source, (40, 40), "cover", centering=(1.0, 0.5))
+        self.assertNotEqual(left_focus.getpixel((20, 20)), right_focus.getpixel((20, 20)))
+        self.assertEqual(right_focus.getpixel((20, 20)), (255, 0, 0, 255))
+
     def test_renderer_applies_custom_outline_and_shadow_to_name(self):
         frame = png_bytes(Image.new("RGBA", (640, 320), (0, 0, 0, 0)))
         metadata = {
