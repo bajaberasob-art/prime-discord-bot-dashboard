@@ -859,7 +859,7 @@ def _image_from_bytes(raw: bytes | None) -> Image.Image | None:
         return None
 
 
-def _fit_avatar(raw: bytes | None, size: int, accent: str) -> Image.Image:
+def _fit_avatar(raw: bytes | None, size: int, accent: str, ring_color: str | None = None) -> Image.Image:
     image = _image_from_bytes(raw)
     if image is None:
         image = Image.new("RGBA", (size, size), "#1D2030")
@@ -872,7 +872,7 @@ def _fit_avatar(raw: bytes | None, size: int, accent: str) -> Image.Image:
     image.putalpha(mask)
     border = Image.new("RGBA", (size + 18, size + 18), (0, 0, 0, 0))
     draw = ImageDraw.Draw(border)
-    draw.ellipse((2, 2, size + 16, size + 16), outline=accent, width=7)
+    draw.ellipse((2, 2, size + 16, size + 16), outline=_safe_color(ring_color, accent), width=7)
     draw.ellipse((8, 8, size + 10, size + 10), outline=(255, 255, 255, 180), width=2)
     border.alpha_composite(image, (9, 9))
     return border
@@ -1106,7 +1106,9 @@ def render_profile_card(
                          max(76, int(min(width, height) * .2)))
     avatar_x = _scale_position(avatar_box, "x", width-avatar_size-44, width-avatar_size)
     avatar_y = _scale_position(avatar_box, "y", inset * 2, height-avatar_size)
-    avatar = _fit_avatar(avatar_bytes, avatar_size, accent)
+    ring_mode = str(avatar_box.get("ring_mode", "auto")).strip().lower()
+  ring_color = _safe_color(avatar_box.get("ring_color"), accent) if ring_mode == "custom" else accent
+  avatar = _fit_avatar(avatar_bytes, avatar_size, accent, ring_color)
     avatar_dest = (
         max(0, min(width-avatar.width, avatar_x - 9)),
         max(0, min(height-avatar.height, avatar_y - 9)),
