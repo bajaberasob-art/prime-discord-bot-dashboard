@@ -146,6 +146,8 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("node.style.fontWeight", editor)
         self.assertIn("arabic_reshaper.reshape(text)", renderer)
         self.assertIn("def _welcome_font(", renderer)
+        self.assertIn("NotoSansArabic-{arabic_suffix}.ttf", renderer)
+        self.assertIn("NotoNaskhArabic-{arabic_suffix}.ttf", renderer)
         self.assertIn("def wrap_text(source: str, font: Any)", renderer)
         self.assertIn("textTransform", renderer)
         self.assertIn('"modern_bold": ("sans", "bold", "normal", "uppercase")', renderer)
