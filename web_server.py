@@ -5020,8 +5020,10 @@ async def api_test_welcome(req):
     return web.json_response(result)
 
 
-WELCOME_BACKGROUND_MAX_BYTES = 5 * 1024 * 1024
-WELCOME_BACKGROUND_ROOT = Path("data/welcome-backgrounds")
+WELCOME_BACKGROUND_MAX_BYTES = 15 * 1024 * 1024
+# Anchor uploaded assets to the application directory, not the process working directory.
+# This keeps the dashboard and bot renderer reading the same file after restarts.
+WELCOME_BACKGROUND_ROOT = Path(__file__).resolve().parent / "data" / "welcome-backgrounds"
 
 def _welcome_background_path(guild_id: int) -> Path:
     return (WELCOME_BACKGROUND_ROOT / f"{int(guild_id)}.png").resolve()
@@ -5054,7 +5056,7 @@ async def api_upload_welcome_background(req):
                 break
             data.extend(chunk)
             if len(data) > WELCOME_BACKGROUND_MAX_BYTES:
-                return json_error(413, "image_too_large", fields={"file": "الحد الأقصى لحجم الخلفية 5 ميجابايت."})
+                return json_error(413, "image_too_large", fields={"file": "الحد الأقصى لحجم الخلفية 15 ميجابايت."})
     except (ConnectionResetError, asyncio.IncompleteReadError, aiohttp.ClientPayloadError):
         # The browser or proxy closed the upload stream. The old background remains untouched.
         logger.info("Welcome background upload disconnected before completion for guild %s", guild.id)
@@ -5067,8 +5069,8 @@ async def api_upload_welcome_background(req):
         image = Image.open(io.BytesIO(bytes(data)))
         if image.format not in {"PNG", "JPEG", "WEBP"}:
             return json_error(415, "unsupported_image_type", fields={"file": "الصيغ المدعومة PNG وJPG وWEBP فقط."})
-        if image.width < 320 or image.height < 120 or image.width > 8000 or image.height > 8000:
-            return json_error(400, "invalid_image_dimensions", fields={"file": "أبعاد الصورة يجب أن تكون بين 320×120 و8000×8000 بكسل."})
+        if image.width < 1 or image.height < 1 or image.width > 12000 or image.height > 12000:
+            return json_error(400, "invalid_image_dimensions", fields={"file": "أبعاد الصورة يجب ألا تتجاوز 12000×12000 بكسل."})
         image.verify()
         image = Image.open(io.BytesIO(bytes(data)))
         image = ImageOps.exif_transpose(image)
