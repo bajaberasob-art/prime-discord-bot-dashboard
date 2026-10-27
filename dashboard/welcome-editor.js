@@ -52,7 +52,12 @@
   }
 
   function close() {
-    if (root) root.remove();
+    if (root) {
+      root.querySelectorAll(".welcome-editor-bg-thumb img[data-object-url]").forEach(image => {
+        try { URL.revokeObjectURL(image.dataset.objectUrl); } catch (_) {}
+      });
+      root.remove();
+    }
     document.removeEventListener("keydown", onEscape);
     root = null; current = null; onSaveCallback = null;
   }
@@ -90,10 +95,10 @@
               <span class="welcome-editor-upload-hint">PNG / JPG / WEBP — حتى 15MB، بأي أبعاد. صور الخانات تُحفظ بشكل مستقل.</span>
               <div class="welcome-editor-bg-slots" role="group" aria-label="الخلفيات المحفوظة">
                 <span>الخانة الحالية</span>
-                <button type="button" class="btn" data-background-slot="1" aria-pressed="false">صورة 1</button>
-                <button type="button" class="btn" data-background-slot="2" aria-pressed="false">صورة 2</button>
-                <button type="button" class="btn" data-background-slot="3" aria-pressed="false">صورة 3</button>
-                <button type="button" class="btn" data-background-slot="4" aria-pressed="false">صورة 4</button>
+                <button type="button" class="btn welcome-editor-bg-slot" data-background-slot="1" aria-pressed="false"><span class="welcome-editor-bg-thumb" data-slot-thumb="1" aria-hidden="true"><span class="welcome-editor-bg-placeholder">1</span></span><span class="welcome-editor-bg-label">صورة 1</span><span class="welcome-editor-bg-state" data-slot-state="1">جارٍ الفحص</span></button>
+                <button type="button" class="btn welcome-editor-bg-slot" data-background-slot="2" aria-pressed="false"><span class="welcome-editor-bg-thumb" data-slot-thumb="2" aria-hidden="true"><span class="welcome-editor-bg-placeholder">2</span></span><span class="welcome-editor-bg-label">صورة 2</span><span class="welcome-editor-bg-state" data-slot-state="2">جارٍ الفحص</span></button>
+                <button type="button" class="btn welcome-editor-bg-slot" data-background-slot="3" aria-pressed="false"><span class="welcome-editor-bg-thumb" data-slot-thumb="3" aria-hidden="true"><span class="welcome-editor-bg-placeholder">3</span></span><span class="welcome-editor-bg-label">صورة 3</span><span class="welcome-editor-bg-state" data-slot-state="3">جارٍ الفحص</span></button>
+                <button type="button" class="btn welcome-editor-bg-slot" data-background-slot="4" aria-pressed="false"><span class="welcome-editor-bg-thumb" data-slot-thumb="4" aria-hidden="true"><span class="welcome-editor-bg-placeholder">4</span></span><span class="welcome-editor-bg-label">صورة 4</span><span class="welcome-editor-bg-state" data-slot-state="4">جارٍ الفحص</span></button>
               </div>
               <div class="welcome-editor-upload-actions">
                 <button type="button" class="btn" data-action="upload-background">رفع وحفظ في الخانة</button>
@@ -195,7 +200,7 @@
               }
               return setStatus(result.fields?.file || "تعذر رفع الخلفية والتحقق منها.");
             }
-            checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderAll(); setStatus("تم حفظ صورة الخانة " + slot + " في قاعدة البيانات. اضغط حفظ التصميم لتفعيلها للترحيب والتجربة.");
+            checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderAll(); loadBackgroundSlotPreviews(); setStatus("تم حفظ صورة الخانة " + slot + " في قاعدة البيانات. اضغط حفظ التصميم لتفعيلها للترحيب والتجربة.");
             uploaded = true;
           } catch (_) {
             if (attempt === 0) {
@@ -228,9 +233,10 @@
         if (!response.ok || !result.ok) {
           return setStatus(result.fields?.slot || "تعذر حذف الصورة المحفوظة. لم نعتبر الحذف ناجحًا.");
         }
-        if (current.use_custom_background) current.use_custom_background = false;
+        if (Number(current.background_slot || 1) === slot) current.use_custom_background = false;
         window.PRIMEWelcomeEditor.cacheKey = Date.now();
         renderAll();
+        loadBackgroundSlotPreviews();
         setStatus("تم حذف صورة الخانة " + slot + " فقط. بقية الصور لم تتأثر؛ احفظ التصميم لتثبيت إيقاف الخلفية.");
       } catch (_) {
         setStatus("تعذر الاتصال لحذف الصورة. لم نؤكد نجاح الحذف.");
@@ -251,6 +257,7 @@
       finally { if (button.isConnected) button.disabled = false; }
     });
     renderAll();
+    loadBackgroundSlotPreviews();
     modal.querySelector(".welcome-editor-close").focus();
   }
 
@@ -266,6 +273,50 @@
       button.setAttribute("aria-pressed", active ? "true" : "false");
     });
   }
+  async function loadBackgroundSlotPreviews() {
+    if (!root || !window.PRIMEWelcomeEditor.guildId) return;
+    const guildId = String(window.PRIMEWelcomeEditor.guildId);
+    const buttons = [...root.querySelectorAll("[data-background-slot]")];
+    await Promise.all(buttons.map(async button => {
+      const slot = Number(button.dataset.backgroundSlot);
+      const thumb = button.querySelector("[data-slot-thumb]");
+      const state = button.querySelector("[data-slot-state]");
+      if (!thumb || !state) return;
+      state.textContent = "جارٍ الفحص";
+      try {
+        const url = "api/guild/" + encodeURIComponent(guildId) + "/onboarding/welcome-background?slot=" + slot + "&v=" + (window.PRIMEWelcomeEditor.cacheKey || Date.now());
+        const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+        if (!root || String(window.PRIMEWelcomeEditor.guildId) !== guildId) return;
+        if (response.status === 404) {
+          thumb.replaceChildren(Object.assign(document.createElement("span"), { className: "welcome-editor-bg-placeholder", textContent: "+" }));
+          button.classList.remove("has-image");
+          state.textContent = "فارغة";
+          return;
+        }
+        if (!response.ok) throw new Error("background_load_failed");
+        const blob = await response.blob();
+        if (!blob.type.startsWith("image/") || !blob.size) throw new Error("invalid_background_response");
+        const previousImage = thumb.querySelector("img[data-object-url]");
+        if (previousImage) {
+          try { URL.revokeObjectURL(previousImage.dataset.objectUrl); } catch (_) {}
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        const image = document.createElement("img");
+        image.src = objectUrl;
+        image.alt = "";
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.dataset.objectUrl = objectUrl;
+        thumb.replaceChildren(image);
+        button.classList.add("has-image");
+        state.textContent = "محفوظة";
+      } catch (_) {
+        button.classList.remove("has-image");
+        state.textContent = "تعذر التحميل";
+      }
+    }));
+  }
+
   function syncLegacyFields() {
     // The freeform elements are the source of truth; legacy coordinate limits
     // must never constrain or reject a user-designed canvas.
