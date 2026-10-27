@@ -281,6 +281,60 @@ def connect(row_factory=None) -> _Connection:
     return _Connection(row_factory)
 
 
+async def save_welcome_background_asset(guild_id: int, image_data: bytes) -> None:
+    """Persist welcome artwork in the same durable SQLite database as guild settings."""
+    async with connect() as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS welcome_background_assets (
+                guild_id INTEGER PRIMARY KEY,
+                image_data BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.execute(
+            "INSERT INTO welcome_background_assets (guild_id, image_data, updated_at) "
+            "VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(guild_id) DO UPDATE SET "
+            "image_data = excluded.image_data, updated_at = CURRENT_TIMESTAMP",
+            (int(guild_id), bytes(image_data)),
+        )
+        await db.commit()
+
+
+async def get_welcome_background_asset(guild_id: int) -> Optional[bytes]:
+    """Load the guild's saved welcome artwork from SQLite."""
+    async with connect() as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS welcome_background_assets (
+                guild_id INTEGER PRIMARY KEY,
+                image_data BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        async with db.execute(
+            "SELECT image_data FROM welcome_background_assets WHERE guild_id = ?",
+            (int(guild_id),),
+        ) as cur:
+            row = await cur.fetchone()
+    return bytes(row[0]) if row and row[0] is not None else None
+
+
+async def delete_welcome_background_asset(guild_id: int) -> None:
+    """Delete the guild's saved welcome artwork from SQLite."""
+    async with connect() as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS welcome_background_assets (
+                guild_id INTEGER PRIMARY KEY,
+                image_data BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.execute(
+            "DELETE FROM welcome_background_assets WHERE guild_id = ?",
+            (int(guild_id),),
+        )
+        await db.commit()
+
+
 async def get_user_dashboard_theme(user_id: str) -> Optional[Dict[str, Any]]:
     """Read the signed-in Discord user's private dashboard theme."""
     async with connect() as db:
