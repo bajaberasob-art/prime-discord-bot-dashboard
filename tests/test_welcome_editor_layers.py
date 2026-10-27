@@ -61,6 +61,16 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn('elif field == "elements":', source)
         self.assertIn('"frame"', source)
 
+    def test_welcome_background_upload_handles_disconnect_and_retries(self):
+        server = (ROOT / "web_server.py").read_text(encoding="utf-8")
+        script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
+        self.assertIn("except (ConnectionResetError, asyncio.IncompleteReadError, aiohttp.ClientPayloadError)", server)
+        self.assertIn('response.status != 499', server)
+        self.assertIn("attempt < 2 && !uploaded", script)
+        self.assertIn("انقطع الاتصال أثناء الرفع؛ جارٍ إعادة المحاولة", script)
+        # The background file is only replaced after the complete image has been verified.
+        self.assertLess(server.index("image.verify()"), server.index("temporary.replace(path)"))
+
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
