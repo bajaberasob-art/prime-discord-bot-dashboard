@@ -32,7 +32,8 @@ function localDateTimeValue(value){if(!value)return '';const d=new Date(value);i
 function utcDateTimeValue(value){if(!value)return null;const d=new Date(value);if(Number.isNaN(d.getTime()))throw new Error('تأكد من صحة وقت بداية العرض ونهايته.');return d.toISOString()}
 function effectivePrice(item){return Number(item&&item.is_on_sale?item.effective_price:(item&&item.price)||0)}
 function escape(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function kind(t){return ({background:'خلفية',card_template:'قالب بطاقة',badge:'استكر / شارة',flag:'علم',shape:'إطار / شكل',club_logo:'شعارات / أيقونات',card_color:'ألوان'})[t]||t}\nfunction rarityLabel(value){return ({common:'عادي',silver:'فضي',gold:'ذهبي',legendary:'أسطوري'})[String(value||'common')]||'عادي'}
+function kind(t){return ({background:'خلفية',card_template:'قالب بطاقة',badge:'استكر / شارة',flag:'علم',shape:'إطار / شكل',club_logo:'شعارات / أيقونات',card_color:'ألوان'})[t]||t}
+function rarityLabel(value){return ({common:'عادي',silver:'فضي',gold:'ذهبي',legendary:'أسطوري'})[String(value||'common')]||'عادي'}
 function isShopVisible(item){
  if(!item||!item.is_active)return false;
  const name=String(item.category||'').trim().toLocaleLowerCase('ar');
