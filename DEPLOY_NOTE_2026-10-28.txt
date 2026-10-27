@@ -1,0 +1,6 @@
+PRIME deployment refresh
+Date: 2026-10-28
+Requested by: project owner
+Purpose: create a fresh repository change so connected deployment integrations can detect a new main-branch revision.
+Arabic welcome rendering fix is included in the main branch history.
+This marker does not itself deploy the app; verify the deployed revision in Discloud.
