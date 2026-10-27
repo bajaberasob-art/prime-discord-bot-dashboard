@@ -198,28 +198,11 @@
     root.querySelectorAll("[data-config-color]").forEach(input => input.value = current[input.dataset.configColor] || "#7c3aed");
   }
   function syncLegacyFields() {
-    // Keep compatibility fields within the server's legacy schema ranges.
-    // The actual editor layers retain their free-form positions in elements.
-    const bounded = (value, min, max) => Number(clamp(value, min, max).toFixed(1));
-    const get = id => findElement(id);
-    const avatar = get("avatar"), title = get("title"), name = get("name"), server = get("server"), count = get("count");
-    if (avatar) {
-      current.avatar_x = bounded(avatar.x + avatar.width / 2, 12, 35);
-      current.avatar_y = bounded(avatar.y + avatar.height / 2, 25, 75);
-    }
-    if (title) current.title_y = bounded(title.y, 8, 30);
-    if (name) {
-      current.name_x = bounded(name.x + name.width, 45, 96);
-      current.name_y = bounded(name.y + name.height / 2, 25, 60);
-    }
-    if (server) {
-      current.server_y = bounded(server.y + server.height / 2, 45, 78);
-      current.show_server = server.visible;
-    }
-    if (count) {
-      current.count_y = bounded(count.y + count.height / 2, 60, 90);
-      current.show_count = count.visible;
-    }
+    // The freeform elements are the source of truth; legacy coordinate limits
+    // must never constrain or reject a user-designed canvas.
+    const server = findElement("server"), count = findElement("count");
+    if (server) current.show_server = server.visible;
+    if (count) current.show_count = count.visible;
   }
   function addElement(type) {
     if (current.elements.length >= 24) return setStatus("الحد الأقصى 24 طبقة في التصميم.");
