@@ -2181,6 +2181,7 @@
             config: state.draft.welcome_canvas_config || {},
             onSave: async (config) => {
               state.draft.welcome_canvas_config = config;
+              state.draft.welcome_generated_image_enabled = true;
               state.fields.welcome_canvas_config = "";
               renderDynamic();
               const saved = await saveOnboarding();
