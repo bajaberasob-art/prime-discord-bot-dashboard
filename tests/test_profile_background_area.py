@@ -300,5 +300,36 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         self.assertIn("_safe_color(name_box.get(\"color\"), light_text)", renderer)
         self.assertIn('stat.get("font_size")', renderer)
 
+
+    def test_creative_studio_has_history_quality_scan_and_safe_suggestions(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
+        client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        self.assertIn('id="layoutUndo"', html)
+        self.assertIn('id="layoutRedo"', html)
+        self.assertIn('id="layoutQualityCheck"', html)
+        self.assertIn('id="layoutSmartSuggest"', html)
+        self.assertIn('id="studioLayerList"', html)
+        for function_name in (
+            "function pushLayoutHistory()",
+            "function undoLayoutChange()",
+            "function redoLayoutChange()",
+            "function inspectLayoutQuality()",
+            "function renderStudioLayerList()",
+            "function applySmartLayoutSuggestions()",
+        ):
+            self.assertIn(function_name, client)
+        self.assertIn("layoutUndoStack", client)
+        self.assertIn("layoutRedoStack", client)
+        self.assertIn("data-quality-select", client)
+
+    def test_active_profile_template_publish_checks_layout_boundaries(self):
+        root = Path(__file__).resolve().parents[1]
+        client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        self.assertIn("const quality=inspectLayoutQuality()", client)
+        self.assertIn("لا يمكن نشر القالب قبل إصلاح العناصر الخارجة عن الحدود", client)
+        self.assertIn("function rarityLabel(value)", client)
+        self.assertIn("الندرة:", client)
+
 if __name__ == "__main__":
     unittest.main()
