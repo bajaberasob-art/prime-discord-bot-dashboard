@@ -125,6 +125,11 @@ class WelcomeStudioLayerTests(unittest.TestCase):
 
         editor = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
         renderer = (ROOT / "cogs" / "engagement.py").read_text(encoding="utf-8")
+        self.assertIn('propertyField("النمط الجاهز (عربي/إنجليزي)","fontPreset"', editor)
+        self.assertIn('"modern_bold"', editor)
+        self.assertIn('"formal"', editor)
+        self.assertIn('"tech"', editor)
+        self.assertIn('"gaming"', editor)
         self.assertIn('propertyField("نوع الخط","fontFamily"', editor)
         self.assertIn('propertyField("سماكة الخط","fontWeight"', editor)
         self.assertIn('propertyField("ميل الخط","fontStyle"', editor)
@@ -134,6 +139,8 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("def _welcome_font(", renderer)
         self.assertIn("def wrap_text(source: str, font: Any)", renderer)
         self.assertIn("textTransform", renderer)
+        self.assertIn('"modern_bold": ("sans", "bold", "normal", "uppercase")', renderer)
+        self.assertIn('"luxury": ("serif", "normal", "italic", "capitalize")', renderer)
 
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
@@ -197,11 +204,11 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v66", server)
+        self.assertIn("prime-dashboard-shell-v67", server)
         self.assertIn("welcome-editor.css?v=welcome-editor-10", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-12", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-13", server)
         self.assertIn("welcome-editor.css?v=welcome-editor-10", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-12", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-13", index)
 
 
 if __name__ == "__main__":
