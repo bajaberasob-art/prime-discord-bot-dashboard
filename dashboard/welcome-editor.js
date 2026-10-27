@@ -408,7 +408,7 @@
     if (!el) { host.textContent = "حدد طبقة من القائمة أو اضغط على عنصر في مساحة التصميم."; return; }
     host.append(propertyField("اسم الطبقة","label",el.label,"text",{maxlength:40}));
     if (["text","title","name","server","count"].includes(el.type)) host.append(propertyField("النص","text",el.text || "","textarea",{maxlength:200}));
-    if (el.type !== "avatar") host.append(propertyField("لون العنصر","color",el.color,"color"));
+    host.append(propertyField("لون العنصر","color",el.color,"color"));
     host.append(propertyField("المحور الأفقي (%)","x",el.x,"number",{min:0,max:98,step:.5}), propertyField("المحور العمودي (%)","y",el.y,"number",{min:0,max:98,step:.5}));
     host.append(propertyField("العرض (%)","width",el.width,"number",{min:2,max:100,step:.5}), propertyField("الارتفاع (%)","height",el.height,"number",{min:1,max:100,step:.5}));
     if (["text","title","name","server","count"].includes(el.type)) host.append(propertyField("حجم الخط","fontSize",el.fontSize,"number",{min:8,max:160,step:1}), propertyField("محاذاة النص","align",el.align,"select",{options:[["right","يمين"],["center","وسط"],["left","يسار"]]}));
