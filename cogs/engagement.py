@@ -918,7 +918,8 @@ class Engagement(commands.Cog):
                     ey = max(0, min(100, float(element.get("y", 0)))) / 100
                     ew = max(1, min(100, float(element.get("width", 30)))) / 100
                     eh = max(1, min(100, float(element.get("height", 10)))) / 100
-                    font_size = max(8, min(160, int(float(element.get("fontSize", 24)))))
+                    # Font sizes in the editor are relative to the 1200px reference width.
+                    font_size = max(6, min(160, int(float(element.get("fontSize", 24)) * width / 1200)))
                     opacity = max(0, min(100, float(element.get("opacity", 100)))) / 100
                     rotation = max(-180, min(180, float(element.get("rotation", 0))))
                 except (TypeError, ValueError):
