@@ -1,6 +1,6 @@
 (()=>{'use strict';
 const root=document.getElementById('app'), guildId=root.dataset.guildId, csrf=root.dataset.csrf;
-const $=id=>document.getElementById(id); let items=[],settings={},categories=[],previewUrl='',layoutMetadata={},layoutDrag=null,layoutImageSource='',layoutNeedsDefault=false;
+const $=id=>document.getElementById(id); let items=[],settings={},categories=[],previewUrl='',layoutMetadata={},layoutDrag=null,layoutImageSource='',layoutNeedsDefault=false,layoutUndoStack=[],layoutRedoStack=[],layoutHistoryLimit=60;
 const endpoint=(suffix='')=>'/api/guild/'+encodeURIComponent(guildId)+'/profile-store'+suffix;
 function assetUrl(id){return endpoint('/items/'+encodeURIComponent(id)+'/asset')}
 function refreshBackgroundPreviewOptions(){const select=$('layoutBackgroundSource');if(!select)return;const prior=select.value;const choices=items.filter(item=>item.item_type==='background'&&item.has_asset);select.innerHTML='<option value="">بدون صورة تجريبية</option>'+choices.map(item=>'<option value="'+escape(item.item_id)+'">'+escape(item.name)+'</option>').join('');if(choices.some(item=>String(item.item_id)===prior))select.value=prior;updateBackgroundPreview()}
@@ -26,13 +26,28 @@ function updateDesignTemplateOptions(){
  $('designLoadTemplate').disabled=templates.length===0;
  $('designStatus').textContent=templates.length?'اختر القالب ثم افتحه في الاستوديو. القوالب غير المعدّلة تبقى كما هي حتى تحفظ تغييراتك.':'لا توجد قوالب بطاقات محفوظة بعد. أنشئ قالبًا من قسم المنتجات والقوالب أولًا.';
 }
-async function load(){try{const data=await api('');items=(data.items||[]).map(parseItem);updateDesignTemplateOptions();categories=(data.categories||[]).map(c=>({...c,category_id:Number(c.category_id),parent_id:c.parent_id==null?null:Number(c.parent_id),sort_order:Number(c.sort_order)||0,is_active:!!c.is_active}));settings=data.settings||{};refreshBackgroundPreviewOptions();const sales=data.sales||{};$('salesPurchases').textContent=fmtNumber(sales.purchases);$('salesBuyers').textContent=fmtNumber(sales.buyers);$('salesMoon').textContent=fmtNumber(sales.moon_revenue);$('salesGems').textContent=fmtNumber(sales.gem_revenue);$('storeEnabled').checked=!!Number(settings.enabled);$('customEnabled').checked=!!Number(settings.custom_upload_enabled);$('customPrice').value=settings.custom_upload_price||0;$('customCurrency').value=settings.custom_upload_currency||'moon';$('maxUpload').value=Math.max(0.001,Number(settings.max_custom_upload_bytes||5242880)/1048576).toFixed(3);$('sessionTtl').value=settings.session_ttl_seconds||900;render();}catch(e){notice('تعذر تحميل المتجر: '+e.message,true)}}
+async function load(){try{const data=await api('');items=(data.items||[]).map(parseItem);updateDesignTemplateOptions();categories=(data.categories||[]).map(c=>({...c,category_id:Number(c.category_id),parent_id:c.parent_id==null?null:Number(c.parent_id),sort_order:Number(c.sort_order)||0,is_active:!!c.is_active}));settings=data.settings||{};refreshBackgroundPreviewOptions();refreshTransparencyOptions();const sales=data.sales||{};$('salesPurchases').textContent=fmtNumber(sales.purchases);$('salesBuyers').textContent=fmtNumber(sales.buyers);$('salesMoon').textContent=fmtNumber(sales.moon_revenue);$('salesGems').textContent=fmtNumber(sales.gem_revenue);$('storeEnabled').checked=!!Number(settings.enabled);$('customEnabled').checked=!!Number(settings.custom_upload_enabled);$('customPrice').value=settings.custom_upload_price||0;$('customCurrency').value=settings.custom_upload_currency||'moon';$('maxUpload').value=Math.max(0.001,Number(settings.max_custom_upload_bytes||5242880)/1048576).toFixed(3);$('sessionTtl').value=settings.session_ttl_seconds||900;render();}catch(e){notice('تعذر تحميل المتجر: '+e.message,true)}}
+/* Multi-region alpha cutout editor: flood-fill only from explicitly selected seeds. */
+const transparency={original:null,work:null,seeds:[],itemId:null};
+function transparencyStatus(message,error=false){const node=$('transparencyStatus');if(node){node.textContent=message;node.classList.toggle('report-error',error)}}
+function refreshTransparencyOptions(){const select=$('transparencyTemplate');if(!select)return;const prior=select.value;const templates=items.filter(i=>i.item_type==='card_template'&&i.has_asset);select.innerHTML='<option value="">اختر قالبًا</option>'+templates.map(i=>'<option value="'+escape(i.item_id)+'">'+escape(i.name)+'</option>').join('');if(templates.some(i=>String(i.item_id)===prior))select.value=prior}
+function drawTransparency(){const canvas=$('transparencyCanvas');if(!canvas||!transparency.work)return;canvas.width=transparency.work.width;canvas.height=transparency.work.height;canvas.getContext('2d').putImageData(transparency.work,0,0);$('transparencyStage').style.display='block';$('transparencyApply').disabled=!transparency.seeds.length}
+async function loadTransparencyImage(){const id=$('transparencyTemplate').value;if(!id){transparencyStatus('اختر قالبًا أولًا.',true);return}try{const response=await fetch(assetUrl(id),{credentials:'same-origin'});if(!response.ok)throw new Error('تعذر تحميل صورة القالب.');const blob=await response.blob();if(!blob.type.startsWith('image/'))throw new Error('الملف ليس صورة صالحة.');const bitmap=await createImageBitmap(blob);if(bitmap.width*bitmap.height>16000000)throw new Error('الصورة تتجاوز حد 16 مليون بكسل.');const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(bitmap,0,0);transparency.original=ctx.getImageData(0,0,canvas.width,canvas.height);transparency.work=new ImageData(new Uint8ClampedArray(transparency.original.data),canvas.width,canvas.height);transparency.itemId=id;transparency.seeds=[];drawTransparency();transparencyStatus('انقر داخل المساحة السوداء الكبيرة، ثم داخل الدائرة وأي مساحة أخرى تريد تفريغها. المناطق غير المحددة تبقى كما هي.')}catch(e){transparencyStatus(e.message||'تعذر تحميل القالب.',true)}}
+function transparencyFlood(seedX,seedY){const image=transparency.work;if(!image)return 0;const w=image.width,h=image.height,data=image.data,tolerance=Number($('transparencyTolerance').value),start=(seedY*w+seedX)*4,sa=data[start+3];if(sa<8)return 0;if(Math.max(data[start],data[start+1],data[start+2])>Math.min(245,35+tolerance*1.65)){transparencyStatus('النقطة ليست سوداء بما يكفي. اختر داخل المنطقة السوداء أو ارفع التسامح قليلًا.',true);return 0}const seen=new Uint8Array(w*h),stack=[seedY*w+seedX];let changed=0;seen[seedY*w+seedX]=1;const limit=Math.min(255,35+tolerance*1.65);while(stack.length){const p=stack.pop(),i=p*4;if(Math.max(data[i],data[i+1],data[i+2])>limit)continue;data[i+3]=0;changed++;const x=p%w,y=(p/w)|0;if(x>0&&!seen[p-1]){seen[p-1]=1;stack.push(p-1)}if(x+1<w&&!seen[p+1]){seen[p+1]=1;stack.push(p+1)}if(y>0&&!seen[p-w]){seen[p-w]=1;stack.push(p-w)}if(y+1<h&&!seen[p+w]){seen[p+w]=1;stack.push(p+w)}}return changed}
+$('transparencyLoad')?.addEventListener('click',loadTransparencyImage);
+$('transparencyTolerance')?.addEventListener('input',()=>{$('transparencyToleranceValue').textContent=$('transparencyTolerance').value});
+$('transparencyCanvas')?.addEventListener('click',event=>{if(!transparency.work)return;const rect=event.currentTarget.getBoundingClientRect(),x=Math.max(0,Math.min(transparency.work.width-1,Math.floor((event.clientX-rect.left)/rect.width*transparency.work.width))),y=Math.max(0,Math.min(transparency.work.height-1,Math.floor((event.clientY-rect.top)/rect.height*transparency.work.height))),before=new Uint8ClampedArray(transparency.work.data),count=transparencyFlood(x,y);if(count){transparency.seeds.push({x,y,before});drawTransparency();transparencyStatus('تم تفريغ منطقة متصلة ('+fmtNumber(count)+' بكسل). حدد منطقة أخرى أو احفظ القالب.')}});
+$('transparencyUndo')?.addEventListener('click',()=>{const last=transparency.seeds.pop();if(!last||!transparency.work)return;transparency.work.data.set(last.before);drawTransparency();transparencyStatus('تم التراجع عن آخر منطقة.')});
+$('transparencyReset')?.addEventListener('click',()=>{if(!transparency.original)return;transparency.work=new ImageData(new Uint8ClampedArray(transparency.original.data),transparency.original.width,transparency.original.height);transparency.seeds=[];drawTransparency();transparencyStatus('رجعت إلى الصورة الأصلية دون تعديلات.')});
+$('transparencyApply')?.addEventListener('click',async()=>{if(!transparency.work||!transparency.itemId||!transparency.seeds.length)return;const button=$('transparencyApply');button.disabled=true;try{const canvas=$('transparencyCanvas'),blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('تعذر إنشاء ملف PNG.');const form=new FormData();form.append('file',new File([blob],'transparent-template.png',{type:'image/png'}));await api('/items/'+encodeURIComponent(transparency.itemId)+'/asset',{method:'POST',body:form});await load();await loadTransparencyImage();transparencyStatus('تم حفظ القالب بصيغة PNG مع شفافية حقيقية. تحقق من النتيجة قبل نشره.')}catch(e){transparencyStatus('فشل حفظ القالب: '+e.message,true)}finally{button.disabled=false}});
+
 function fmtNumber(value){return Number(value||0).toLocaleString('ar')}
 function localDateTimeValue(value){if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}
 function utcDateTimeValue(value){if(!value)return null;const d=new Date(value);if(Number.isNaN(d.getTime()))throw new Error('تأكد من صحة وقت بداية العرض ونهايته.');return d.toISOString()}
 function effectivePrice(item){return Number(item&&item.is_on_sale?item.effective_price:(item&&item.price)||0)}
 function escape(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function kind(t){return ({background:'خلفية',card_template:'قالب بطاقة',badge:'استكر / شارة',flag:'علم',shape:'إطار / شكل',club_logo:'شعارات / أيقونات',card_color:'ألوان'})[t]||t}
+function rarityLabel(value){return 'الندرة: '+((({common:'عادي',silver:'فضي',gold:'ذهبي',legendary:'أسطوري'})[String(value||'common')])||'عادي')}
 function isShopVisible(item){
  if(!item||!item.is_active)return false;
  const name=String(item.category||'').trim().toLocaleLowerCase('ar');
@@ -70,9 +85,9 @@ function reset(){ clearAssetPreview();$('itemForm').reset();$('itemId').value=''
 function edit(id){const i=items.find(x=>x.item_id===id);if(!i)return;$('itemId').value=id;$('name').value=i.name;$('slug').value=i.slug;$('type').value=i.item_type;$('category').value=i.category||'عام';$('subcategory').value=i.subcategory||'';updateSubcategorySuggestions();$('rarity').value=i.rarity||'common';$('price').value=i.price;$('currency').value=i.currency||'moon';$('sortOrder').value=Number(i.sort_order)||0;$('salePrice').value=i.sale_price==null?'':i.sale_price;$('saleStart').value=localDateTimeValue(i.sale_starts_at);$('saleEnd').value=localDateTimeValue(i.sale_ends_at);$('description').value=i.description||'';$('active').checked=!!i.is_active;$('featured').checked=!!i.is_featured;$('accent').value=i.style?.accent||'#72DCFF';clearAssetPreview();$('asset').value='';layoutMetadata=cloneLayoutMetadata(i.metadata||{});layoutNeedsDefault=!(Number(layoutMetadata.width)>0&&Number(layoutMetadata.height)>0);layoutImageSource='';updateAssetField();$('editorTitle').textContent='تعديل: '+i.name;$('deleteItem').classList.remove('hidden');syncLayoutEditor(true);window.scrollTo({top:0,behavior:'smooth'})}
 function payload(){return {slug:$('slug').value.trim().toLowerCase(),name:$('name').value.trim(),description:$('description').value.trim(),item_type:$('type').value,category:$('category').value.trim()||'عام',subcategory:$('subcategory').value.trim(),rarity:$('rarity').value,price:Number($('price').value),currency:$('currency').value,sort_order:Number($('sortOrder').value)||0,sale_price:$('salePrice').value.trim()===''?null:Number($('salePrice').value),sale_starts_at:utcDateTimeValue($('saleStart').value),sale_ends_at:utcDateTimeValue($('saleEnd').value),style:{accent:$('accent').value.trim()||'#72DCFF'},metadata:cloneLayoutMetadata(layoutMetadata),is_active:$('active').checked,is_featured:$('featured').checked}}
 async function upload(id){const file=$('asset').files[0];if(!file)return;const form=new FormData();form.append('file',file);const result=await api('/items/'+id+'/asset',{method:'POST',body:form});notice('تم رفع الصورة ('+result.width+'×'+result.height+')')}
-$('itemForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('saveItem');btn.disabled=true;let savedId=$('itemId').value;try{const id=savedId;const desired=payload();const current=id?items.find(i=>String(i.item_id)===String(id)):null;const needsAsset=['background','card_template','badge','flag','shape','club_logo'].includes(desired.item_type);const hasFile=$('asset').files.length>0;const hasExistingAsset=!!(current&&current.has_asset);if(needsAsset&&!hasFile&&!hasExistingAsset&&desired.is_active)throw new Error('ارفع صورة لهذا المنتج قبل نشره في المتجر.');const stageInactive=needsAsset&&hasFile&&desired.is_active&&!hasExistingAsset;const saveBody={...desired,is_active:stageInactive?false:desired.is_active};const result=await api(id?'/items/'+id:'/items',{method:id?'PUT':'POST',body:JSON.stringify(saveBody)});const saved=result.item;savedId=String(saved.item_id);$('itemId').value=savedId;$('editorTitle').textContent='تعديل: '+saved.name;$('deleteItem').classList.remove('hidden');if(hasFile)await upload(saved.item_id);if(stageInactive){const latest=await api('');const item=(latest.items||[]).find(i=>String(i.item_id)===savedId);if(!item||!item.has_asset)throw new Error('تم حفظ المنتج، لكن لم يثبت وجود ملف الصورة بعد؛ بقي مخفياً حتى تكتمل الصورة.');const publishBody={slug:item.slug,name:item.name,description:item.description||'',item_type:item.item_type,category:item.category||'all',subcategory:item.subcategory||'',rarity:item.rarity||'common',price:Number(item.price)||0,currency:item.currency||'moon',sort_order:Number(item.sort_order)||0,sale_price:item.sale_price==null?null:Number(item.sale_price),sale_starts_at:item.sale_starts_at||null,sale_ends_at:item.sale_ends_at||null,style:item.style||{},metadata:item.metadata||{},is_active:true,is_featured:!!item.is_featured};await api('/items/'+savedId,{method:'PUT',body:JSON.stringify(publishBody)})}notice(id?'تم تحديث المنتج':'تم إنشاء المنتج');if(desired.item_type==='card_template'){await load();edit(Number(savedId));notice('تم حفظ المنتج. يمكنك الآن ضبط مواضع عناصر القالب من المحرر المرئي.')}else{reset();await load()}}catch(err){if(savedId){$('itemId').value=savedId;$('editorTitle').textContent='استكمال تعديل المنتج #'+savedId;$('deleteItem').classList.remove('hidden')}notice('تعذر إكمال الحفظ: '+err.message,true)}finally{btn.disabled=false}});
+$('itemForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('saveItem');btn.disabled=true;let savedId=$('itemId').value;try{const id=savedId;const desired=payload();const current=id?items.find(i=>String(i.item_id)===String(id)):null;if(desired.item_type==='card_template'&&desired.is_active){const quality=inspectLayoutQuality();if(quality.issues.length)throw new Error('لا يمكن نشر القالب قبل إصلاح العناصر الخارجة عن الحدود. راجع تقرير فحص الجودة.');}const needsAsset=['background','card_template','badge','flag','shape','club_logo'].includes(desired.item_type);const hasFile=$('asset').files.length>0;const hasExistingAsset=!!(current&&current.has_asset);if(needsAsset&&!hasFile&&!hasExistingAsset&&desired.is_active)throw new Error('ارفع صورة لهذا المنتج قبل نشره في المتجر.');const stageInactive=needsAsset&&hasFile&&desired.is_active&&!hasExistingAsset;const saveBody={...desired,is_active:stageInactive?false:desired.is_active};const result=await api(id?'/items/'+id:'/items',{method:id?'PUT':'POST',body:JSON.stringify(saveBody)});const saved=result.item;savedId=String(saved.item_id);$('itemId').value=savedId;$('editorTitle').textContent='تعديل: '+saved.name;$('deleteItem').classList.remove('hidden');if(hasFile)await upload(saved.item_id);if(stageInactive){const latest=await api('');const item=(latest.items||[]).find(i=>String(i.item_id)===savedId);if(!item||!item.has_asset)throw new Error('تم حفظ المنتج، لكن لم يثبت وجود ملف الصورة بعد؛ بقي مخفياً حتى تكتمل الصورة.');const publishBody={slug:item.slug,name:item.name,description:item.description||'',item_type:item.item_type,category:item.category||'all',subcategory:item.subcategory||'',rarity:item.rarity||'common',price:Number(item.price)||0,currency:item.currency||'moon',sort_order:Number(item.sort_order)||0,sale_price:item.sale_price==null?null:Number(item.sale_price),sale_starts_at:item.sale_starts_at||null,sale_ends_at:item.sale_ends_at||null,style:item.style||{},metadata:item.metadata||{},is_active:true,is_featured:!!item.is_featured};await api('/items/'+savedId,{method:'PUT',body:JSON.stringify(publishBody)})}notice(id?'تم تحديث المنتج':'تم إنشاء المنتج');if(desired.item_type==='card_template'){await load();edit(Number(savedId));notice('تم حفظ المنتج. يمكنك الآن ضبط مواضع عناصر القالب من المحرر المرئي.')}else{reset();await load()}}catch(err){if(savedId){$('itemId').value=savedId;$('editorTitle').textContent='استكمال تعديل المنتج #'+savedId;$('deleteItem').classList.remove('hidden')}notice('تعذر إكمال الحفظ: '+err.message,true)}finally{btn.disabled=false}});
 $('deleteItem').onclick=async()=>{const id=$('itemId').value;if(!id||!confirm('سيتم حذف المنتج من الكتالوج وإخفاؤه عن العملاء. متابعة؟'))return;try{await api('/items/'+id,{method:'DELETE'});notice('تم حذف المنتج من الكتالوج');reset();await load()}catch(e){notice('تعذر الحذف: '+e.message,true)}};
-async function toggle(id){const i=items.find(x=>x.item_id===id);if(!i)return;try{await api('/items/'+id,{method:'PUT',body:JSON.stringify({slug:i.slug,name:i.name,description:i.description,item_type:i.item_type,category:i.category,subcategory:i.subcategory||'',rarity:i.rarity,price:i.price,currency:i.currency,sort_order:Number(i.sort_order)||0,sale_price:i.sale_price==null?null:Number(i.sale_price),sale_starts_at:i.sale_starts_at||null,sale_ends_at:i.sale_ends_at||null,style:i.style||{},metadata:i.metadata||{},is_active:!i.is_active,is_featured:!!i.is_featured})});notice(i.is_active?'تم إخفاء المنتج':'تم نشر المنتج');await load()}catch(e){notice('تعذر تغيير الحالة: '+e.message,true)}}
+async function toggle(id){const i=items.find(x=>x.item_id===id);if(!i)return;try{if(!i.is_active&&i.item_type==='card_template'){layoutMetadata=cloneLayoutMetadata(i.metadata||{});const quality=inspectLayoutQuality();if(quality.issues.length)throw new Error('لا يمكن نشر القالب قبل إصلاح العناصر الخارجة عن الحدود. افتح القالب في الاستوديو وشغّل فحص الجودة.')}await api('/items/'+id,{method:'PUT',body:JSON.stringify({slug:i.slug,name:i.name,description:i.description,item_type:i.item_type,category:i.category,subcategory:i.subcategory||'',rarity:i.rarity,price:i.price,currency:i.currency,sort_order:Number(i.sort_order)||0,sale_price:i.sale_price==null?null:Number(i.sale_price),sale_starts_at:i.sale_starts_at||null,sale_ends_at:i.sale_ends_at||null,style:i.style||{},metadata:i.metadata||{},is_active:!i.is_active,is_featured:!!i.is_featured})});notice(i.is_active?'تم إخفاء المنتج':'تم نشر المنتج');await load()}catch(e){notice('تعذر تغيير الحالة: '+e.message,true)}}
 $('saveSettings').onclick=async()=>{if(!$('customPrice').reportValidity()||!$('maxUpload').reportValidity()||!$('sessionTtl').reportValidity())return;try{await api('/settings',{method:'POST',body:JSON.stringify({enabled:$('storeEnabled').checked,custom_upload_enabled:$('customEnabled').checked,custom_upload_price:Number($('customPrice').value),custom_upload_currency:$('customCurrency').value,max_custom_upload_bytes:Math.round(Number($('maxUpload').value)*1048576),session_ttl_seconds:Number($('sessionTtl').value)})});notice('تم حفظ إعدادات المتجر')}catch(e){notice('تعذر حفظ الإعدادات: '+e.message,true)}};
 $('refreshSales').addEventListener('click',load);
 async function moveItem(id,direction){const ordered=[...items].sort((a,b)=>(Number(a.sort_order)||0)-(Number(b.sort_order)||0)||a.item_id-b.item_id);const index=ordered.findIndex(item=>item.item_id===id),target=index+direction;if(index<0||target<0||target>=ordered.length)return;[ordered[index],ordered[target]]=[ordered[target],ordered[index]];try{await api('/items/reorder',{method:'PUT',body:JSON.stringify({item_ids:ordered.map(item=>Number(item.item_id))})});notice('تم تحديث ترتيب المنتجات');await load()}catch(e){notice('تعذر ترتيب المنتجات: '+e.message,true)}}
@@ -103,6 +118,92 @@ function defaultLayoutMetadata(width,height){
  const keys=[['balance','الرصيد'],['messages','الرسائل'],['rank','الترتيب'],['voice','الصوت']];
  return {layout,width:w,height:h,orientation:portrait?'portrait':(w===h?'square':'landscape'),background_area:backgroundArea,avatar,name,handle,level,xp_bar:xp,badges:{x:Math.round(w*.055),y:Math.round(h*.58),size:Math.max(24,Math.round(h*.03)),limit:5},flag:{x:Math.round(w*.045),y:Math.round(h*.035),width:Math.max(24,Math.round(w*.055)),height:Math.max(18,Math.round(h*.035))},stats:keys.map((v,i)=>({key:v[0],label:v[1],x:Math.round(w*boxes[i][0]),y:Math.round(h*boxes[i][1]),w:Math.round(w*boxes[i][2]),h:Math.round(h*boxes[i][3])}))};
 }
+
+function layoutSnapshot(){return JSON.stringify(layoutMetadata||{});}
+function pushLayoutHistory(){
+ const snapshot=layoutSnapshot();
+ if(layoutUndoStack.length&&layoutUndoStack[layoutUndoStack.length-1]===snapshot)return;
+ layoutUndoStack.push(snapshot);if(layoutUndoStack.length>layoutHistoryLimit)layoutUndoStack.shift();
+ layoutRedoStack=[];updateHistoryButtons();
+}
+function updateHistoryButtons(){
+ const undo=$('layoutUndo'),redo=$('layoutRedo');
+ if(undo)undo.disabled=!layoutUndoStack.length;
+ if(redo)redo.disabled=!layoutRedoStack.length;
+}
+function undoLayoutChange(){
+ if(!layoutUndoStack.length)return;
+ layoutRedoStack.push(layoutSnapshot());layoutMetadata=JSON.parse(layoutUndoStack.pop()||'{}');
+ renderLayoutEditor();updateHistoryButtons();notice('تم التراجع عن آخر تعديل. احفظ التخطيط لتثبيت النتيجة.');
+}
+function redoLayoutChange(){
+ if(!layoutRedoStack.length)return;
+ layoutUndoStack.push(layoutSnapshot());layoutMetadata=JSON.parse(layoutRedoStack.pop()||'{}');
+ renderLayoutEditor();updateHistoryButtons();notice('تمت إعادة التعديل. احفظ التخطيط لتثبيت النتيجة.');
+}
+function boxRectForQuality(key){
+ const box=getLayoutBox(key),meta=normalizeLayoutMetadata();
+ return {key,x:displayLayoutLeft(box),y:box.y,w:box.width,h:box.height,kind:box.kind,right:displayLayoutLeft(box)+box.width,bottom:box.y+box.height};
+}
+function inspectLayoutQuality(){
+ const meta=normalizeLayoutMetadata(),elements=layoutElements().filter(el=>el.key!=='background_area');
+ const issues=[],warnings=[];
+ for(const el of elements){
+  const r=boxRectForQuality(el.key);
+  if(r.x<0||r.y<0||r.right>meta.width||r.bottom>meta.height){
+   issues.push({type:'error',key:el.key,label:el.label,message:'العنصر يتجاوز حدود القالب.'});
+  }
+  if(r.w>meta.width*.78&&r.kind==='text'){
+   warnings.push({type:'warn',key:el.key,label:el.label,message:'عرض النص كبير وقد يتداخل مع عناصر أخرى.'});
+  }
+  if(r.w<40||r.h<12){
+   warnings.push({type:'warn',key:el.key,label:el.label,message:'مساحة العنصر صغيرة وقد تؤثر على وضوحه.'});
+  }
+ }
+ for(let i=0;i<elements.length;i++){
+  const a=boxRectForQuality(elements[i].key);
+  for(let j=i+1;j<elements.length;j++){
+   const b=boxRectForQuality(elements[j].key);
+   const overlapX=Math.max(0,Math.min(a.right,b.right)-Math.max(a.x,b.x));
+   const overlapY=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.y,b.y));
+   const area=overlapX*overlapY,smaller=Math.min(a.w*a.h,b.w*b.h);
+   if(area>0&&smaller>0&&area/smaller>.22){
+    warnings.push({type:'warn',key:elements[j].key,label:elements[j].label,message:'يوجد تداخل محتمل مع «'+elements[i].label+'».'});
+   }
+  }
+ }
+ const report=$('layoutQualityReport');if(!report)return {issues,warnings};
+ report.classList.remove('hidden');
+ if(!issues.length&&!warnings.length){
+  report.innerHTML='<h4 class="report-good">✓ التصميم ضمن الحدود الأساسية</h4><p>لم يُكتشف خروج واضح عن حدود القالب أو تداخل كبير بين العناصر. ما زالت المعاينة البشرية مهمة قبل النشر.</p>';
+ }else{
+  report.innerHTML='<h4>نتيجة فحص التصميم</h4><p class="'+(issues.length?'report-error':'report-warn')+'">أخطاء حدود: '+issues.length+' · ملاحظات تحتاج مراجعة: '+warnings.length+'</p><ul>'+issues.concat(warnings).slice(0,30).map(x=>'<li class="'+x.type+'"><strong>'+escape(x.label)+':</strong> '+escape(x.message)+' <button type="button" data-quality-select="'+escape(x.key)+'">تحديد العنصر</button></li>').join('')+'</ul><p class="muted">الفحص هندسي أولي ولا يستطيع ضمان التباين البصري أو سلامة كل خط داخل صورة القالب.</p>';
+ }
+ return {issues,warnings};
+}
+function renderStudioLayerList(){
+ const list=$('studioLayerList');if(!list)return;
+ const selected=$('layoutField').value||'avatar';
+ list.innerHTML=layoutElements().map(el=>'<button type="button" class="studio-layer" data-studio-layer="'+escape(el.key)+'" aria-pressed="'+(el.key===selected?'true':'false')+'"><i class="layer-dot"></i><span>'+escape(el.label)+'</span></button>').join('');
+}
+function applySmartLayoutSuggestions(){
+ const meta=normalizeLayoutMetadata(),elements=layoutElements().filter(el=>el.key!=='background_area');
+ if(!elements.length)return;
+ pushLayoutHistory();
+ let adjusted=0;
+ for(const el of elements){
+  const box=getLayoutBox(el.key),rect=boxRectForQuality(el.key);
+  let x=box.kind==='text'&&box.anchor==='ra'?Math.max(box.width,Math.min(meta.width,Number(box.x)||0)):rect.x;
+  let y=Number(box.y)||0,w=rect.w,h=rect.h;
+  w=Math.max(1,Math.min(w,meta.width));h=Math.max(1,Math.min(h,meta.height));
+  x=box.kind==='text'&&box.anchor==='ra'?Math.max(w,Math.min(meta.width,x)):Math.max(0,Math.min(meta.width-w,x));y=Math.max(0,Math.min(meta.height-h,y));
+  if(x!==rect.x||y!==rect.y||w!==rect.w||h!==rect.h){writeLayoutBox(el.key,x,y,w,h);adjusted++;}
+ }
+ const report=$('layoutSmartReport');report.classList.remove('hidden');
+ report.innerHTML=adjusted?'<h4 class="report-good">اقتراح تحسين الحدود جاهز</h4><p>عُدلت حدود '+adjusted+' عنصرًا حتى تبقى داخل مساحة القالب. راجع النتيجة ثم احفظها إذا ناسبتك.</p><button type="button" id="layoutUndoSmart">التراجع عن الاقتراح</button>':'<h4 class="report-good">لا توجد عناصر خارج الحدود</h4><p>لم يغيّر النظام توزيعك. راجع تقرير الجودة للتأكد من التداخلات المحتملة يدويًا.</p>';
+ renderLayoutEditor();inspectLayoutQuality();updateHistoryButtons();
+}
+
 function normalizeLayoutMetadata(){
  if(!layoutMetadata||typeof layoutMetadata!=='object'||Array.isArray(layoutMetadata))layoutMetadata={};
  if(!Number.isFinite(Number(layoutMetadata.width))||Number(layoutMetadata.width)<1)layoutMetadata.width=1280;
@@ -202,7 +303,7 @@ function renderLayoutEditor(){
  else {img.classList.remove('hidden');empty.classList.add('hidden')}
  $('layoutOverlayLayer').innerHTML=layoutElements().map(el=>'<div class="layout-element '+(el.key===selected?'selected':'')+'" data-layout-key="'+escape(el.key)+'" data-kind="'+el.kind+'" data-anchor="'+escape(el.box.anchor||"")+'" role="button" tabindex="0" aria-label="تحريك '+escape(el.label)+'"><span>'+escape(el.label)+'</span>'+(el.key==='background_area'?'<i class="layout-resize nw" data-corner="nw" aria-hidden="true"></i><i class="layout-resize ne" data-corner="ne" aria-hidden="true"></i><i class="layout-resize sw" data-corner="sw" aria-hidden="true"></i><i class="layout-resize se" data-corner="se" aria-hidden="true"></i>':'<i class="layout-resize se" data-corner="se" aria-hidden="true"></i>')+'</div>').join('');
  $('layoutOverlayLayer').querySelectorAll('[data-layout-key]').forEach(el=>updateLayoutOverlayStyle(el,el.dataset.layoutKey));
- updateLayoutControls();
+ updateLayoutControls();renderStudioLayerList();updateHistoryButtons();
 }
 function updateBackgroundPreview(){const preview=$('layoutBackgroundPreview'),select=$('layoutBackgroundSource');if(!preview||!select)return;const id=select.value,item=items.find(value=>String(value.item_id)===String(id)&&value.item_type==='background'&&value.has_asset),meta=normalizeLayoutMetadata(),area=meta.background_area;if(!item){preview.removeAttribute('src');preview.classList.add('hidden');preview.dataset.source='';return}const source=assetUrl(item.item_id);if(preview.dataset.source!==source){preview.dataset.source=source;preview.src=source}preview.classList.remove('hidden');preview.style.left=(area.x/meta.width*100)+'%';preview.style.top=(area.y/meta.height*100)+'%';preview.style.width=(area.width/meta.width*100)+'%';preview.style.height=(area.height/meta.height*100)+'%';preview.style.objectFit=area.fit==='contain'?'contain':'cover';preview.style.background='rgba(8,11,20,.5)'}
 function syncLayoutEditor(force){if(force)layoutImageSource='';renderLayoutEditor()}
@@ -244,6 +345,7 @@ function applyElementStyle(){
  if(!['text','stat'].includes(layoutKind(key))){notice('اختر عنصرًا نصيًا قبل تعديل مظهره.',true);return}
  const fontSize=Number($('layoutFontSize').value),strokeWidth=Number($('layoutStrokeWidth').value);
  if(!Number.isFinite(fontSize)||fontSize<8||fontSize>120||!Number.isFinite(strokeWidth)||strokeWidth<0||strokeWidth>6){notice('حجم الخط يجب أن يكون بين 8 و120، وحد النص بين 0 و6.',true);return}
+ pushLayoutHistory();
  box.font_size=Math.round(fontSize);
  box.font_family=['modern','tech','elegant','soft'].includes($('layoutFontFamily').value)?$('layoutFontFamily').value:'modern';
  box.bold=$('layoutBold').checked;
@@ -259,7 +361,7 @@ function applyElementStyle(){
 function applyLayoutInputs(){
  const key=$('layoutField').value||'avatar',box=getLayoutBox(key);let x=Number($('layoutX').value),y=Number($('layoutY').value),w=Number($('layoutWidth').value),h=Number($('layoutHeight').value);
  if(![x,y,w,h].every(Number.isFinite)||w<=0||h<=0){notice('أدخل مواضع وأبعاد صحيحة للقالب.',true);return}
- writeLayoutBox(key,x,y,w,h);const b=ensureLayoutField(key);if(box.kind==='text')b.anchor=$('layoutAnchor').value==='la'?'la':'ra';
+ pushLayoutHistory();writeLayoutBox(key,x,y,w,h);const b=ensureLayoutField(key);if(box.kind==='text')b.anchor=$('layoutAnchor').value==='la'?'la':'ra';
  if(key==='background_area')b.fit=$('backgroundFit').value==='contain'?'contain':'cover';
  if(key==='xp_bar')b.enabled=$('layoutXpEnabled').checked;
  renderLayoutEditor();
@@ -267,6 +369,7 @@ function applyLayoutInputs(){
 function startLayoutPointer(event){
  const el=event.target.closest('[data-layout-key]');if(!el)return;const key=el.dataset.layoutKey;if(!key)return;
  $('layoutField').value=key;ensureLayoutField(key);const box=getLayoutBox(key),stage=$('layoutStage').getBoundingClientRect();
+ pushLayoutHistory();
  layoutDrag={key,kind:box.kind,anchor:box.anchor,mode:event.target.closest('.layout-resize')?'resize':'move',corner:(event.target.closest('.layout-resize')&&event.target.closest('.layout-resize').dataset.corner)||'se',pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,x:box.x,y:box.y,width:box.width,height:box.height,stageWidth:Math.max(1,stage.width),stageHeight:Math.max(1,stage.height),target:el};
  if(el.setPointerCapture)try{el.setPointerCapture(event.pointerId)}catch{}
  $('layoutOverlayLayer').querySelectorAll('[data-layout-key]').forEach(item=>item.classList.toggle('selected',item===el));updateLayoutControls();event.preventDefault();
@@ -294,7 +397,26 @@ $('resetLayout').addEventListener('click',()=>{
  if(!img.naturalWidth||!img.naturalHeight){notice('اختر صورة القالب أولاً حتى يمكن إنشاء تخطيط افتراضي.',true);return}
  layoutMetadata=defaultLayoutMetadata(img.naturalWidth,img.naturalHeight);layoutNeedsDefault=false;renderLayoutEditor();notice('أُعيد التخطيط إلى المواضع الافتراضية. احفظ المنتج لتثبيته.')
 });
+
 $('layoutOverlayLayer').addEventListener('pointerdown',startLayoutPointer);
+$('layoutUndo').addEventListener('click',undoLayoutChange);
+$('layoutRedo').addEventListener('click',redoLayoutChange);
+$('layoutQualityCheck').addEventListener('click',inspectLayoutQuality);
+$('layoutSmartSuggest').addEventListener('click',applySmartLayoutSuggestions);
+$('studioLayerList').addEventListener('click',event=>{
+ const button=event.target.closest('[data-studio-layer]');if(!button)return;
+ $('layoutField').value=button.dataset.studioLayer;ensureLayoutField(button.dataset.studioLayer);renderLayoutEditor();
+ const overlay=$('layoutOverlayLayer').querySelector('[data-layout-key="'+CSS.escape(button.dataset.studioLayer)+'"]');
+ if(overlay)overlay.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});
+});
+document.addEventListener('click',event=>{
+ const button=event.target.closest('[data-quality-select]');if(!button)return;
+ $('layoutField').value=button.dataset.qualitySelect;renderLayoutEditor();
+});
+document.addEventListener('click',event=>{
+ if(event.target&&event.target.id==='layoutUndoSmart')undoLayoutChange();
+});
+
 document.addEventListener('pointermove',moveLayoutPointer);
 document.addEventListener('pointerup',endLayoutPointer);
 window.addEventListener('resize',()=>renderLayoutEditor());
