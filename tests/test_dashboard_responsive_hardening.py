@@ -36,7 +36,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         asset = f"./static/visual-refresh.css?v={match.group(1)}"
         self.assertIn(f'"{asset}"', worker)
         self.assertEqual(match.group(1), "prime-card-anime-cinematic-1")
-        self.assertIn('const CACHE = "prime-dashboard-shell-v65";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v66";', worker)
 
     def test_level_card_preview_tools_and_cache_version_are_wired(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
