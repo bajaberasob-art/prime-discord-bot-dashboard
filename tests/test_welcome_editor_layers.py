@@ -79,6 +79,9 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("slot=background_slot", renderer)
         self.assertIn('"welcome_canvas_config": (', renderer)
         self.assertIn('"welcome_canvas_config": {}', renderer)
+        self.assertIn("member = guild.get_member(int(actor_user_id))", renderer)
+        self.assertIn('if "slot" not in welcome_asset_columns', database)
+        self.assertIn("SELECT guild_id, 1, image_data, updated_at", database)
         self.assertIn("CREATE TABLE IF NOT EXISTS welcome_background_assets", database)
         self.assertIn("save_welcome_background_asset(guild.id, normalized_image, slot=slot)", server)
         self.assertIn("delete_welcome_background_asset(guild.id, slot=slot)", server)
@@ -99,6 +102,16 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_editor_treats_unchanged_design_save_as_success(self):
         editor = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
         self.assertIn("const saved = onboardingDirty() ? await saveOnboarding() : true;", editor)
+
+    def test_welcome_background_slot_validation_accepts_only_slots_one_to_four(self):
+        from database import validate_setting
+
+        accepted = validate_setting("welcome_canvas_config", {"background_slot": 4})
+        self.assertEqual(accepted["background_slot"], 4)
+        with self.assertRaises(ValueError):
+            validate_setting("welcome_canvas_config", {"background_slot": 5})
+        with self.assertRaises(ValueError):
+            validate_setting("welcome_canvas_config", {"background_slot": 0})
 
     def test_welcome_canvas_formats_render_with_distinct_aspect_ratios(self):
         avatar = self._avatar_bytes()
