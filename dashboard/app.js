@@ -11169,6 +11169,11 @@
   }
   async function sendTestDelivery(deliveryType) {
     if (!state.online || state.saving) return;
+    // A welcome test must exercise the same generated PNG delivered to members,
+    // even when image generation had not been enabled before opening this editor.
+    if (deliveryType === "welcome" && state.draft) {
+      state.draft.welcome_generated_image_enabled = true;
+    }
     if (onboardingDirty()) {
       const saved = await saveOnboarding();
       if (!saved) {
