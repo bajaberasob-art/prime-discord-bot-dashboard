@@ -61,6 +61,16 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn('elif field == "elements":', source)
         self.assertIn('"frame"', source)
 
+    def test_welcome_studio_allows_free_positions_and_preserves_background(self):
+        script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
+        renderer = (ROOT / "cogs" / "engagement.py").read_text(encoding="utf-8")
+        self.assertIn("freeform elements are the source of truth", script)
+        self.assertNotIn("current.name_y =", script)
+        self.assertNotIn("current.avatar_x =", script)
+        self.assertIn("ImageOps.contain(custom, (width, height)", renderer)
+        self.assertIn("ImageFilter.GaussianBlur(radius=22)", renderer)
+        self.assertIn("backdrop.paste(foreground, (x_offset, y_offset))", renderer)
+
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
@@ -74,11 +84,11 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v59", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-5", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-5", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-5", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-5", index)
+        self.assertIn("prime-dashboard-shell-v61", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-7", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-7", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-7", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-7", index)
 
 
 if __name__ == "__main__":

@@ -198,13 +198,11 @@
     root.querySelectorAll("[data-config-color]").forEach(input => input.value = current[input.dataset.configColor] || "#7c3aed");
   }
   function syncLegacyFields() {
-    const get = id => findElement(id);
-    const avatar = get("avatar"), title = get("title"), name = get("name"), server = get("server"), count = get("count");
-    if (avatar) { current.avatar_x = Number((avatar.x + avatar.width / 2).toFixed(1)); current.avatar_y = Number((avatar.y + avatar.height / 2).toFixed(1)); }
-    if (title) current.title_y = Number(title.y.toFixed(1));
-    if (name) { current.name_x = Number((name.x + name.width).toFixed(1)); current.name_y = Number((name.y + name.height / 2).toFixed(1)); }
-    if (server) { current.server_y = Number((server.y + server.height / 2).toFixed(1)); current.show_server = server.visible; }
-    if (count) { current.count_y = Number((count.y + count.height / 2).toFixed(1)); current.show_count = count.visible; }
+    // The freeform elements are the source of truth; legacy coordinate limits
+    // must never constrain or reject a user-designed canvas.
+    const server = findElement("server"), count = findElement("count");
+    if (server) current.show_server = server.visible;
+    if (count) current.show_count = count.visible;
   }
   function addElement(type) {
     if (current.elements.length >= 24) return setStatus("الحد الأقصى 24 طبقة في التصميم.");
