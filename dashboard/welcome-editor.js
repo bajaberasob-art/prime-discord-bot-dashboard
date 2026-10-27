@@ -117,8 +117,15 @@
       selectedId = "name"; renderAll(); setStatus("تمت استعادة العناصر الافتراضية. اضغط حفظ لتثبيت التغيير.");
     });
     modal.querySelectorAll("[data-config-color]").forEach(input => input.addEventListener("input", () => {
-      current[input.dataset.configColor] = input.value;
-      renderStage(); updateConfigColorFields();
+      const key = input.dataset.configColor;
+      const previous = current[key];
+      current[key] = input.value;
+      if (key === "accent") {
+        current.elements.forEach(element => {
+          if (element.color === previous) element.color = input.value;
+        });
+      }
+      renderStage(); renderLayers(); renderProperties(); updateConfigColorFields();
     }));
     const fileInput = modal.querySelector("#welcome-editor-background-file");
     modal.querySelector('[data-action="upload-background"]').addEventListener("click", async () => {
