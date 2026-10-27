@@ -35,6 +35,7 @@
         label: String(e.label || labelFor(e.type)), x: clamp(e.x, 0, 100), y: clamp(e.y, 0, 100),
         width: clamp(e.width ?? 30, 2, 100), height: clamp(e.height ?? 10, 2, 100),
         fontSize: clamp(e.fontSize ?? 24, 8, 160), color: /^#[0-9a-f]{6}$/i.test(e.color || "") ? e.color : base.accent,
+        fontPreset: ["default","modern_bold","formal","friendly","tech","gaming","minimal","luxury"].includes(e.fontPreset) ? e.fontPreset : "default",
         fontFamily: ["sans","serif","mono","condensed"].includes(e.fontFamily) ? e.fontFamily : "sans",
         fontWeight: e.fontWeight === "bold" ? "bold" : "normal",
         fontStyle: e.fontStyle === "italic" ? "italic" : "normal",
@@ -438,10 +439,22 @@
         mono: '"DejaVu Sans Mono", "Noto Sans Arabic", monospace',
         condensed: '"Arial Narrow", Tahoma, "DejaVu Sans", sans-serif',
       };
-      node.style.fontFamily = fontStacks[el.fontFamily || "sans"] || fontStacks.sans;
-      node.style.fontWeight = el.fontWeight === "bold" ? "700" : "400";
-      node.style.fontStyle = el.fontStyle === "italic" ? "italic" : "normal";
-      node.style.textTransform = el.textTransform || "none";
+      const presets = {
+        default: { family: el.fontFamily || "sans", weight: el.fontWeight || "normal", style: el.fontStyle || "normal", transform: el.textTransform || "none", spacing: "0" },
+        modern_bold: { family: "sans", weight: "bold", style: "normal", transform: "uppercase", spacing: ".02em" },
+        formal: { family: "serif", weight: "normal", style: "normal", transform: "capitalize", spacing: ".015em" },
+        friendly: { family: "sans", weight: "bold", style: "normal", transform: "none", spacing: "0" },
+        tech: { family: "mono", weight: "bold", style: "normal", transform: "uppercase", spacing: ".045em" },
+        gaming: { family: "condensed", weight: "bold", style: "normal", transform: "uppercase", spacing: ".025em" },
+        minimal: { family: "sans", weight: "normal", style: "normal", transform: "none", spacing: "0" },
+        luxury: { family: "serif", weight: "normal", style: "italic", transform: "capitalize", spacing: ".06em" },
+      };
+      const preset = presets[el.fontPreset || "default"] || presets.default;
+      node.style.fontFamily = fontStacks[preset.family] || fontStacks.sans;
+      node.style.fontWeight = preset.weight === "bold" ? "700" : "400";
+      node.style.fontStyle = preset.style === "italic" ? "italic" : "normal";
+      node.style.textTransform = preset.transform;
+      node.style.letterSpacing = preset.spacing;
       node.dir = "auto";
       node.style.unicodeBidi = "plaintext";
       node.style.justifyContent = el.align === "right" ? "flex-end" : (el.align === "center" ? "center" : "flex-start");
@@ -605,6 +618,9 @@
     if (["text","title","name","server","count"].includes(el.type)) {
       host.append(
         propertyField("حجم الخط","fontSize",el.fontSize,"number",{min:8,max:160,step:1}),
+        propertyField("النمط الجاهز (عربي/إنجليزي)","fontPreset",el.fontPreset || "default","select",{options:[
+          ["default","مخصص — تحكم يدوي"],["modern_bold","عريض عصري / Modern Bold"],["formal","رسمي وأنيق / Formal"],["friendly","ودّي وواضح / Friendly"],["tech","تقني / Tech"],["gaming","ألعاب / Gaming"],["minimal","بسيط / Minimal"],["luxury","فاخر / Luxury"]
+        ]}),
         propertyField("نوع الخط","fontFamily",el.fontFamily || "sans","select",{options:[
           ["sans","عربي واضح (Sans)"],["serif","كلاسيكي (Serif)"],["mono","تقني (Mono)"],["condensed","مضغوط (Condensed)"]
         ]}),
