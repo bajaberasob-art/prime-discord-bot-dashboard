@@ -48,6 +48,8 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
         self.assertIn("pointerdown", script)
         self.assertIn("setPointerCapture", script)
+        self.assertIn("startResize", script)
+        self.assertIn("welcome-editor-resize-handle", (ROOT / "dashboard" / "welcome-editor.css").read_text(encoding="utf-8"))
         self.assertIn("data-layers", script)
         self.assertIn("el.visible = !el.visible", script)
         self.assertIn("el.locked = !el.locked", script)
