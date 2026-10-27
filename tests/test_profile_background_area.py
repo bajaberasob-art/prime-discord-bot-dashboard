@@ -292,6 +292,35 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
             self.assertEqual(card.format, "PNG")
             self.assertEqual(card.size, (640, 320))
 
+    def test_renderer_applies_custom_outline_and_shadow_to_name(self):
+        frame = png_bytes(Image.new("RGBA", (640, 320), (0, 0, 0, 0)))
+        metadata = {
+            "width": 640, "height": 320, "layout": "wide",
+            "background_area": {"x": 20, "y": 20, "width": 600, "height": 280, "fit": "cover"},
+            "avatar": {"x": 520, "y": 220, "size": 72},
+            "name": {
+                "x": 370, "y": 72, "max_width": 300, "anchor": "ra",
+                "font_size": 42, "font_family": "modern", "color": "#FFFFFF",
+                "bold": True, "stroke_width": 3, "stroke_color": "#00FF00",
+                "shadow": True, "shadow_color": "#FF0000", "shadow_offset": 7,
+            },
+            "handle": {"x": 590, "y": 110, "max_width": 220, "anchor": "ra"},
+            "level": {"x": 30, "y": 155, "max_width": 220, "anchor": "la"},
+            "xp_bar": {"x": 30, "y": 280, "width": 120, "height": 8, "enabled": False},
+            "badges": {"x": 10, "y": 10, "size": 20, "limit": 0},
+            "flag": {"x": 10, "y": 10, "width": 24, "height": 18}, "stats": [],
+        }
+        result = render_profile_card(
+            {"display_name": "StyleCheck", "username": "member", "level": 2},
+            template_bytes=frame, template={"metadata": metadata},
+        )
+        with Image.open(result) as card:
+            pixels = list(card.convert("RGBA").getdata())
+        green = sum(1 for red, green, blue, alpha in pixels if alpha > 0 and green > 170 and red < 90 and blue < 90)
+        red = sum(1 for red, green, blue, alpha in pixels if alpha > 0 and red > 170 and green < 90 and blue < 90)
+        self.assertGreater(green, 10, "Custom outline color must reach the rendered PNG")
+        self.assertGreater(red, 10, "Configured shadow must reach the rendered PNG")
+
     def test_design_studio_exposes_per_element_style_and_persists_metadata(self):
         root = Path(__file__).resolve().parents[1]
         html = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
@@ -300,13 +329,17 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         for field_id in (
             "layoutFontSize", "layoutFontFamily", "layoutTextColor",
             "layoutTextContent", "layoutAutoColor", "layoutBold",
-            "layoutStrokeWidth", "applyElementStyle",
+            "layoutStrokeWidth", "layoutStrokeColor", "layoutShadow",
+            "layoutShadowColor", "layoutShadowOffset", "applyElementStyle",
         ):
             self.assertIn(f'id="{field_id}"', html)
         self.assertIn("function applyElementStyle()", client)
         self.assertIn("box.font_size=Math.round(fontSize)", client)
         self.assertIn("delete box.color", client)
         self.assertIn("box.font_family", client)
+        self.assertIn("function applyLiveElementStyle()", client)
+        self.assertIn("box.stroke_color", client)
+        self.assertIn("box.shadow_offset", client)
         self.assertIn("box.text_template=textContent", client)
         self.assertIn("box.label=textContent", client)
         self.assertIn('level_template = str(level_box.get("text_template") or "المستوى {level}")[:100]', renderer)
