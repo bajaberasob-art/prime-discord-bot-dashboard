@@ -167,7 +167,14 @@ textarea{line-height:1.7}
 </section>
 </div>
 <div id="pane-design" class="admin-pane hidden" data-admin-pane="design">
-<section class="panel" id="designTemplatePicker">
+<section class="panel" id="templateTransparencyTool">
+<h2>تفريغ المناطق السوداء من القالب</h2>
+<p class="muted">اختر قالبًا محفوظًا، ثم اضغط على كل مساحة سوداء تريد تحويلها إلى شفافية. يمكنك تحديد عدة مناطق؛ لن تُحذف المناطق السوداء غير المتصلة التي لم تحددها.</p>
+<div class="fields"><div class="field"><label for="transparencyTemplate">القالب</label><select id="transparencyTemplate"><option value="">اختر قالبًا</option></select></div><div class="field"><label for="transparencyTolerance">تسامح اللون الأسود: <span id="transparencyToleranceValue">45</span></label><input id="transparencyTolerance" type="range" min="0" max="120" value="45"></div></div>
+<div class="actions"><button type="button" id="transparencyLoad">تحميل المعاينة</button><button type="button" id="transparencyUndo">إزالة آخر تحديد</button><button type="button" id="transparencyReset">إعادة الأصل</button><button type="button" class="primary" id="transparencyApply" disabled>حفظ PNG الشفاف للقالب</button></div>
+<div id="transparencyStatus" class="studio-report" aria-live="polite">حمّل قالبًا، ثم انقر داخل كل منطقة سوداء تريد تفريغها. المعاينة بنمط مربعات لتوضيح الشفافية.</div>
+<div id="transparencyStage" style="display:none;overflow:auto;padding:12px;border:1px solid #304158;border-radius:12px;background-color:#121b2b;background-image:linear-gradient(45deg,#202b3b 25%,transparent 25%),linear-gradient(-45deg,#202b3b 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#202b3b 75%),linear-gradient(-45deg,transparent 75%,#202b3b 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0"><canvas id="transparencyCanvas" style="display:block;max-width:100%;height:auto;margin:auto;cursor:crosshair;touch-action:manipulation"></canvas></div>
+<p class="muted">التفريغ يتبع المنطقة المتصلة التي تنقر عليها مع مراعاة درجة السواد. افحص الحواف والزخارف قبل الحفظ؛ الحفظ يستبدل صورة القالب الحالية.</p></section><section class="panel" id="designTemplatePicker">
 <div class="sectionhead"><div><h2>استوديو تصميم القالب</h2><div class="muted">اختر قالبًا محفوظًا لفتح عناصره وتعديل مواضعها. إعدادات الخطوط والألوان المتقدمة ستضاف في مرحلة محرر العناصر.</div></div></div>
 <div class="fields">
 <div class="field full"><label for="designTemplateSelect">القالب المراد تعديله</label><select id="designTemplateSelect"><option value="">اختر قالبًا محفوظًا</option></select></div>
@@ -252,4 +259,4 @@ textarea{line-height:1.7}
 <section class="panel"><div class="sectionhead"><div><h2>كتالوج المنتجات</h2><div class="muted">ابحث بالاسم أو صفِّ حسب النوع والحالة.</div></div><div class="toolbar"><input id="search" placeholder="ابحث عن منتج..."><select id="filterType"><option value="">كل الأنواع</option><option value="background">خلفيات</option><option value="card_template">قوالب</option><option value="badge">استكرات / شارات</option><option value="flag">أعلام</option><option value="shape">إطارات</option><option value="club_logo">شعارات / أيقونات</option><option value="card_color">ألوان</option></select><select id="filterCategory"><option value="">كل الأقسام</option></select><select id="filterStatus"><option value="">كل الحالات</option><option value="active">معروض</option><option value="inactive">مخفي</option><option value="free">مجاني</option><option value="paid">مدفوع</option></select></div></div><div id="items" class="items"><p class="muted">جارٍ تحميل المنتجات...</p></div></section>
 </div>
 <div class="foot">PRIME Store Studio · الإدارة محمية بصلاحيات المالك. كل التغييرات تُحفظ في قاعدة بيانات المتجر الحالية.</div>
-</main><script src="/static/profile-store-admin.js?v=creative-studio-1" defer></script></body></html>
+</main><script src="/static/profile-store-admin.js?v=creative-studio-2" defer></script></body></html>
