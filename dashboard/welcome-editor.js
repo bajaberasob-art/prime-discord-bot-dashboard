@@ -142,15 +142,34 @@
       const button = modal.querySelector('[data-action="upload-background"]');
       button.disabled = true; setStatus("جارٍ رفع الخلفية والتحقق منها…");
       try {
-        const form = new FormData(); form.append("file", file);
-        const response = await fetch("api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background", {
-          method:"POST", headers:{"X-CSRF-Token":window.PRIMEWelcomeEditor.csrfToken || ""}, body:form, credentials:"same-origin"
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.ok) return setStatus(result.fields?.file || "تعذر رفع الخلفية والتحقق منها.");
-        checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderStage(); setStatus("تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.");
-      } catch (_) { setStatus("تعذر الاتصال بالخادم أثناء رفع الخلفية."); }
-      finally { button.disabled = false; }
+        let uploaded = false;
+        for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
+          try {
+            const form = new FormData(); form.append("file", file);
+            const response = await fetch("api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background", {
+              method:"POST", headers:{"X-CSRF-Token":window.PRIMEWelcomeEditor.csrfToken || ""}, body:form, credentials:"same-origin"
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.ok) {
+              if (response.status === 499 && attempt === 0) {
+                setStatus("انقطع الاتصال أثناء الرفع؛ جارٍ إعادة المحاولة…");
+                await new Promise(resolve => setTimeout(resolve, 700));
+                continue;
+              }
+              return setStatus(result.fields?.file || "تعذر رفع الخلفية والتحقق منها.");
+            }
+            checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderStage(); setStatus("تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.");
+            uploaded = true;
+          } catch (_) {
+            if (attempt === 0) {
+              setStatus("انقطع الاتصال أثناء الرفع؛ جارٍ إعادة المحاولة…");
+              await new Promise(resolve => setTimeout(resolve, 700));
+            } else {
+              setStatus("تعذر الاتصال بالخادم بعد محاولتين. تحقق من الشبكة ثم أعد رفع الصورة.");
+            }
+          }
+        }
+      } finally { button.disabled = false; }
     });
     modal.querySelector('[data-action="clear-background"]').addEventListener("click", () => {
       checkpoint();
