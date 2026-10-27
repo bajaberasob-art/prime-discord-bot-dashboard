@@ -1035,14 +1035,6 @@ class Engagement(commands.Cog):
                     else:
                         text_value = template
                     if text_value:
-                        transform = element.get("textTransform", "none")
-                        if transform == "uppercase":
-                            text_value = text_value.upper()
-                        elif transform == "lowercase":
-                            text_value = text_value.lower()
-                        elif transform == "capitalize":
-                            text_value = text_value.title()
-
                         font_preset = element.get("fontPreset", "default")
                         presets = {
                             "default": None,
@@ -1056,15 +1048,18 @@ class Engagement(commands.Cog):
                         }
                         preset_values = presets.get(font_preset)
                         if preset_values:
-                            font_family, font_weight, font_style, preset_transform = preset_values
-                            if preset_transform == "uppercase":
-                                text_value = text_value.upper()
-                            elif preset_transform == "capitalize":
-                                text_value = text_value.title()
+                            font_family, font_weight, font_style, transform = preset_values
                         else:
                             font_family = element.get("fontFamily", "sans")
                             font_weight = element.get("fontWeight", "normal")
                             font_style = element.get("fontStyle", "normal")
+                            transform = element.get("textTransform", "none")
+                        if transform == "uppercase":
+                            text_value = text_value.upper()
+                        elif transform == "lowercase":
+                            text_value = text_value.lower()
+                        elif transform == "capitalize":
+                            text_value = text_value.title()
                         max_text_width = max(4, box_w - 8)
                         max_text_height = max(4, box_h - 4)
 
