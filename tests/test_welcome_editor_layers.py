@@ -75,9 +75,9 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS welcome_background_assets", database)
         self.assertIn("save_welcome_background_asset(guild.id, normalized_image)", server)
         self.assertIn("delete_welcome_background_asset(guild.id)", server)
-        self.assertIn("ImageOps.contain(custom, (width, height)", renderer)
+        self.assertIn("ImageOps.contain(custom_rgba, (width, height)", renderer)
         self.assertIn("ImageFilter.GaussianBlur(radius=22)", renderer)
-        self.assertIn("backdrop.paste(foreground, (x_offset, y_offset))", renderer)
+        self.assertIn("backdrop.paste(foreground, (x_offset, y_offset), foreground.getchannel(\"A\"))", renderer)
 
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
