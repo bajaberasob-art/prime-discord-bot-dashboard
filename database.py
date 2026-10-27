@@ -5898,7 +5898,7 @@ def _row_to_settings(guild_id: int, row: Optional[Any]) -> Dict[str, Any]:
                     for tier in ("admin", "moderator", "staff")
                 }
             elif key == "welcome_canvas_config":
-                defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True}
+                defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False}
                 value = {**defaults, **{k: v for k, v in value.items() if k in defaults}}
             else:
                 value = {
