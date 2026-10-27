@@ -220,5 +220,53 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("welcome-editor.js?v=welcome-editor-13", index)
 
 
+    def test_arabic_welcome_uses_single_shaping_pass_and_bundled_font(self):
+        from PIL import ImageFont
+
+        logical_text = "يا هلاااااا والله"
+        shaped = Engagement._welcome_image_text(logical_text)
+        self.assertNotEqual(shaped, logical_text)
+        font = Engagement._welcome_font(34, weight="bold")
+        basic = getattr(ImageFont, "Layout", None)
+        expected_engine = basic.BASIC if basic is not None else ImageFont.LAYOUT_BASIC
+        self.assertEqual(font.layout_engine, expected_engine)
+        self.assertTrue(Path(ROOT / "assets" / "fonts" / "DejaVuSans-Bold.ttf").is_file())
+
+    def test_arabic_and_mixed_text_are_actually_rasterized_into_welcome_png(self):
+        avatar = self._avatar_bytes()
+        elements = [
+            {
+                "id": "arabic-welcome", "type": "text", "x": 5, "y": 12,
+                "width": 90, "height": 25, "fontSize": 42,
+                "color": "#ffffff", "visible": True, "opacity": 100,
+                "rotation": 0, "align": "right", "text": "يا هلاااااا والله",
+                "fontFamily": "sans", "fontWeight": "bold", "fontStyle": "normal",
+            },
+            {
+                "id": "mixed-welcome", "type": "text", "x": 5, "y": 42,
+                "width": 90, "height": 25, "fontSize": 30,
+                "color": "#ff3030", "visible": True, "opacity": 100,
+                "rotation": 0, "align": "right", "text": "أهلاً بك في PRIME 515",
+                "fontFamily": "sans", "fontWeight": "normal", "fontStyle": "normal",
+            },
+        ]
+        output = Engagement._render_welcome_image(
+            avatar, "عضو جديد", "PRIME", 515, "#ff3030",
+            canvas_config={"elements": elements},
+        )
+        rendered = Image.open(output).convert("RGB")
+        # Both designated text regions must contain actual glyph pixels, not empty
+        # output or missing-glyph-only rendering.
+        for region in ((40, 45, 1140, 150), (40, 170, 1140, 285)):
+            with self.subTest(region=region):
+                crop = rendered.crop(region)
+                colors = crop.getcolors(maxcolors=crop.width * crop.height)
+                self.assertIsNotNone(colors)
+                non_background = sum(
+                    count for count, rgb in colors if rgb != rendered.getpixel((0, 0))
+                )
+                self.assertGreater(non_background, 100)
+
+
 if __name__ == "__main__":
     unittest.main()
