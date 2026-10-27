@@ -836,7 +836,12 @@ class Engagement(commands.Cog):
         if not isinstance(background_data, (bytes, bytearray)):
             background_data = None
         if layout.get("use_custom_background") and guild_id and not background_data:
-            legacy_path = Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds" / f"{int(guild_id)}.png"
+            try:
+                legacy_slot = max(1, min(4, int(layout.get("background_slot", 1))))
+            except (TypeError, ValueError):
+                legacy_slot = 1
+            legacy_name = f"{int(guild_id)}.png" if legacy_slot == 1 else f"{int(guild_id)}-{legacy_slot}.png"
+            legacy_path = Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds" / legacy_name
             try:
                 background_data = legacy_path.read_bytes() if legacy_path.is_file() else None
             except OSError:
@@ -1041,9 +1046,18 @@ class Engagement(commands.Cog):
             canvas_config = dict(config.get("welcome_canvas_config") if isinstance(config.get("welcome_canvas_config"), dict) else {})
             if canvas_config.get("use_custom_background"):
                 try:
-                    canvas_config["_background_image_data"] = await get_welcome_background_asset(guild.id)
+                    background_slot = max(1, min(4, int(canvas_config.get("background_slot", 1))))
+                except (TypeError, ValueError):
+                    background_slot = 1
+                try:
+                    canvas_config["_background_image_data"] = await get_welcome_background_asset(
+                        guild.id, slot=background_slot
+                    )
                 except Exception:
-                    logger.warning("[WELCOME_IMAGE] تعذر تحميل الخلفية المحفوظة للسيرفر %s", guild.id, exc_info=True)
+                    logger.warning(
+                        "[WELCOME_IMAGE] تعذر تحميل الخلفية المحفوظة للسيرفر %s في الخانة %s",
+                        guild.id, background_slot, exc_info=True,
+                    )
             buffer = await asyncio.to_thread(
                 self._render_welcome_image,
                 avatar_data,
