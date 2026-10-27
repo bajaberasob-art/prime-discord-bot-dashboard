@@ -2177,6 +2177,8 @@
         el("div", {}, el("strong", { text: "محرر صورة الترحيب" }), el("p", { text: "تحكم مستقل بمواقع العناصر والألوان، مع معاينة مباشرة وحفظ دائم." })),
         el("button", { class: "btn primary", type: "button", text: "فتح المحرر المرئي", onClick: () => {
           if (!window.PRIMEWelcomeEditor) return toast("تعذر تحميل محرر الترحيب. حدّث الصفحة.", "error");
+          window.PRIMEWelcomeEditor.guildId = String(state.guild.id);
+          window.PRIMEWelcomeEditor.csrfToken = state.session?.csrf || "";
           window.PRIMEWelcomeEditor.open({
             config: state.draft.welcome_canvas_config || {},
             onSave: async (config) => {
