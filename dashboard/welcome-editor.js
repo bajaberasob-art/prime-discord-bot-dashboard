@@ -18,6 +18,7 @@
     { id:"watermark", type:"text", label:"شعار PRIME", x:4, y:83, width:30, height:9, fontSize:22, color:"#7c3aed", visible:true, locked:false, opacity:16, rotation:0, align:"left", text:"PRIME" },
   ];
   let root = null, current = null, selectedId = "name", onSaveCallback = null;
+  let history = [], future = [];
   const clamp = (v, min, max) => Math.max(min, Math.min(max, Number(v) || 0));
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
   const uid = () => "layer-" + Math.random().toString(36).slice(2, 9);
@@ -56,7 +57,7 @@
 
   function open({ config = {}, onSave } = {}) {
     close();
-    current = normalize(config); selectedId = current.elements.some(e => e.id === "name") ? "name" : current.elements[0]?.id;
+    current = normalize(config); history = []; future = []; selectedId = current.elements.some(e => e.id === "name") ? "name" : current.elements[0]?.id;
     onSaveCallback = onSave;
     const modal = document.createElement("div");
     modal.className = "welcome-editor-backdrop";
@@ -70,6 +71,8 @@
           <button type="button" class="btn" data-add="text">＋ نص</button>
           <button type="button" class="btn" data-add="shape">＋ شكل</button>
           <button type="button" class="btn" data-add="line">＋ خط</button>
+          <button type="button" class="btn" data-action="undo" disabled>↶ تراجع</button>
+          <button type="button" class="btn" data-action="redo" disabled>↷ إعادة</button>
           <button type="button" class="btn" data-action="reset">استعادة الافتراضي</button>
           <span class="welcome-editor-toolbar-hint">اضغط على العنصر لتحديده واسحبه لتحريكه</span>
         </div>
@@ -113,10 +116,12 @@
     document.addEventListener("keydown", onEscape);
     modal.querySelectorAll("[data-add]").forEach(button => button.addEventListener("click", () => addElement(button.dataset.add)));
     modal.querySelector('[data-action="reset"]').addEventListener("click", () => {
+      checkpoint();
       current = normalize({ ...DEFAULTS, accent: current.accent, background_start: current.background_start, background_end: current.background_end });
       selectedId = "name"; renderAll(); setStatus("تمت استعادة العناصر الافتراضية. اضغط حفظ لتثبيت التغيير.");
     });
     modal.querySelectorAll("[data-config-color]").forEach(input => input.addEventListener("input", () => {
+      checkpoint();
       const key = input.dataset.configColor;
       const previous = current[key];
       current[key] = input.value;
@@ -142,13 +147,16 @@
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.ok) return setStatus(result.fields?.file || "تعذر رفع الخلفية والتحقق منها.");
-        current.use_custom_background = true; renderStage(); setStatus("تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.");
+        checkpoint(); current.use_custom_background = true; renderStage(); setStatus("تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.");
       } catch (_) { setStatus("تعذر الاتصال بالخادم أثناء رفع الخلفية."); }
       finally { button.disabled = false; }
     });
     modal.querySelector('[data-action="clear-background"]').addEventListener("click", () => {
+      checkpoint();
       current.use_custom_background = false; renderStage(); setStatus("تم إيقاف الخلفية المخصصة. احفظ التصميم لتطبيق التغيير.");
     });
+    modal.querySelector('[data-action="undo"]').addEventListener("click", undo);
+    modal.querySelector('[data-action="redo"]').addEventListener("click", redo);
     modal.querySelector('[data-action="save"]').addEventListener("click", async () => {
       const button = modal.querySelector('[data-action="save"]');
       button.disabled = true; setStatus("جارٍ حفظ التصميم…");
@@ -186,9 +194,41 @@
       fontSize: 26, color: current.accent || "#a78bfa", visible: true, locked: false, opacity: 100, rotation: 0, align: "left",
       text: type === "text" ? "اكتب النص هنا" : "",
     };
-    current.elements.push(el); selectedId = id; renderAll(); setStatus("أُضيف عنصر جديد.");
+    checkpoint(); current.elements.push(el); selectedId = id; renderAll(); setStatus("أُضيف عنصر جديد.");
   }
-  function renderAll() { renderStage(); renderLayers(); renderProperties(); updateConfigColorFields(); }
+  function renderAll() { renderStage(); renderLayers(); renderProperties(); updateConfigColorFields(); updateHistoryButtons(); }
+  function checkpoint() {
+    if (!current) return;
+    const snapshot = JSON.stringify(current);
+    if (history[history.length - 1] !== snapshot) history.push(snapshot);
+    if (history.length > 60) history.shift();
+    future = [];
+    updateHistoryButtons();
+  }
+  function updateHistoryButtons() {
+    if (!root) return;
+    const undoButton = root.querySelector('[data-action="undo"]');
+    const redoButton = root.querySelector('[data-action="redo"]');
+    if (undoButton) undoButton.disabled = history.length === 0;
+    if (redoButton) redoButton.disabled = future.length === 0;
+  }
+  function restoreSnapshot(snapshot) {
+    current = normalize(JSON.parse(snapshot));
+    if (!current.elements.some(item => item.id === selectedId)) selectedId = current.elements[0]?.id || null;
+    renderAll();
+  }
+  function undo() {
+    if (!history.length) return;
+    future.push(JSON.stringify(current));
+    restoreSnapshot(history.pop());
+    setStatus("تم التراجع عن آخر تعديل.");
+  }
+  function redo() {
+    if (!future.length) return;
+    history.push(JSON.stringify(current));
+    restoreSnapshot(future.pop());
+    setStatus("تمت إعادة التعديل.");
+  }
   function renderStage() {
     if (!root || !current) return;
     const stage = root.querySelector("#welcome-editor-preview");
@@ -251,9 +291,11 @@
     if (el.locked) { renderLayers(); renderProperties(); return; }
     const stage = root.querySelector("#welcome-editor-preview"), rect = stage.getBoundingClientRect();
     const startX = e.clientX, startY = e.clientY, origX = el.x, origY = el.y;
+    let didMove = false;
     try { node.setPointerCapture(e.pointerId); } catch (_) {}
     const move = ev => {
       if (ev.pointerId !== e.pointerId) return;
+      if (!didMove) { checkpoint(); didMove = true; }
       el.x = origX + (ev.clientX - startX) / rect.width * 100;
       el.y = origY + (ev.clientY - startY) / rect.height * 100;
       clampElement(el); node.style.left = el.x + "%"; node.style.top = el.y + "%"; node.classList.add("is-dragging");
@@ -277,22 +319,22 @@
       const select = document.createElement("button"); select.type = "button"; select.className = "welcome-editor-layer-select"; select.textContent = el.label || labelFor(el.type);
       select.addEventListener("click", () => { selectedId = el.id; renderAll(); });
       const eye = document.createElement("button"); eye.type = "button"; eye.className = "welcome-editor-layer-icon"; eye.textContent = el.visible ? "◉" : "○"; eye.title = el.visible ? "إخفاء العنصر" : "إظهار العنصر"; eye.setAttribute("aria-label", eye.title);
-      eye.addEventListener("click", () => { el.visible = !el.visible; selectedId = el.id; renderAll(); });
+      eye.addEventListener("click", () => { checkpoint(); el.visible = !el.visible; selectedId = el.id; renderAll(); });
       const lock = document.createElement("button"); lock.type = "button"; lock.className = "welcome-editor-layer-icon"; lock.textContent = el.locked ? "🔒" : "⌁"; lock.title = el.locked ? "فك القفل" : "قفل العنصر"; lock.setAttribute("aria-label", lock.title);
-      lock.addEventListener("click", () => { el.locked = !el.locked; selectedId = el.id; renderAll(); });
+      lock.addEventListener("click", () => { checkpoint(); el.locked = !el.locked; selectedId = el.id; renderAll(); });
       const up = document.createElement("button"); up.type = "button"; up.className = "welcome-editor-layer-icon"; up.textContent = "↑"; up.title = "رفع الطبقة"; up.setAttribute("aria-label", up.title);
       up.addEventListener("click", () => reorder(el.id, 1));
       const down = document.createElement("button"); down.type = "button"; down.className = "welcome-editor-layer-icon"; down.textContent = "↓"; down.title = "خفض الطبقة"; down.setAttribute("aria-label", down.title);
       down.addEventListener("click", () => reorder(el.id, -1));
       const remove = document.createElement("button"); remove.type = "button"; remove.className = "welcome-editor-layer-icon danger"; remove.textContent = "×"; remove.title = "حذف العنصر"; remove.setAttribute("aria-label", remove.title);
-      remove.addEventListener("click", () => { current.elements = current.elements.filter(item => item.id !== el.id); selectedId = current.elements[0]?.id || null; renderAll(); });
+      remove.addEventListener("click", () => { checkpoint(); current.elements = current.elements.filter(item => item.id !== el.id); selectedId = current.elements[0]?.id || null; renderAll(); });
       row.append(select, eye, lock, up, down, remove); host.append(row);
     });
   }
   function reorder(id, direction) {
     const index = current.elements.findIndex(e => e.id === id), next = index + direction;
     if (index < 0 || next < 0 || next >= current.elements.length) return;
-    const [item] = current.elements.splice(index, 1); current.elements.splice(next, 0, item); selectedId = id; renderAll();
+    checkpoint(); const [item] = current.elements.splice(index, 1); current.elements.splice(next, 0, item); selectedId = id; renderAll();
   }
   function propertyField(label, key, value, type = "number", attrs = {}) {
     const wrap = document.createElement("label"); wrap.className = "welcome-editor-property";
@@ -306,6 +348,7 @@
     input.addEventListener(type === "checkbox" ? "change" : "input", () => {
       const el = findElement(selectedId); if (!el) return;
       let next = type === "checkbox" ? input.checked : input.value;
+      checkpoint();
       if (["x","y","width","height","fontSize","opacity","rotation"].includes(key)) next = Number(next);
       if (key === "label") next = String(next).slice(0,40);
       if (key === "text") next = String(next).slice(0,200);
