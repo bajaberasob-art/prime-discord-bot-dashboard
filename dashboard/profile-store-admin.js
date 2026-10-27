@@ -328,7 +328,12 @@ function updateLayoutControls(){
  $('backgroundFocusX').value=Math.round(Math.max(0,Math.min(1,Number(meta.background_area.focus_x??0.5))*100));$('backgroundFocusY').value=Math.round(Math.max(0,Math.min(1,Number(meta.background_area.focus_y??0.5))*100));$('backgroundFocusXValue').value=$('backgroundFocusX').value+'%';$('backgroundFocusYValue').value=$('backgroundFocusY').value+'%';
  $('backgroundFocusX').disabled=key!=='background_area'||$('backgroundFit').value==='contain';$('backgroundFocusY').disabled=key!=='background_area'||$('backgroundFit').value==='contain';
  $('layoutXpEnabled').disabled=key!=='xp_bar';$('layoutXpEnabled').checked=!!(meta.xp_bar&&meta.xp_bar.enabled);
- const styleable=box.kind==='text'||box.kind==='stat';
+ const avatarBox=meta.avatar||{};
+  $('avatarRingMode').value=avatarBox.ring_mode==='custom'?'custom':'auto';
+  $('avatarRingColor').value=/^#[0-9a-fA-F]{6}$/.test(String(avatarBox.ring_color||''))?avatarBox.ring_color:'#78E2FF';
+  $('avatarRingMode').disabled=key!=='avatar';
+  $('avatarRingColor').disabled=key!=='avatar'||$('avatarRingMode').value!=='custom';
+  const styleable=box.kind==='text'||box.kind==='stat';
  const editableText=key==='level'||box.kind==='stat';
  const item=items.find(value=>String(value.item_id)===String($('itemId').value||''));
  const defaultFamily=item&&item.style&&['modern','tech','elegant','soft','mono'].includes(item.style.font_family)?item.style.font_family:'modern';
@@ -439,7 +444,9 @@ $('layoutStylePanel').addEventListener('focusin',event=>{
 $('applyElementStyle').addEventListener('click',applyElementStyle);
 $('applyLayout').addEventListener('click',applyLayoutInputs);
 $('saveLayout').addEventListener('click',async()=>{layoutStyleHistoryKey='';const id=String($('itemId').value||'');if(!id){notice('احفظ المنتج أولاً، ثم احفظ تخطيط القالب.',true);return}const item=items.find(value=>String(value.item_id)===id);if(!item||item.item_type!=='card_template'){notice('اختر قالباً محفوظاً أولاً.',true);return}const button=$('saveLayout');button.disabled=true;try{const desired=payload();const result=await api('/items/'+id,{method:'PUT',body:JSON.stringify({...desired,is_active:!!item.is_active,is_featured:!!item.is_featured})});const saved=result.item;if(!saved||JSON.stringify(saved.metadata||{})!==JSON.stringify(desired.metadata)){await load();const fresh=items.find(value=>String(value.item_id)===id);if(!fresh||JSON.stringify(fresh.metadata||{})!==JSON.stringify(desired.metadata))throw new Error('لم تتطابق الإعدادات بعد إعادة قراءتها من قاعدة البيانات.')}await load();edit(Number(id));notice('تم حفظ التخطيط والتحقق منه بعد إعادة تحميل بيانات المتجر.')}catch(error){notice('تعذر حفظ التخطيط: '+error.message,true)}finally{button.disabled=false}});
-$('backgroundFit').addEventListener('change',()=>{ensureLayoutField('background_area').fit=$('backgroundFit').value==='contain'?'contain':'cover';renderLayoutEditor()});
+$('avatarRingMode').addEventListener('change',()=>{const avatar=ensureLayoutField('avatar');avatar.ring_mode=$('avatarRingMode').value==='custom'?'custom':'auto';if(avatar.ring_mode==='custom')avatar.ring_color=$('avatarRingColor').value||'#78E2FF';else delete avatar.ring_color;$('avatarRingColor').disabled=avatar.ring_mode!=='custom';renderLayoutEditor()});
+ $('avatarRingColor').addEventListener('input',()=>{const avatar=ensureLayoutField('avatar');avatar.ring_mode='custom';avatar.ring_color=$('avatarRingColor').value||'#78E2FF';$('avatarRingMode').value='custom';$('avatarRingColor').disabled=false;renderLayoutEditor()});
+ $('backgroundFit').addEventListener('change',()=>{ensureLayoutField('background_area').fit=$('backgroundFit').value==='contain'?'contain':'cover';renderLayoutEditor()});
 for(const [id,key] of [['backgroundFocusX','focus_x'],['backgroundFocusY','focus_y']])$(id).addEventListener('input',()=>{const area=ensureLayoutField('background_area');area[key]=Math.max(0,Math.min(1,Number($(id).value)/100));$(id+'Value').value=$(id).value+'%';updateBackgroundPreview()});
 $('layoutXpEnabled').addEventListener('change',()=>{const xp=ensureLayoutField('xp_bar');xp.enabled=$('layoutXpEnabled').checked;renderLayoutEditor()});
 $('resetLayout').addEventListener('click',()=>{
