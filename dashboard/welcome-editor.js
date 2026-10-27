@@ -2,8 +2,8 @@
   "use strict";
 
   const DEFAULTS = {
-    avatar_x: 5, avatar_y: 23.8, name_x: 49, name_y: 31,
-    title_y: 15, server_y: 56, count_y: 71, name_right: 94,
+    avatar_x: 14, avatar_y: 50, name_x: 94, name_y: 38,
+    title_y: 20, server_y: 60, count_y: 75,
     accent: "#7c3aed", background_start: "#040a16",
     background_end: "#194876", show_server: true, show_count: true,
     use_custom_background: false,
