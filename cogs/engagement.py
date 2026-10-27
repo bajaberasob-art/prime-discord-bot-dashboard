@@ -809,19 +809,46 @@ class Engagement(commands.Cog):
         return guild.system_channel
 
     @staticmethod
-    def _welcome_image_text(value: str) -> str:
-        """Shape Arabic glyphs and resolve bidirectional runs before drawing with Pillow."""
+    def _welcome_has_arabic(value: str) -> bool:
+        return any(
+            0x0600 <= ord(char) <= 0x06FF or 0x0750 <= ord(char) <= 0x077F
+            for char in str(value or "")
+        )
+
+    @classmethod
+    def _welcome_image_text(cls, value: str) -> str:
+        """Keep logical Unicode order when Pillow's RAQM engine can shape Arabic itself."""
         text = str(value or "")
-        if not any(0x0600 <= ord(char) <= 0x06FF or 0x0750 <= ord(char) <= 0x077F for char in text):
+        if not cls._welcome_has_arabic(text):
             return text
+        try:
+            from PIL import features
+            if features.check("raqm"):
+                # Pillow/RAQM handles joining and bidirectional mixed Arabic/Latin text.
+                # Pre-reversing with python-bidi here would reverse the text a second time.
+                return text
+        except (ImportError, ValueError):
+            pass
         try:
             import arabic_reshaper
             from bidi.algorithm import get_display
-
             return get_display(arabic_reshaper.reshape(text))
         except (ImportError, ValueError):
-            # Keep rendering available if an optional shaping dependency is missing.
+            # Preserve the original logical text instead of reversing it incorrectly.
             return text
+
+    @classmethod
+    def _welcome_text_draw_options(cls, value: str) -> dict[str, str]:
+        """Use RAQM's native shaping when available; otherwise _welcome_image_text pre-shapes."""
+        if not cls._welcome_has_arabic(value):
+            return {}
+        try:
+            from PIL import features
+            if features.check("raqm"):
+                return {"direction": "rtl", "language": "ar"}
+        except (ImportError, ValueError):
+            pass
+        return {}
 
     @staticmethod
     def _welcome_font(size: int, family: str = "sans", weight: str = "normal", style: str = "normal"):
@@ -1108,9 +1135,10 @@ class Engagement(commands.Cog):
                         text_y = y0 + max(0, (box_h - total_height) // 2) + line_height // 2
                         for line_index, line in enumerate(lines):
                             shaped = cls._welcome_image_text(line)
+                            draw_options = cls._welcome_text_draw_options(line)
                             layer_draw.text(
                                 (tx, text_y + line_index * line_height), shaped, font=font,
-                                fill=(*base_color, alpha), anchor=anchor,
+                                fill=(*base_color, alpha), anchor=anchor, **draw_options,
                             )
                 if rotation:
                     overlay = overlay.rotate(-rotation, resample=Image.Resampling.BICUBIC,
