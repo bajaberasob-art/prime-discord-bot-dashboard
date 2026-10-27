@@ -810,22 +810,23 @@ class Engagement(commands.Cog):
 
     @staticmethod
     def _welcome_image_text(value: str) -> str:
-        """Shape Arabic glyphs and resolve bidirectional runs before drawing with Pillow."""
+        """Convert logical Arabic text once for Pillow's BASIC layout engine."""
         text = str(value or "")
         if not any(0x0600 <= ord(char) <= 0x06FF or 0x0750 <= ord(char) <= 0x077F for char in text):
             return text
         try:
             import arabic_reshaper
             from bidi.algorithm import get_display
-
-            return get_display(arabic_reshaper.reshape(text))
-        except (ImportError, ValueError):
-            # Keep rendering available if an optional shaping dependency is missing.
-            return text
+        except ImportError as exc:
+            # Never silently generate a broken Arabic welcome image.
+            raise RuntimeError(
+                "Arabic welcome rendering requires arabic-reshaper and python-bidi"
+            ) from exc
+        return get_display(arabic_reshaper.reshape(text))
 
     @staticmethod
     def _welcome_font(size: int, family: str = "sans", weight: str = "normal", style: str = "normal"):
-        """Load a predictable Unicode font with real bold/italic faces and safe fallbacks."""
+        """Load project-bundled fonts and disable RAQM to avoid double-shaping Arabic."""
         families = {
             "sans": "DejaVuSans",
             "serif": "DejaVuSerif",
@@ -842,11 +843,10 @@ class Engagement(commands.Cog):
         fallback_names = [
             requested,
             f"{root}-Bold.ttf" if weight == "bold" else f"{root}.ttf",
-            "DejaVuSans-BoldOblique.ttf" if weight == "bold" and style == "italic" else "",
-            "DejaVuSans-Bold.ttf" if weight == "bold" else "",
-            "DejaVuSans.ttf",
+            "DejaVuSans-Bold.ttf" if weight == "bold" else "DejaVuSans.ttf",
         ]
-        roots = (
+        project_fonts = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+        system_roots = (
             Path("/usr/share/fonts/truetype/dejavu"),
             Path("/usr/share/fonts/dejavu"),
             Path("/usr/share/fonts/truetype/noto"),
@@ -856,18 +856,27 @@ class Engagement(commands.Cog):
         for name in fallback_names:
             if not name:
                 continue
-            candidates.extend(root_dir / name for root_dir in roots)
-        # Noto's Arabic family is a useful fallback on slim Linux containers.
-        candidates.extend([
-            Path("/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf") if weight == "bold" else Path("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"),
-            Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf") if weight == "bold" else Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
-        ])
+            candidates.append(project_fonts / name)
+            candidates.extend(root_dir / name for root_dir in system_roots)
+        if weight == "bold":
+            candidates.append(project_fonts / "DejaVuSans-Bold.ttf")
+        else:
+            candidates.append(project_fonts / "DejaVuSans.ttf")
+
+        # Arabic shaping is performed only by _welcome_image_text. BASIC is
+        # explicit so RAQM cannot shape/reorder the already-shaped string again.
+        basic_layout = getattr(ImageFont, "Layout", None)
+        layout_engine = basic_layout.BASIC if basic_layout is not None else ImageFont.LAYOUT_BASIC
         for candidate in candidates:
             try:
-                return ImageFont.truetype(str(candidate), max(6, int(size)))
-            except OSError:
+                return ImageFont.truetype(
+                    str(candidate), max(6, int(size)), layout_engine=layout_engine
+                )
+            except (OSError, ValueError):
                 continue
-        return ImageFont.load_default()
+        raise RuntimeError(
+            "No usable bundled/system TrueType font found for welcome image rendering"
+        )
 
     @classmethod
     def _render_welcome_image(
@@ -1131,10 +1140,9 @@ class Engagement(commands.Cog):
             left, top = cx - avatar_size // 2, cy - avatar_size // 2
             draw.ellipse((left - 7, top - 7, left + avatar_size + 7, top + avatar_size + 7), fill=(*rgb, 75), outline=(*rgb, 220), width=4)
             image.paste(avatar, (left, top), mask); draw = ImageDraw.Draw(image, "RGBA")
-            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-            try:
-                title_font, name_font, detail_font = ImageFont.truetype(font_path, 27), ImageFont.truetype(font_path, 48), ImageFont.truetype(font_path, 23)
-            except OSError: title_font = name_font = detail_font = ImageFont.load_default()
+            title_font = cls._welcome_font(27)
+            name_font = cls._welcome_font(48, weight="bold")
+            detail_font = cls._welcome_font(23)
             text_x = int(width * pct("name_x", 94))
             draw.text((text_x, int(height * pct("title_y", 20))), cls._welcome_image_text("أهلاً بك في PRIME"), font=title_font, fill=(*rgb, 255), anchor="ra")
             draw.text((text_x, int(height * pct("name_y", 38))), cls._welcome_image_text(str(member_name or "عضو جديد")[:32]), font=name_font, fill=(248, 250, 252, 255), anchor="ra")
