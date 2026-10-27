@@ -73,6 +73,9 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn('data-background-slot="4"', script)
         self.assertIn('"/onboarding/welcome-background?slot="', script)
         self.assertIn("current.background_slot", script)
+        self.assertIn("loadBackgroundSlotPreviews", script)
+        self.assertIn("data-slot-thumb=\"4\"", script)
+        self.assertIn("if (Number(current.background_slot || 1) === slot) current.use_custom_background = false;", script)
         self.assertIn("slot=slot", server)
         self.assertIn("CHECK (slot BETWEEN 1 AND 4)", database)
         self.assertIn("get_welcome_background_asset(", renderer)
@@ -104,6 +107,9 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_editor_treats_unchanged_design_save_as_success(self):
         editor = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
         self.assertIn("const saved = onboardingDirty() ? await saveOnboarding() : true;", editor)
+        app = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("state.draft.welcome_generated_image_enabled = true;", app)
+        self.assertIn("same generated PNG delivered to members", app)
 
     def test_welcome_background_slot_validation_accepts_only_slots_one_to_four(self):
         from database import validate_setting
@@ -150,11 +156,11 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v64", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-9", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-10", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-9", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-10", index)
+        self.assertIn("prime-dashboard-shell-v65", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-10", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-11", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-10", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-11", index)
 
 
 if __name__ == "__main__":
