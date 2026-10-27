@@ -293,7 +293,7 @@
     if (type === "textarea") { input = document.createElement("textarea"); input.rows = 2; }
     else if (type === "select") { input = document.createElement("select"); (attrs.options || []).forEach(([v,t]) => { const op = document.createElement("option"); op.value = v; op.textContent = t; input.append(op); }); }
     else { input = document.createElement("input"); input.type = type; }
-    input.dataset.property = key; if (value !== undefined && value !== null) input.value = value;
+    input.dataset.property = key; if (type === "checkbox") input.checked = Boolean(value); else if (value !== undefined && value !== null) input.value = value;
     for (const [name,v] of Object.entries(attrs)) if (name !== "options") input.setAttribute(name, String(v));
     input.addEventListener(type === "checkbox" ? "change" : "input", () => {
       const el = findElement(selectedId); if (!el) return;
