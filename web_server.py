@@ -568,6 +568,7 @@ async def private_responses(req, handler):
     if (
         req.method in {"POST", "PUT", "PATCH", "DELETE"}
         and response.status >= 400
+        and response.status != 499
     ):
         origin = req.headers.get("Origin") or req.headers.get("Referer") or ""
         origin_host = urlsplit(origin).netloc.lower() if origin else ""
