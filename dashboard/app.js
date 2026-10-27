@@ -2186,7 +2186,8 @@
               state.draft.welcome_generated_image_enabled = true;
               state.fields.welcome_canvas_config = "";
               renderDynamic();
-              const saved = await saveOnboarding();
+              // A no-op save is still successful when the current saved document is unchanged.
+              const saved = onboardingDirty() ? await saveOnboarding() : true;
               if (saved) window.PRIMEWelcomeEditor.close();
               return saved;
             },
