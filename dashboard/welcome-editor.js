@@ -6,7 +6,7 @@
     title_y: 20, server_y: 60, count_y: 75,
     accent: "#7c3aed", background_start: "#040a16",
     background_end: "#194876", show_server: true, show_count: true,
-    use_custom_background: false,
+    use_custom_background: false, canvas_format: "auto",
   };
   const BASE_ELEMENTS = [
     { id:"frame", type:"frame", label:"إطار التصميم", x:1.8, y:5.2, width:96.4, height:90, fontSize:20, color:"#7c3aed", visible:true, locked:false, opacity:62, rotation:0, align:"center", text:"" },
@@ -27,6 +27,7 @@
 
   function normalize(config) {
     const base = { ...DEFAULTS, ...(config && typeof config === "object" ? config : {}) };
+    if (!["auto", "banner", "landscape", "square", "portrait"].includes(base.canvas_format)) base.canvas_format = "auto";
     if (Array.isArray(base.elements)) {
       base.elements = base.elements.slice(0, 24).map((e, i) => ({
         id: String(e.id || uid()), type: ["avatar","title","name","server","count","text","shape","line","frame"].includes(e.type) ? e.type : "text",
@@ -89,6 +90,15 @@
               <div class="welcome-editor-upload-actions"><button type="button" class="btn" data-action="upload-background">رفع الخلفية</button><button type="button" class="btn" data-action="clear-background">إزالة الخلفية المخصصة</button></div>
             </div>
             <div class="welcome-editor-background-colors">
+              <label class="welcome-editor-canvas-format">مقاس لوحة الترحيب
+                <select data-config-select="canvas_format">
+                  <option value="auto">تلقائي حسب نسبة الصورة</option>
+                  <option value="banner">بانر عريض 1200×420</option>
+                  <option value="landscape">عريض 16:9</option>
+                  <option value="square">مربع 1:1</option>
+                  <option value="portrait">عمودي 2:3</option>
+                </select>
+              </label>
               <label>لون التمييز <input type="color" data-config-color="accent"></label>
               <label>بداية التدرج <input type="color" data-config-color="background_start"></label>
               <label>نهاية التدرج <input type="color" data-config-color="background_end"></label>
@@ -121,6 +131,12 @@
       current = normalize({ ...DEFAULTS, accent: current.accent, background_start: current.background_start, background_end: current.background_end });
       selectedId = "name"; renderAll(); setStatus("تمت استعادة العناصر الافتراضية. اضغط حفظ لتثبيت التغيير.");
     });
+    modal.querySelectorAll("[data-config-select]").forEach(input => input.addEventListener("change", () => {
+      checkpoint();
+      current[input.dataset.configSelect] = input.value;
+      renderAll();
+      setStatus("تم تغيير مقاس اللوحة. احفظ التصميم لتثبيت المقاس الجديد.");
+    }));
     modal.querySelectorAll("[data-config-color]").forEach(input => input.addEventListener("input", () => {
       checkpoint();
       const key = input.dataset.configColor;
@@ -196,6 +212,7 @@
   function updateConfigColorFields() {
     if (!root) return;
     root.querySelectorAll("[data-config-color]").forEach(input => input.value = current[input.dataset.configColor] || "#7c3aed");
+    root.querySelectorAll("[data-config-select]").forEach(input => input.value = current[input.dataset.configSelect] || "auto");
   }
   function syncLegacyFields() {
     // The freeform elements are the source of truth; legacy coordinate limits
@@ -251,11 +268,29 @@
     if (!root || !current) return;
     const stage = root.querySelector("#welcome-editor-preview");
     stage.style.setProperty("--welcome-accent", current.accent);
+    const fixedRatios = { banner: "1200 / 420", landscape: "16 / 9", square: "1 / 1", portrait: "2 / 3" };
+    stage.style.aspectRatio = fixedRatios[current.canvas_format] || "1200 / 420";
     if (current.use_custom_background) {
-      stage.style.backgroundImage = "url(api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?v=" + (window.PRIMEWelcomeEditor.cacheKey || Date.now()) + ")";
-      stage.style.backgroundSize = "cover"; stage.style.backgroundPosition = "center";
+      const backgroundUrl = "url(api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?v=" + (window.PRIMEWelcomeEditor.cacheKey || Date.now()) + ")";
+      stage.style.backgroundImage = backgroundUrl;
+      stage.style.backgroundSize = "contain";
+      stage.style.backgroundRepeat = "no-repeat";
+      stage.style.backgroundPosition = "center";
+      stage.style.backgroundColor = "#080c16";
+      if (current.canvas_format === "auto") {
+        const preload = new Image();
+        preload.onload = () => {
+          if (root && current?.use_custom_background && current.canvas_format === "auto") {
+            stage.style.aspectRatio = preload.naturalWidth + " / " + preload.naturalHeight;
+          }
+        };
+        preload.src = backgroundUrl.slice(4, -1);
+      }
     } else {
       stage.style.backgroundImage = "linear-gradient(115deg," + current.background_start + "," + current.background_end + ")";
+      stage.style.backgroundSize = "cover";
+      stage.style.backgroundRepeat = "no-repeat";
+      stage.style.backgroundColor = "transparent";
     }
     stage.replaceChildren();
     current.elements.forEach(el => {
