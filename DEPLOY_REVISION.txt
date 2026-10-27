@@ -1,0 +1,3 @@
+PRIME redeploy marker
+Reason: trigger a fresh repository sync after merging the Arabic welcome rendering fix.
+Target fix commit: ff59106a0bea4f0b1455e70d968f725bd00a1720
