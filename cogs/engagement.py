@@ -852,14 +852,19 @@ class Engagement(commands.Cog):
             Path("/usr/share/fonts/truetype/noto"),
             Path("/usr/share/fonts/truetype/liberation2"),
         )
-        candidates = []
+        # Prefer fonts with explicit Arabic glyph coverage before Latin-first families.
+        # Some minimal hosting images lack these fonts; in that case keep the safe fallbacks below.
+        arabic_suffix = "Bold" if weight == "bold" else "Regular"
+        candidates = [
+            Path(f"/usr/share/fonts/truetype/noto/NotoSansArabic-{arabic_suffix}.ttf"),
+            Path(f"/usr/share/fonts/truetype/noto/NotoNaskhArabic-{arabic_suffix}.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if weight == "bold" else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        ]
         for name in fallback_names:
             if not name:
                 continue
             candidates.extend(root_dir / name for root_dir in roots)
-        # Noto's Arabic family is a useful fallback on slim Linux containers.
         candidates.extend([
-            Path("/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf") if weight == "bold" else Path("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"),
             Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf") if weight == "bold" else Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
         ])
         for candidate in candidates:
