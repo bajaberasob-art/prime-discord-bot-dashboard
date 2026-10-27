@@ -1107,8 +1107,8 @@ def render_profile_card(
     avatar_x = _scale_position(avatar_box, "x", width-avatar_size-44, width-avatar_size)
     avatar_y = _scale_position(avatar_box, "y", inset * 2, height-avatar_size)
     ring_mode = str(avatar_box.get("ring_mode", "auto")).strip().lower()
-  ring_color = _safe_color(avatar_box.get("ring_color"), accent) if ring_mode == "custom" else accent
-  avatar = _fit_avatar(avatar_bytes, avatar_size, accent, ring_color)
+    ring_color = _safe_color(avatar_box.get("ring_color"), accent) if ring_mode == "custom" else accent
+    avatar = _fit_avatar(avatar_bytes, avatar_size, accent, ring_color)
     avatar_dest = (
         max(0, min(width-avatar.width, avatar_x - 9)),
         max(0, min(height-avatar.height, avatar_y - 9)),
