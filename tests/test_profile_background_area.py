@@ -323,8 +323,8 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
         self.assertIn('id="avatarRingMode"', html)
         self.assertIn('id="avatarRingColor"', html)
-        self.assertIn("layoutMetadata.avatar.ring_mode", client)
-        self.assertIn("box.ring_color", client)
+        self.assertIn("avatar.ring_mode", client)
+        self.assertIn("avatar.ring_color", client)
 
     def test_cover_fit_respects_focal_point(self):
         source = Image.new("RGBA", (120, 40), (0, 0, 0, 255))
