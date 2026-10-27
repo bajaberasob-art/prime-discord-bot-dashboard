@@ -210,18 +210,22 @@ textarea{line-height:1.7}
         <label for="layoutHeight">الارتفاع<input id="layoutHeight" type="number" min="1" max="1600" step="1" value="40"></label>
       </div>
       <label for="layoutAnchor">محاذاة النص</label>
-      <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="la">محاذاة من اليسار</option></select>
+      <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="ma">توسيط النص</option><option value="la">محاذاة من اليسار</option></select>
       <section class="layout-style-panel" id="layoutStylePanel" aria-labelledby="layoutStyleHeading">
         <h4 id="layoutStyleHeading">مظهر العنصر المحدد</h4>
         <div class="layout-number-grid">
           <label for="layoutFontSize">حجم الخط (px)<input id="layoutFontSize" type="number" min="8" max="120" step="1" value="32"></label>
-          <label for="layoutFontFamily">نوع الخط<select id="layoutFontFamily"><option value="modern">حديث</option><option value="tech">تقني</option><option value="elegant">أنيق</option><option value="soft">ناعم</option></select></label>
+          <label for="layoutFontFamily">نوع الخط<select id="layoutFontFamily"><option value="modern">حديث وواضح</option><option value="tech">تقني مضغوط</option><option value="elegant">سيريف أنيق</option><option value="soft">عربي ناعم</option><option value="mono">أحادي هندسي</option></select></label>
           <label for="layoutTextColor">لون النص<input id="layoutTextColor" type="color" value="#FFFFFF"></label>
           <label for="layoutStrokeWidth">سُمك الحد حول النص<input id="layoutStrokeWidth" type="number" min="0" max="6" step="1" value="2"></label>
+          <label for="layoutStrokeColor">لون الحد<input id="layoutStrokeColor" type="color" value="#000000"></label>
+          <label for="layoutShadowOffset">إزاحة الظل (px)<input id="layoutShadowOffset" type="number" min="0" max="12" step="1" value="3"></label>
         </div>
         <label class="layout-style-content" for="layoutTextContent">النص / عنوان العنصر<input id="layoutTextContent" type="text" maxlength="100" placeholder="المستوى {level}"></label>
+        <label for="layoutShadowColor">لون الظل<input id="layoutShadowColor" type="color" value="#000000"></label>
         <label class="checks"><span><input id="layoutAutoColor" type="checkbox" checked> تباين تلقائي للون النص</span></label>
         <label class="checks"><span><input id="layoutBold" type="checkbox" checked> خط عريض</span></label>
+        <label class="checks"><span><input id="layoutShadow" type="checkbox"> ظل للنص</span></label>
         <div class="layout-style-help" id="layoutStyleHelp">تُحفظ هذه الخيارات لهذا العنصر فقط، وتُستخدم عند إنشاء بطاقة البروفايل الفعلية.</div>
         <button type="button" id="applyElementStyle" class="primary">تطبيق مظهر العنصر</button>
       </section>
