@@ -67,6 +67,7 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("freeform elements are the source of truth", script)
         self.assertNotIn("current.name_y =", script)
         self.assertNotIn("current.avatar_x =", script)
+        self.assertIn('Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds"', renderer)
         self.assertIn("ImageOps.contain(custom, (width, height)", renderer)
         self.assertIn("ImageFilter.GaussianBlur(radius=22)", renderer)
         self.assertIn("backdrop.paste(foreground, (x_offset, y_offset))", renderer)
