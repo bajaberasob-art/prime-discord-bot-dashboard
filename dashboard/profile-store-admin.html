@@ -209,6 +209,13 @@ textarea{line-height:1.7}
         <label for="layoutWidth">العرض / الحجم<input id="layoutWidth" type="number" min="1" max="2048" step="1" value="120"></label>
         <label for="layoutHeight">الارتفاع<input id="layoutHeight" type="number" min="1" max="1600" step="1" value="40"></label>
       </div>
+      <section class="layout-style-panel" id="avatarRingPanel" aria-labelledby="avatarRingHeading">
+        <h4 id="avatarRingHeading">حلقة صورة الشخصية</h4>
+        <label for="avatarRingMode">طريقة اختيار اللون</label>
+        <select id="avatarRingMode"><option value="auto">تلقائي حسب لون القالب</option><option value="custom">لون مخصص</option></select>
+        <label for="avatarRingColor">لون الحلقة</label><input id="avatarRingColor" type="color" value="#78E2FF">
+        <div class="layout-style-help">الوضع التلقائي يطابق لون التمييز في القالب؛ اختر اللون المخصص إذا أردت ضبط الحلقة يدويًا.</div>
+      </section>
       <label for="layoutAnchor">محاذاة النص</label>
       <select id="layoutAnchor"><option value="ra">محاذاة من اليمين</option><option value="ma">توسيط النص</option><option value="la">محاذاة من اليسار</option></select>
       <section class="layout-style-panel" id="layoutStylePanel" aria-labelledby="layoutStyleHeading">
