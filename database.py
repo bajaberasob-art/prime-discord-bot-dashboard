@@ -5952,7 +5952,7 @@ def _row_to_settings(guild_id: int, row: Optional[Any]) -> Dict[str, Any]:
                     for tier in ("admin", "moderator", "staff")
                 }
             elif key == "welcome_canvas_config":
-                defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False}
+                defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False, "canvas_format": "banner"}
                 value = {**defaults, **{k: v for k, v in value.items() if k in defaults or k == "elements"}}
             else:
                 value = {
@@ -6081,7 +6081,7 @@ def validate_setting(key: str, value: Any) -> Any:
                 raise ValueError("إعدادات محرر الترحيب غير صالحة")
         if not isinstance(value, dict) or len(value) > 16:
             raise ValueError("إعدادات محرر الترحيب غير صالحة")
-        defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False}
+        defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False, "canvas_format": "banner"}
         clean = dict(defaults)
         numeric = {"avatar_x": (12, 35), "avatar_y": (25, 75), "name_x": (45, 96), "name_y": (25, 60), "title_y": (8, 30), "server_y": (45, 78), "count_y": (60, 90)}
         colors = {"accent", "background_start", "background_end"}
@@ -6097,6 +6097,10 @@ def validate_setting(key: str, value: Any) -> Any:
             elif field in {"show_server", "show_count", "use_custom_background"}:
                 if not isinstance(item, bool):
                     raise ValueError(f"الخيار {field} يجب أن يكون صحيحاً")
+                clean[field] = item
+            elif field == "canvas_format":
+                if item not in {"auto", "banner", "landscape", "square", "portrait"}:
+                    raise ValueError("مقاس صورة الترحيب غير مدعوم")
                 clean[field] = item
             elif field == "elements":
                 if not isinstance(item, list) or len(item) > 24:
