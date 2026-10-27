@@ -27,6 +27,7 @@ from database import (
     save_rules_panel,
     get_self_role_panels,
     save_self_role_panel,
+    get_welcome_background_asset,
 )
 
 
@@ -282,6 +283,11 @@ class Engagement(commands.Cog):
                 "welcome_generated_image_enabled": bool(
                     values.get("welcome_generated_image_enabled", False)
                 ),
+                "welcome_canvas_config": (
+                    values.get("welcome_canvas_config")
+                    if isinstance(values.get("welcome_canvas_config"), dict)
+                    else {}
+                ),
                 "leave_embed_enabled": bool(values.get("leave_embed_enabled", False)),
                 "leave_embed_color": values.get("leave_embed_color", "#334155"),
                 "leave_embed_title": values.get("leave_embed_title", "{username} غادر {server}"),
@@ -333,6 +339,7 @@ class Engagement(commands.Cog):
                 "welcome_embed_footer": "PRIME | TEAM • تطوير abood2026",
                 "welcome_embed_show_avatar": True,
                 "welcome_generated_image_enabled": False,
+                "welcome_canvas_config": {},
                 "leave_embed_enabled": False,
                 "leave_embed_color": "#334155",
                 "leave_embed_title": "{username} غادر {server}",
@@ -817,8 +824,39 @@ class Engagement(commands.Cog):
         accent: str, canvas_config: Optional[dict[str, Any]] = None,
         guild_id: Optional[int] = None,
     ) -> io.BytesIO:
-        width, height = 1200, 420
         layout = canvas_config if isinstance(canvas_config, dict) else {}
+        canvas_format = str(layout.get("canvas_format") or "auto")
+        format_sizes = {
+            "banner": (1200, 420),
+            "landscape": (1200, 675),
+            "square": (1000, 1000),
+            "portrait": (800, 1200),
+        }
+        background_data = layout.get("_background_image_data")
+        if not isinstance(background_data, (bytes, bytearray)):
+            background_data = None
+        if layout.get("use_custom_background") and guild_id and not background_data:
+            try:
+                legacy_slot = max(1, min(4, int(layout.get("background_slot", 1))))
+            except (TypeError, ValueError):
+                legacy_slot = 1
+            legacy_name = f"{int(guild_id)}.png" if legacy_slot == 1 else f"{int(guild_id)}-{legacy_slot}.png"
+            legacy_path = Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds" / legacy_name
+            try:
+                background_data = legacy_path.read_bytes() if legacy_path.is_file() else None
+            except OSError:
+                background_data = None
+        if canvas_format == "auto" and background_data:
+            try:
+                with Image.open(io.BytesIO(bytes(background_data))) as source_image:
+                    source_width, source_height = source_image.size
+                scale = min(1200 / max(1, source_width), 1200 / max(1, source_height))
+                width = max(1, int(round(source_width * scale)))
+                height = max(1, int(round(source_height * scale)))
+            except (OSError, ValueError):
+                width, height = format_sizes["banner"]
+        else:
+            width, height = format_sizes.get(canvas_format, format_sizes["banner"])
         def pct(key: str, default: float) -> float:
             try: return max(0.0, min(100.0, float(layout.get(key, default)))) / 100.0
             except (TypeError, ValueError): return default / 100.0
@@ -837,20 +875,24 @@ class Engagement(commands.Cog):
         image = gradient.resize((width, height))
         if layout.get("use_custom_background") and guild_id:
             try:
-                background_path = (Path("data/welcome-backgrounds") / f"{int(guild_id)}.png").resolve()
-                if background_path.is_file():
-                    custom = Image.open(background_path).convert("RGB")
-                    # Use a blurred fill behind the full uploaded artwork to avoid
-                    # cropping important content when the image aspect ratio differs.
-                    backdrop = ImageOps.fit(custom, (width, height), method=Image.Resampling.LANCZOS)
-                    backdrop = backdrop.filter(ImageFilter.GaussianBlur(radius=22))
-                    foreground = ImageOps.contain(custom, (width, height), method=Image.Resampling.LANCZOS)
+                if background_data:
+                    with Image.open(io.BytesIO(bytes(background_data))) as opened:
+                        custom_rgba = ImageOps.exif_transpose(opened).convert("RGBA")
+                    # Build the blurred cover over the theme color, then layer the full
+                    # original artwork above it without cropping transparent PNG content.
+                    opaque_base = Image.new("RGBA", custom_rgba.size, (*start, 255))
+                    opaque_base.alpha_composite(custom_rgba)
+                    backdrop = ImageOps.fit(
+                        opaque_base.convert("RGB"), (width, height),
+                        method=Image.Resampling.LANCZOS,
+                    ).filter(ImageFilter.GaussianBlur(radius=22))
+                    foreground = ImageOps.contain(custom_rgba, (width, height), method=Image.Resampling.LANCZOS)
                     x_offset = (width - foreground.width) // 2
                     y_offset = (height - foreground.height) // 2
-                    backdrop.paste(foreground, (x_offset, y_offset))
+                    backdrop.paste(foreground, (x_offset, y_offset), foreground.getchannel("A"))
                     image = backdrop
             except (OSError, ValueError):
-                logger.warning("Could not load custom welcome background for guild %s", guild_id)
+                logger.warning("Could not load custom welcome background for guild %s", guild_id, exc_info=True)
         elements = layout.get("elements")
         if isinstance(elements, list):
             # Editable layers are rendered from the same persisted element model used by Welcome Studio.
@@ -881,7 +923,8 @@ class Engagement(commands.Cog):
                     ey = max(0, min(100, float(element.get("y", 0)))) / 100
                     ew = max(1, min(100, float(element.get("width", 30)))) / 100
                     eh = max(1, min(100, float(element.get("height", 10)))) / 100
-                    font_size = max(8, min(160, int(float(element.get("fontSize", 24)))))
+                    # Font sizes in the editor are relative to the 1200px reference width.
+                    font_size = max(6, min(160, int(float(element.get("fontSize", 24)) * width / 1200)))
                     opacity = max(0, min(100, float(element.get("opacity", 100)))) / 100
                     rotation = max(-180, min(180, float(element.get("rotation", 0))))
                 except (TypeError, ValueError):
@@ -1000,6 +1043,21 @@ class Engagement(commands.Cog):
             avatar_data = await asyncio.wait_for(read_avatar(), timeout=8)
             if not avatar_data or len(avatar_data) > 4 * 1024 * 1024:
                 return None
+            canvas_config = dict(config.get("welcome_canvas_config") if isinstance(config.get("welcome_canvas_config"), dict) else {})
+            if canvas_config.get("use_custom_background"):
+                try:
+                    background_slot = max(1, min(4, int(canvas_config.get("background_slot", 1))))
+                except (TypeError, ValueError):
+                    background_slot = 1
+                try:
+                    canvas_config["_background_image_data"] = await get_welcome_background_asset(
+                        guild.id, slot=background_slot
+                    )
+                except Exception:
+                    logger.warning(
+                        "[WELCOME_IMAGE] تعذر تحميل الخلفية المحفوظة للسيرفر %s في الخانة %s",
+                        guild.id, background_slot, exc_info=True,
+                    )
             buffer = await asyncio.to_thread(
                 self._render_welcome_image,
                 avatar_data,
@@ -1007,7 +1065,7 @@ class Engagement(commands.Cog):
                 getattr(guild, "name", "السيرفر"),
                 int(getattr(guild, "member_count", 0) or 0),
                 str(config.get("welcome_embed_color") or "#7c3aed"),
-                config.get("welcome_canvas_config") if isinstance(config.get("welcome_canvas_config"), dict) else {},
+                canvas_config,
                 int(getattr(guild, "id", 0) or 0),
             )
             return discord.File(buffer, filename="prime-welcome.png")
@@ -1096,6 +1154,26 @@ class Engagement(commands.Cog):
         target_id = getattr(target, "id", None)
         channel_id = target_id if target_type == "channel" else None
         member_id = getattr(member, "id", None)
+        # A dashboard test is specifically checking the generated image. Do not
+        # silently report success if the upload cannot be rendered.
+        if (
+            delivery_type == "welcome"
+            and trigger_type == "dashboard_test"
+            and config.get("welcome_generated_image_enabled")
+            and file is None
+        ):
+            await self._record_onboarding_delivery(
+                guild_id=guild.id,
+                delivery_type=delivery_type,
+                trigger_type=trigger_type,
+                status="failed",
+                target_type=target_type,
+                target_id=target_id,
+                channel_id=channel_id,
+                member_id=member_id,
+                reason=warning_reason or "welcome_image_generation_failed",
+            )
+            return {"ok": False, "error": "welcome_image_generation_failed"}
         message_content = None if embed is not None else rendered or None
         try:
             try:
@@ -1293,7 +1371,10 @@ class Engagement(commands.Cog):
         )
         if target is None:
             return {"ok": False, "error": "channel_not_found"}
-        member = getattr(guild, "me", None)
+        # A dashboard test should preview the operator's own avatar/name, not the bot's.
+        member = guild.get_member(int(actor_user_id))
+        if member is None:
+            member = getattr(guild, "me", None)
         if member is None:
             member = SimpleNamespace(
                 id=int(actor_user_id),

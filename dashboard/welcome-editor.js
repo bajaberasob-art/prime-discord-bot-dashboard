@@ -6,7 +6,7 @@
     title_y: 20, server_y: 60, count_y: 75,
     accent: "#7c3aed", background_start: "#040a16",
     background_end: "#194876", show_server: true, show_count: true,
-    use_custom_background: false,
+    use_custom_background: false, canvas_format: "auto", background_slot: 1,
   };
   const BASE_ELEMENTS = [
     { id:"frame", type:"frame", label:"إطار التصميم", x:1.8, y:5.2, width:96.4, height:90, fontSize:20, color:"#7c3aed", visible:true, locked:false, opacity:62, rotation:0, align:"center", text:"" },
@@ -27,6 +27,8 @@
 
   function normalize(config) {
     const base = { ...DEFAULTS, ...(config && typeof config === "object" ? config : {}) };
+    if (!["auto", "banner", "landscape", "square", "portrait"].includes(base.canvas_format)) base.canvas_format = "auto";
+    base.background_slot = Math.round(clamp(base.background_slot ?? 1, 1, 4));
     if (Array.isArray(base.elements)) {
       base.elements = base.elements.slice(0, 24).map((e, i) => ({
         id: String(e.id || uid()), type: ["avatar","title","name","server","count","text","shape","line","frame"].includes(e.type) ? e.type : "text",
@@ -50,7 +52,12 @@
   }
 
   function close() {
-    if (root) root.remove();
+    if (root) {
+      root.querySelectorAll(".welcome-editor-bg-thumb img[data-object-url]").forEach(image => {
+        try { URL.revokeObjectURL(image.dataset.objectUrl); } catch (_) {}
+      });
+      root.remove();
+    }
     document.removeEventListener("keydown", onEscape);
     root = null; current = null; onSaveCallback = null;
   }
@@ -85,10 +92,30 @@
               <label class="welcome-editor-file-label">خلفية التصميم
                 <input type="file" accept="image/png,image/jpeg,image/webp" id="welcome-editor-background-file">
               </label>
-              <span class="welcome-editor-upload-hint">PNG / JPG / WEBP — حتى 5MB</span>
-              <div class="welcome-editor-upload-actions"><button type="button" class="btn" data-action="upload-background">رفع الخلفية</button><button type="button" class="btn" data-action="clear-background">إزالة الخلفية المخصصة</button></div>
+              <span class="welcome-editor-upload-hint">PNG / JPG / WEBP — حتى 15MB، بأي أبعاد. صور الخانات تُحفظ بشكل مستقل.</span>
+              <div class="welcome-editor-bg-slots" role="group" aria-label="الخلفيات المحفوظة">
+                <span>الخانة الحالية</span>
+                <button type="button" class="btn welcome-editor-bg-slot" data-background-slot="1" aria-pressed="false"><span class="welcome-editor-bg-thumb" data-slot-thumb="1" aria-hidden="true"><span class="welcome-editor-bg-placeholder">1</span></span><span class="welcome-editor-bg-label">صورة 1</span><span class="welcome-editor-bg-state" data-slot-state="1">جارٍ الفحص</span></button>
+                <button type="button" class="btn welcome-editor-bg-slot" data-background-slot="2" aria-pressed="false"><span class="welcome-editor-bg-thumb" data-slot-thumb="2" aria-hidden="true"><span class="welcome-editor-bg-placeholder">2</span></span><span class="welcome-editor-bg-label">صورة 2</span><span class="welcome-editor-bg-state" data-slot-state="2">جارٍ الفحص</span></button>
+                <button type="button" class="btn welcome-editor-bg-slot" data-background-slot="3" aria-pressed="false"><span class="welcome-editor-bg-thumb" data-slot-thumb="3" aria-hidden="true"><span class="welcome-editor-bg-placeholder">3</span></span><span class="welcome-editor-bg-label">صورة 3</span><span class="welcome-editor-bg-state" data-slot-state="3">جارٍ الفحص</span></button>
+                <button type="button" class="btn welcome-editor-bg-slot" data-background-slot="4" aria-pressed="false"><span class="welcome-editor-bg-thumb" data-slot-thumb="4" aria-hidden="true"><span class="welcome-editor-bg-placeholder">4</span></span><span class="welcome-editor-bg-label">صورة 4</span><span class="welcome-editor-bg-state" data-slot-state="4">جارٍ الفحص</span></button>
+              </div>
+              <div class="welcome-editor-upload-actions">
+                <button type="button" class="btn" data-action="upload-background">رفع وحفظ في الخانة</button>
+                <button type="button" class="btn" data-action="clear-background">إيقاف الخلفية المخصصة</button>
+                <button type="button" class="btn danger" data-action="delete-background">حذف صورة الخانة</button>
+              </div>
             </div>
             <div class="welcome-editor-background-colors">
+              <label class="welcome-editor-canvas-format">مقاس لوحة الترحيب
+                <select data-config-select="canvas_format">
+                  <option value="auto">تلقائي حسب نسبة الصورة</option>
+                  <option value="banner">بانر عريض 1200×420</option>
+                  <option value="landscape">عريض 16:9</option>
+                  <option value="square">مربع 1:1</option>
+                  <option value="portrait">عمودي 2:3</option>
+                </select>
+              </label>
               <label>لون التمييز <input type="color" data-config-color="accent"></label>
               <label>بداية التدرج <input type="color" data-config-color="background_start"></label>
               <label>نهاية التدرج <input type="color" data-config-color="background_end"></label>
@@ -121,6 +148,12 @@
       current = normalize({ ...DEFAULTS, accent: current.accent, background_start: current.background_start, background_end: current.background_end });
       selectedId = "name"; renderAll(); setStatus("تمت استعادة العناصر الافتراضية. اضغط حفظ لتثبيت التغيير.");
     });
+    modal.querySelectorAll("[data-config-select]").forEach(input => input.addEventListener("change", () => {
+      checkpoint();
+      current[input.dataset.configSelect] = input.value;
+      renderAll();
+      setStatus("تم تغيير مقاس اللوحة. احفظ التصميم لتثبيت المقاس الجديد.");
+    }));
     modal.querySelectorAll("[data-config-color]").forEach(input => input.addEventListener("input", () => {
       checkpoint();
       const key = input.dataset.configColor;
@@ -133,20 +166,29 @@
       }
       renderStage(); renderLayers(); renderProperties(); updateConfigColorFields();
     }));
+    modal.querySelectorAll("[data-background-slot]").forEach(button => button.addEventListener("click", () => {
+      checkpoint();
+      current.background_slot = Number(button.dataset.backgroundSlot);
+      current.use_custom_background = true;
+      window.PRIMEWelcomeEditor.cacheKey = Date.now();
+      renderAll();
+      setStatus("تم تحديد خانة الصورة " + current.background_slot + ". ارفع صورة لحفظها بهذه الخانة أو احفظ التصميم لاستخدامها.");
+    }));
     const fileInput = modal.querySelector("#welcome-editor-background-file");
     modal.querySelector('[data-action="upload-background"]').addEventListener("click", async () => {
       const file = fileInput.files && fileInput.files[0];
       if (!file) return setStatus("اختر صورة أولاً.");
       if (!["image/png","image/jpeg","image/webp"].includes(file.type)) return setStatus("الصيغ المدعومة PNG وJPG وWEBP فقط.");
-      if (file.size > 5 * 1024 * 1024) return setStatus("الحد الأقصى لحجم الخلفية 5 ميجابايت.");
+      if (file.size > 15 * 1024 * 1024) return setStatus("الحد الأقصى لحجم الخلفية 15 ميجابايت.");
       const button = modal.querySelector('[data-action="upload-background"]');
-      button.disabled = true; setStatus("جارٍ رفع الخلفية والتحقق منها…");
+      const slot = Number(current.background_slot || 1);
+      button.disabled = true; setStatus("جارٍ رفع الصورة وحفظها في الخانة " + slot + "…");
       try {
         let uploaded = false;
         for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
           try {
             const form = new FormData(); form.append("file", file);
-            const response = await fetch("api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background", {
+            const response = await fetch("api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?slot=" + encodeURIComponent(slot), {
               method:"POST", headers:{"X-CSRF-Token":window.PRIMEWelcomeEditor.csrfToken || ""}, body:form, credentials:"same-origin"
             });
             const result = await response.json().catch(() => ({}));
@@ -158,7 +200,7 @@
               }
               return setStatus(result.fields?.file || "تعذر رفع الخلفية والتحقق منها.");
             }
-            checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderStage(); setStatus("تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.");
+            checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderAll(); loadBackgroundSlotPreviews(); setStatus("تم حفظ صورة الخانة " + slot + " في قاعدة البيانات. اضغط حفظ التصميم لتفعيلها للترحيب والتجربة.");
             uploaded = true;
           } catch (_) {
             if (attempt === 0) {
@@ -173,7 +215,34 @@
     });
     modal.querySelector('[data-action="clear-background"]').addEventListener("click", () => {
       checkpoint();
-      current.use_custom_background = false; renderStage(); setStatus("تم إيقاف الخلفية المخصصة. احفظ التصميم لتطبيق التغيير.");
+      current.use_custom_background = false; renderAll(); setStatus("تم إيقاف الخلفية المخصصة فقط؛ الصور المحفوظة في الخانات الأربع لم تُحذف. احفظ التصميم لتطبيق التغيير.");
+    });
+    modal.querySelector('[data-action="delete-background"]').addEventListener("click", async () => {
+      const slot = Number(current.background_slot || 1);
+      const button = modal.querySelector('[data-action="delete-background"]');
+      button.disabled = true;
+      setStatus("جارٍ حذف صورة الخانة " + slot + " من قاعدة البيانات…");
+      try {
+        const url = "api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?slot=" + encodeURIComponent(slot);
+        const response = await fetch(url, {
+          method: "DELETE",
+          headers: { "X-CSRF-Token": window.PRIMEWelcomeEditor.csrfToken || "" },
+          credentials: "same-origin",
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.ok) {
+          return setStatus(result.fields?.slot || "تعذر حذف الصورة المحفوظة. لم نعتبر الحذف ناجحًا.");
+        }
+        if (Number(current.background_slot || 1) === slot) current.use_custom_background = false;
+        window.PRIMEWelcomeEditor.cacheKey = Date.now();
+        renderAll();
+        loadBackgroundSlotPreviews();
+        setStatus("تم حذف صورة الخانة " + slot + " فقط. بقية الصور لم تتأثر؛ احفظ التصميم لتثبيت إيقاف الخلفية.");
+      } catch (_) {
+        setStatus("تعذر الاتصال لحذف الصورة. لم نؤكد نجاح الحذف.");
+      } finally {
+        if (button.isConnected) button.disabled = false;
+      }
     });
     modal.querySelector('[data-action="undo"]').addEventListener("click", undo);
     modal.querySelector('[data-action="redo"]').addEventListener("click", redo);
@@ -188,6 +257,7 @@
       finally { if (button.isConnected) button.disabled = false; }
     });
     renderAll();
+    loadBackgroundSlotPreviews();
     modal.querySelector(".welcome-editor-close").focus();
   }
 
@@ -196,7 +266,57 @@
   function updateConfigColorFields() {
     if (!root) return;
     root.querySelectorAll("[data-config-color]").forEach(input => input.value = current[input.dataset.configColor] || "#7c3aed");
+    root.querySelectorAll("[data-config-select]").forEach(input => input.value = current[input.dataset.configSelect] || "auto");
+    root.querySelectorAll("[data-background-slot]").forEach(button => {
+      const active = Number(button.dataset.backgroundSlot) === Number(current.background_slot || 1);
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
   }
+  async function loadBackgroundSlotPreviews() {
+    if (!root || !window.PRIMEWelcomeEditor.guildId) return;
+    const guildId = String(window.PRIMEWelcomeEditor.guildId);
+    const buttons = [...root.querySelectorAll("[data-background-slot]")];
+    await Promise.all(buttons.map(async button => {
+      const slot = Number(button.dataset.backgroundSlot);
+      const thumb = button.querySelector("[data-slot-thumb]");
+      const state = button.querySelector("[data-slot-state]");
+      if (!thumb || !state) return;
+      state.textContent = "جارٍ الفحص";
+      try {
+        const url = "api/guild/" + encodeURIComponent(guildId) + "/onboarding/welcome-background?slot=" + slot + "&v=" + (window.PRIMEWelcomeEditor.cacheKey || Date.now());
+        const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+        if (!root || String(window.PRIMEWelcomeEditor.guildId) !== guildId) return;
+        if (response.status === 404) {
+          thumb.replaceChildren(Object.assign(document.createElement("span"), { className: "welcome-editor-bg-placeholder", textContent: "+" }));
+          button.classList.remove("has-image");
+          state.textContent = "فارغة";
+          return;
+        }
+        if (!response.ok) throw new Error("background_load_failed");
+        const blob = await response.blob();
+        if (!blob.type.startsWith("image/") || !blob.size) throw new Error("invalid_background_response");
+        const previousImage = thumb.querySelector("img[data-object-url]");
+        if (previousImage) {
+          try { URL.revokeObjectURL(previousImage.dataset.objectUrl); } catch (_) {}
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        const image = document.createElement("img");
+        image.src = objectUrl;
+        image.alt = "";
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.dataset.objectUrl = objectUrl;
+        thumb.replaceChildren(image);
+        button.classList.add("has-image");
+        state.textContent = "محفوظة";
+      } catch (_) {
+        button.classList.remove("has-image");
+        state.textContent = "تعذر التحميل";
+      }
+    }));
+  }
+
   function syncLegacyFields() {
     // The freeform elements are the source of truth; legacy coordinate limits
     // must never constrain or reject a user-designed canvas.
@@ -251,13 +371,47 @@
     if (!root || !current) return;
     const stage = root.querySelector("#welcome-editor-preview");
     stage.style.setProperty("--welcome-accent", current.accent);
+    const fixedRatios = { banner: "1200 / 420", landscape: "16 / 9", square: "1 / 1", portrait: "2 / 3" };
+    stage.style.aspectRatio = fixedRatios[current.canvas_format] || "1200 / 420";
+    let fittedBackgroundUrl = null;
+    stage.style.backgroundImage = "linear-gradient(115deg," + current.background_start + "," + current.background_end + ")";
+    stage.style.backgroundSize = "cover";
+    stage.style.backgroundRepeat = "no-repeat";
+    stage.style.backgroundColor = "#080c16";
     if (current.use_custom_background) {
-      stage.style.backgroundImage = "url(api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?v=" + (window.PRIMEWelcomeEditor.cacheKey || Date.now()) + ")";
-      stage.style.backgroundSize = "cover"; stage.style.backgroundPosition = "center";
-    } else {
-      stage.style.backgroundImage = "linear-gradient(115deg," + current.background_start + "," + current.background_end + ")";
+      fittedBackgroundUrl = "api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?slot=" + encodeURIComponent(current.background_slot || 1) + "&v=" + (window.PRIMEWelcomeEditor.cacheKey || Date.now());
+      if (current.canvas_format === "auto") {
+        const preload = new Image();
+        preload.onload = () => {
+          if (root && current?.use_custom_background && current.canvas_format === "auto") {
+            stage.style.aspectRatio = preload.naturalWidth + " / " + preload.naturalHeight;
+          }
+        };
+        preload.src = fittedBackgroundUrl;
+      }
     }
     stage.replaceChildren();
+    if (fittedBackgroundUrl) {
+      const addBackgroundLayer = (fit, blur) => {
+        const image = document.createElement("img");
+        image.src = fittedBackgroundUrl;
+        image.alt = "";
+        image.onerror = () => image.remove();
+        image.draggable = false;
+        image.setAttribute("aria-hidden", "true");
+        Object.assign(image.style, {
+          position: "absolute", inset: "0", width: "100%", height: "100%",
+          objectFit: fit, pointerEvents: "none", zIndex: "0",
+        });
+        if (blur) {
+          image.style.filter = "blur(16px)";
+          image.style.transform = "scale(1.08)";
+        }
+        stage.append(image);
+      };
+      addBackgroundLayer("cover", true);
+      addBackgroundLayer("contain", false);
+    }
     current.elements.forEach(el => {
       const node = document.createElement("div");
       node.className = "welcome-editor-object type-" + el.type + (el.id === selectedId ? " is-selected" : "") + (!el.visible ? " is-hidden" : "") + (el.locked ? " is-locked" : "");

@@ -2186,7 +2186,8 @@
               state.draft.welcome_generated_image_enabled = true;
               state.fields.welcome_canvas_config = "";
               renderDynamic();
-              const saved = await saveOnboarding();
+              // A no-op save is still successful when the current saved document is unchanged.
+              const saved = onboardingDirty() ? await saveOnboarding() : true;
               if (saved) window.PRIMEWelcomeEditor.close();
               return saved;
             },
@@ -11168,6 +11169,11 @@
   }
   async function sendTestDelivery(deliveryType) {
     if (!state.online || state.saving) return;
+    // A welcome test must exercise the same generated PNG delivered to members,
+    // even when image generation had not been enabled before opening this editor.
+    if (deliveryType === "welcome" && state.draft) {
+      state.draft.welcome_generated_image_enabled = true;
+    }
     if (onboardingDirty()) {
       const saved = await saveOnboarding();
       if (!saved) {
@@ -11209,6 +11215,7 @@
           channel_not_found: "لم تُضبط قناة متاحة لهذه الرسالة",
           forbidden: "Discord رفض الإرسال بسبب الصلاحيات أو إعدادات الرسائل الخاصة",
           user_unavailable: "تعذر الوصول إلى حسابك لإرسال الرسالة الخاصة",
+          welcome_image_generation_failed: "تعذر تجهيز صورة معاينة الترحيب؛ تحقق من الصورة المحفوظة ثم أعد التجربة.",
         };
         toast(messages[reason] || "لم يقبل Discord إرسال التجربة");
       }

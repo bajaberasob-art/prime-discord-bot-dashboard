@@ -281,6 +281,59 @@ def connect(row_factory=None) -> _Connection:
     return _Connection(row_factory)
 
 
+async def save_welcome_background_asset(
+    guild_id: int, image_data: bytes, slot: int = 1
+) -> None:
+    """Persist one of up to four welcome background images for a guild."""
+    slot = int(slot)
+    if not 1 <= slot <= 4:
+        raise ValueError("welcome background slot must be between 1 and 4")
+    data = bytes(image_data or b"")
+    if not data or len(data) > 30 * 1024 * 1024:
+        raise ValueError("welcome background image is empty or too large")
+    async with connect() as db:
+        await db.execute(
+            """
+            INSERT INTO welcome_background_assets (guild_id, slot, image_data, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(guild_id, slot) DO UPDATE SET
+                image_data = excluded.image_data,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (int(guild_id), slot, data),
+        )
+        await db.commit()
+
+
+async def get_welcome_background_asset(
+    guild_id: int, slot: int = 1
+) -> Optional[bytes]:
+    """Load the selected saved welcome artwork from SQLite."""
+    slot = int(slot)
+    if not 1 <= slot <= 4:
+        return None
+    async with connect() as db:
+        async with db.execute(
+            "SELECT image_data FROM welcome_background_assets WHERE guild_id = ? AND slot = ?",
+            (int(guild_id), slot),
+        ) as cur:
+            row = await cur.fetchone()
+    return bytes(row[0]) if row and row[0] is not None else None
+
+
+async def delete_welcome_background_asset(guild_id: int, slot: int = 1) -> None:
+    """Delete one saved background slot without affecting the other three."""
+    slot = int(slot)
+    if not 1 <= slot <= 4:
+        raise ValueError("welcome background slot must be between 1 and 4")
+    async with connect() as db:
+        await db.execute(
+            "DELETE FROM welcome_background_assets WHERE guild_id = ? AND slot = ?",
+            (int(guild_id), slot),
+        )
+        await db.commit()
+
+
 async def get_user_dashboard_theme(user_id: str) -> Optional[Dict[str, Any]]:
     """Read the signed-in Discord user's private dashboard theme."""
     async with connect() as db:
@@ -1773,6 +1826,35 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_onboarding_delivery_guild_time "
                 "ON onboarding_delivery_logs(guild_id, id DESC);"
             )
+            # Four durable background slots per guild; migrate older single-image rows to slot 1.
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS welcome_background_assets (
+                    guild_id INTEGER NOT NULL,
+                    slot INTEGER NOT NULL DEFAULT 1 CHECK (slot BETWEEN 1 AND 4),
+                    image_data BLOB NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (guild_id, slot)
+                );
+            """)
+            async with db.execute("PRAGMA table_info(welcome_background_assets)") as cur:
+                welcome_asset_columns = {str(row[1]) for row in await cur.fetchall()}
+            if "slot" not in welcome_asset_columns:
+                await db.execute("ALTER TABLE welcome_background_assets RENAME TO welcome_background_assets_legacy")
+                await db.execute("""
+                    CREATE TABLE welcome_background_assets (
+                        guild_id INTEGER NOT NULL,
+                        slot INTEGER NOT NULL DEFAULT 1 CHECK (slot BETWEEN 1 AND 4),
+                        image_data BLOB NOT NULL,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (guild_id, slot)
+                    );
+                """)
+                await db.execute("""
+                    INSERT OR IGNORE INTO welcome_background_assets (guild_id, slot, image_data, updated_at)
+                    SELECT guild_id, 1, image_data, updated_at
+                    FROM welcome_background_assets_legacy
+                """)
+                await db.execute("DROP TABLE welcome_background_assets_legacy")
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS logging_channels (
                     guild_id INTEGER PRIMARY KEY,
@@ -5898,7 +5980,7 @@ def _row_to_settings(guild_id: int, row: Optional[Any]) -> Dict[str, Any]:
                     for tier in ("admin", "moderator", "staff")
                 }
             elif key == "welcome_canvas_config":
-                defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False}
+                defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False, "canvas_format": "auto", "background_slot": 1}
                 value = {**defaults, **{k: v for k, v in value.items() if k in defaults or k == "elements"}}
             else:
                 value = {
@@ -6027,7 +6109,7 @@ def validate_setting(key: str, value: Any) -> Any:
                 raise ValueError("إعدادات محرر الترحيب غير صالحة")
         if not isinstance(value, dict) or len(value) > 16:
             raise ValueError("إعدادات محرر الترحيب غير صالحة")
-        defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False}
+        defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False, "canvas_format": "auto", "background_slot": 1}
         clean = dict(defaults)
         numeric = {"avatar_x": (12, 35), "avatar_y": (25, 75), "name_x": (45, 96), "name_y": (25, 60), "title_y": (8, 30), "server_y": (45, 78), "count_y": (60, 90)}
         colors = {"accent", "background_start", "background_end"}
@@ -6044,6 +6126,19 @@ def validate_setting(key: str, value: Any) -> Any:
                 if not isinstance(item, bool):
                     raise ValueError(f"الخيار {field} يجب أن يكون صحيحاً")
                 clean[field] = item
+            elif field == "canvas_format":
+                if item not in {"auto", "banner", "landscape", "square", "portrait"}:
+                    raise ValueError("مقاس صورة الترحيب غير مدعوم")
+                clean[field] = item
+            elif field == "background_slot":
+                if (
+                    isinstance(item, bool)
+                    or not isinstance(item, (int, float))
+                    or int(item) != item
+                    or not 1 <= int(item) <= 4
+                ):
+                    raise ValueError("اختر خانة خلفية من 1 إلى 4")
+                clean[field] = int(item)
             elif field == "elements":
                 if not isinstance(item, list) or len(item) > 24:
                     raise ValueError("يجب أن تحتوي الطبقات على 24 عنصرًا أو أقل")

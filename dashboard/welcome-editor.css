@@ -26,7 +26,18 @@
 .welcome-editor-note{margin:0 2px;color:#94a3b8;font-size:.78rem;line-height:1.6}
 .welcome-editor-upload{display:grid;gap:9px;padding:14px;border:1px dashed #64748b88;border-radius:14px;background:#ffffff03}
 .welcome-editor-file-label{display:flex;flex-direction:column;gap:9px;font-size:.88rem;font-weight:700}.welcome-editor-file-label input{max-width:100%;padding:9px;border-radius:10px;background:#050a13;color:#e2e8f0;font-size:.8rem;border:1px solid #334155}
-.welcome-editor-upload-hint{color:#94a3b8;font-size:.78rem}.welcome-editor-upload-actions{display:flex;gap:8px;flex-wrap:wrap}.welcome-editor-upload-actions button{flex:1;min-height:38px}
+.welcome-editor-upload-hint{color:#94a3b8;font-size:.78rem;line-height:1.6}
+.welcome-editor-upload-actions{display:flex;gap:8px;flex-wrap:wrap}.welcome-editor-upload-actions button{flex:1;min-height:38px}
+.welcome-editor-bg-slots{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px;border:1px solid #ffffff13;border-radius:12px;background:#ffffff03}
+.welcome-editor-bg-slots>span{color:#cbd5e1;font-size:.78rem;margin-inline-end:4px}
+.welcome-editor-bg-slots button.welcome-editor-bg-slot{display:grid;justify-items:center;align-content:start;gap:5px;min-width:82px;min-height:102px;padding:7px 9px;font-size:.76rem;flex:1 1 78px}
+.welcome-editor-bg-thumb{display:grid;place-items:center;width:100%;height:52px;overflow:hidden;border:1px solid #64748b66;border-radius:7px;background:linear-gradient(135deg,#152238,#43316c);color:#cbd5e1}
+.welcome-editor-bg-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.welcome-editor-bg-placeholder{display:grid;place-items:center;width:100%;height:100%;font-size:1.25rem;color:#cbd5e1}
+.welcome-editor-bg-label{font-weight:700}.welcome-editor-bg-state{font-size:.67rem;color:#94a3b8}
+.welcome-editor-bg-slot.has-image .welcome-editor-bg-state{color:#86efac}
+.welcome-editor-bg-slots button.is-active{border-color:#a78bfa!important;background:#6d28d933!important;color:#fff;box-shadow:0 0 0 1px #a78bfa55,0 0 14px #8b5cf633}
+.welcome-editor-upload-actions button.danger{border-color:#fb718544;color:#fda4af}
 .welcome-editor-background-colors{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px;border:1px solid #ffffff13;border-radius:14px;background:#ffffff03}
 .welcome-editor-background-colors label{display:flex;flex-direction:column;gap:7px;color:#cbd5e1;font-size:.8rem}.welcome-editor-background-colors input{width:100%;height:38px;padding:3px;border:1px solid #64748b55;border-radius:9px;background:#111827;cursor:pointer}
 .welcome-editor-side{display:flex;flex-direction:column;gap:14px;min-width:0}

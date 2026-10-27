@@ -64,12 +64,35 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_welcome_studio_allows_free_positions_and_preserves_background(self):
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
         renderer = (ROOT / "cogs" / "engagement.py").read_text(encoding="utf-8")
+        database = (ROOT / "database.py").read_text(encoding="utf-8")
+        server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         self.assertIn("freeform elements are the source of truth", script)
         self.assertNotIn("current.name_y =", script)
         self.assertNotIn("current.avatar_x =", script)
-        self.assertIn("ImageOps.contain(custom, (width, height)", renderer)
+        self.assertIn('data-background-slot="1"', script)
+        self.assertIn('data-background-slot="4"', script)
+        self.assertIn('"/onboarding/welcome-background?slot="', script)
+        self.assertIn("current.background_slot", script)
+        self.assertIn("loadBackgroundSlotPreviews", script)
+        self.assertIn("data-slot-thumb=\"4\"", script)
+        self.assertIn("if (Number(current.background_slot || 1) === slot) current.use_custom_background = false;", script)
+        self.assertIn("slot=slot", server)
+        self.assertIn("CHECK (slot BETWEEN 1 AND 4)", database)
+        self.assertIn("get_welcome_background_asset(", renderer)
+        self.assertIn("slot=background_slot", renderer)
+        self.assertIn('"welcome_canvas_config": (', renderer)
+        self.assertIn('"welcome_canvas_config": {}', renderer)
+        self.assertIn("member = guild.get_member(int(actor_user_id))", renderer)
+        self.assertIn('trigger_type == "dashboard_test"', renderer)
+        self.assertIn('"error": "welcome_image_generation_failed"', renderer)
+        self.assertIn('if "slot" not in welcome_asset_columns', database)
+        self.assertIn("SELECT guild_id, 1, image_data, updated_at", database)
+        self.assertIn("CREATE TABLE IF NOT EXISTS welcome_background_assets", database)
+        self.assertIn("save_welcome_background_asset(guild.id, normalized_image, slot=slot)", server)
+        self.assertIn("delete_welcome_background_asset(guild.id, slot=slot)", server)
+        self.assertIn("ImageOps.contain(custom_rgba, (width, height)", renderer)
         self.assertIn("ImageFilter.GaussianBlur(radius=22)", renderer)
-        self.assertIn("backdrop.paste(foreground, (x_offset, y_offset))", renderer)
+        self.assertIn("backdrop.paste(foreground, (x_offset, y_offset), foreground.getchannel(\"A\"))", renderer)
 
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
@@ -81,14 +104,63 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         # The background file is only replaced after the complete image has been verified.
         self.assertLess(server.index("image.verify()"), server.index("temporary.replace(path)"))
 
+    def test_editor_treats_unchanged_design_save_as_success(self):
+        editor = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const saved = onboardingDirty() ? await saveOnboarding() : true;", editor)
+        app = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("state.draft.welcome_generated_image_enabled = true;", app)
+        self.assertIn("same generated PNG delivered to members", app)
+
+    def test_welcome_background_slot_validation_accepts_only_slots_one_to_four(self):
+        from database import validate_setting
+
+        accepted = validate_setting("welcome_canvas_config", {"background_slot": 4})
+        self.assertEqual(accepted["background_slot"], 4)
+        with self.assertRaises(ValueError):
+            validate_setting("welcome_canvas_config", {"background_slot": 5})
+        with self.assertRaises(ValueError):
+            validate_setting("welcome_canvas_config", {"background_slot": 0})
+
+    def test_welcome_canvas_formats_render_with_distinct_aspect_ratios(self):
+        avatar = self._avatar_bytes()
+        cases = [
+            ("banner", (1200, 420)),
+            ("landscape", (1200, 675)),
+            ("square", (1000, 1000)),
+            ("portrait", (800, 1200)),
+        ]
+        for canvas_format, expected_size in cases:
+            with self.subTest(canvas_format=canvas_format):
+                output = Engagement._render_welcome_image(
+                    avatar, "Test Member", "Test Server", 42, "#7c3aed",
+                    canvas_config={"canvas_format": canvas_format},
+                )
+                self.assertEqual(Image.open(output).size, expected_size)
+
+    def test_auto_canvas_uses_uploaded_background_aspect_ratio(self):
+        avatar = self._avatar_bytes()
+        background = Image.new("RGB", (400, 800), (25, 40, 60))
+        stream = BytesIO()
+        background.save(stream, format="PNG")
+        output = Engagement._render_welcome_image(
+            avatar, "Test Member", "Test Server", 42, "#7c3aed",
+            canvas_config={
+                "canvas_format": "auto",
+                "use_custom_background": True,
+                "_background_image_data": stream.getvalue(),
+            },
+            guild_id=123,
+        )
+        self.assertEqual(Image.open(output).size, (600, 1200))
+
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v61", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-7", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-7", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-7", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-7", index)
+        self.assertIn("prime-dashboard-shell-v65", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-10", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-11", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-10", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-11", index)
 
 
 if __name__ == "__main__":
