@@ -338,6 +338,8 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         self.assertIn("delete box.color", client)
         self.assertIn("box.font_family", client)
         self.assertIn("function applyLiveElementStyle()", client)
+        self.assertIn("$('layoutTextColor').disabled=!styleable;", client)
+        self.assertIn("control.type==='color'||id==='layoutTextContent'?'input':'change'", client)
         self.assertIn("box.stroke_color", client)
         self.assertIn("box.shadow_offset", client)
         self.assertIn("box.text_template=textContent", client)
