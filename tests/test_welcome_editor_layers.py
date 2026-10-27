@@ -103,12 +103,13 @@ class WelcomeStudioLayerTests(unittest.TestCase):
                 "x": 5, "y": 5, "width": 80, "height": 25, "fontSize": 34,
                 "color": "#ffffff", "visible": True, "locked": False,
                 "opacity": 100, "rotation": 0, "align": "right",
-                "text": "أهلاً بك في PRIME", "fontFamily": "serif",
+                "text": "أهلاً بك في PRIME", "fontPreset": "luxury", "fontFamily": "serif",
                 "fontWeight": "bold", "fontStyle": "italic",
                 "textTransform": "uppercase",
             }]
         })
         element = config["elements"][0]
+        self.assertEqual(element["fontPreset"], "luxury")
         self.assertEqual(element["fontFamily"], "serif")
         self.assertEqual(element["fontWeight"], "bold")
         self.assertEqual(element["fontStyle"], "italic")
@@ -120,6 +121,14 @@ class WelcomeStudioLayerTests(unittest.TestCase):
                     "id": "bad-font", "type": "text", "x": 5, "y": 5,
                     "width": 80, "height": 25, "fontSize": 34,
                     "color": "#ffffff", "fontFamily": "unsupported-font",
+                }]
+            })
+        with self.assertRaises(ValueError):
+            validate_setting("welcome_canvas_config", {
+                "elements": [{
+                    "id": "bad-preset", "type": "text", "x": 5, "y": 5,
+                    "width": 80, "height": 25, "fontSize": 34,
+                    "color": "#ffffff", "fontPreset": "unsupported-preset",
                 }]
             })
 
