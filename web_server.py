@@ -90,6 +90,9 @@ from database import (
     replace_ticket_dropdown_categories,
     add_broadcast_log,
     get_recent_broadcast_logs,
+    get_welcome_background_asset,
+    save_welcome_background_asset,
+    delete_welcome_background_asset,
 )
 from management_access import member_has_management_tier
 from cogs.command_meta import (
@@ -5031,10 +5034,16 @@ def _welcome_background_path(guild_id: int) -> Path:
 @routes.get("/api/guild/{guild_id}/onboarding/welcome-background")
 async def api_get_welcome_background(req):
     _, guild = await authorize(req)
+    image_data = await get_welcome_background_asset(guild.id)
+    if image_data:
+        return web.Response(body=image_data, content_type="image/png", headers={"Cache-Control": "private, max-age=60"})
+    # Migrate backgrounds uploaded by older versions on first read.
     path = _welcome_background_path(guild.id)
-    if not path.is_file():
-        raise web.HTTPNotFound()
-    return web.FileResponse(path, headers={"Cache-Control": "private, max-age=60", "Content-Type": "image/png"})
+    if path.is_file():
+        image_data = path.read_bytes()
+        await save_welcome_background_asset(guild.id, image_data)
+        return web.Response(body=image_data, content_type="image/png", headers={"Cache-Control": "private, max-age=60"})
+    raise web.HTTPNotFound()
 
 @routes.post("/api/guild/{guild_id}/onboarding/welcome-background")
 async def api_upload_welcome_background(req):
@@ -5080,18 +5089,26 @@ async def api_upload_welcome_background(req):
         image.save(output, format="PNG", optimize=True)
     except (OSError, ValueError, Image.DecompressionBombError):
         return json_error(400, "invalid_image", fields={"file": "الملف ليس صورة سليمة أو تعذر قراءته."})
+    normalized_image = output.getvalue()
+    try:
+        await save_welcome_background_asset(guild.id, normalized_image)
+    except Exception:
+        logger.exception("Could not persist welcome background in SQLite for guild %s", guild.id)
+        return json_error(500, "background_persistence_failed", fields={"file": "تعذر حفظ الصورة بشكل دائم في قاعدة البيانات."})
+    # Mirror the durable asset for compatibility with older bot versions during rollout.
     path = _welcome_background_path(guild.id)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".png.tmp")
-    temporary.write_bytes(output.getvalue())
+    temporary.write_bytes(normalized_image)
     temporary.replace(path)
-    return web.json_response({"ok": True, "url": f"/api/guild/{guild.id}/onboarding/welcome-background", "size": len(output.getvalue()), "width": image.width, "height": image.height})
+    return web.json_response({"ok": True, "url": f"/api/guild/{guild.id}/onboarding/welcome-background", "size": len(normalized_image), "width": image.width, "height": image.height})
 
 @routes.delete("/api/guild/{guild_id}/onboarding/welcome-background")
 async def api_delete_welcome_background(req):
     _, guild = await authorize(req, write=True)
-    path = _welcome_background_path(guild.id)
     try:
+        await delete_welcome_background_asset(guild.id)
+        path = _welcome_background_path(guild.id)
         path.unlink(missing_ok=True)
     except OSError:
         return json_error(500, "background_delete_failed")
