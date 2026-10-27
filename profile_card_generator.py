@@ -98,9 +98,18 @@ def _safe_metadata(template: dict) -> dict:
     area_width = _clamp(area.get("width"), 1, width - area_x, width - area_x)
     area_height = _clamp(area.get("height"), 1, height - area_y, height - area_y)
     area_fit = str(area.get("fit") or "cover").strip().lower()
+    try:
+        focus_x = max(0.0, min(1.0, float(area.get("focus_x", 0.5))))
+    except (TypeError, ValueError, OverflowError):
+        focus_x = 0.5
+    try:
+        focus_y = max(0.0, min(1.0, float(area.get("focus_y", 0.5))))
+    except (TypeError, ValueError, OverflowError):
+        focus_y = 0.5
     metadata["background_area"] = {
         "x": area_x, "y": area_y, "width": area_width, "height": area_height,
         "fit": area_fit if area_fit in {"cover", "contain"} else "cover",
+        "focus_x": focus_x, "focus_y": focus_y,
     }
     metadata["avatar"] = metadata.get("avatar") if isinstance(metadata.get("avatar"), dict) else {}
     metadata["name"] = metadata.get("name") if isinstance(metadata.get("name"), dict) else {}
@@ -238,6 +247,10 @@ _FONT_FAMILY_FILES = {
         False: ("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf", "DejaVuSans.ttf"),
         True: ("/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf", "DejaVuSans-Bold.ttf"),
     },
+    "mono": {
+        False: ("DejaVuSansMono.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "DejaVuSans.ttf"),
+        True: ("DejaVuSansMono-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", "DejaVuSans-Bold.ttf"),
+    },
 }
 
 
@@ -315,6 +328,7 @@ def _fit_background_to_area(
     background: Image.Image | None,
     size: tuple[int, int],
     fit: str = "cover",
+    centering: tuple[float, float] = (0.5, 0.5),
 ) -> Image.Image | None:
     """Fit a background to a template-defined rectangle without distorting it.
 
@@ -334,11 +348,13 @@ def _fit_background_to_area(
         result = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         result.alpha_composite(contained, ((width - contained.width) // 2, (height - contained.height) // 2))
         return result
+    focus_x = max(0.0, min(1.0, float(centering[0])))
+    focus_y = max(0.0, min(1.0, float(centering[1])))
     return ImageOps.fit(
         source,
         (width, height),
         method=method,
-        centering=(0.5, 0.5),
+        centering=(focus_x, focus_y),
     )
 
 
@@ -443,6 +459,29 @@ def _draw_display_text(
             draw.text(xy, shown, **kwargs)
         return
     draw.text(xy, raw_text, **kwargs)
+
+
+def _draw_text_shadow(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int],
+    value: Any,
+    *,
+    font: ImageFont.ImageFont,
+    box: dict,
+    anchor: str,
+) -> None:
+    """Draw an optional, safely configured offset shadow for a profile text element."""
+    if box.get("shadow") is not True:
+        return
+    offset = _clamp(box.get("shadow_offset"), 0, 12, 3)
+    if offset <= 0:
+        return
+    color = _safe_color(box.get("shadow_color"), "#000000")
+    rgb = ImageColor.getrgb(color)[:3]
+    _draw_display_text(
+        draw, (int(xy[0]) + offset, int(xy[1]) + offset), value,
+        font=font, fill=(*rgb, 185), anchor=anchor, stroke_width=0,
+    )
 
 
 def _number(value: Any, default: int = 0) -> int:
@@ -820,7 +859,7 @@ def _image_from_bytes(raw: bytes | None) -> Image.Image | None:
         return None
 
 
-def _fit_avatar(raw: bytes | None, size: int, accent: str) -> Image.Image:
+def _fit_avatar(raw: bytes | None, size: int, accent: str, ring_color: str | None = None) -> Image.Image:
     image = _image_from_bytes(raw)
     if image is None:
         image = Image.new("RGBA", (size, size), "#1D2030")
@@ -833,7 +872,7 @@ def _fit_avatar(raw: bytes | None, size: int, accent: str) -> Image.Image:
     image.putalpha(mask)
     border = Image.new("RGBA", (size + 18, size + 18), (0, 0, 0, 0))
     draw = ImageDraw.Draw(border)
-    draw.ellipse((2, 2, size + 16, size + 16), outline=accent, width=7)
+    draw.ellipse((2, 2, size + 16, size + 16), outline=_safe_color(ring_color, accent), width=7)
     draw.ellipse((8, 8, size + 10, size + 10), outline=(255, 255, 255, 180), width=2)
     border.alpha_composite(image, (9, 9))
     return border
@@ -941,13 +980,17 @@ def _draw_stat_text(
         )
     )
     stroke_width = _clamp(stat.get("stroke_width"), 0, 6, 2)
+    value_y = y + int(height * .74)
     _draw_display_text(draw, (center_x, y + int(height * .27)), label,
                        font=label_font, fill=label_color, anchor="mm",
                        stroke_width=2, stroke_fill=(0, 0, 0, 175))
+    _draw_text_shadow(draw, (center_x, value_y), value_text, font=value_font, box=stat, anchor="mm")
     # Never replace a wallet/message/rank value with an ellipsis: fit the font instead.
-    _draw_display_text(draw, (center_x, y + int(height * .74)), value_text,
+    selected_stroke = (_safe_color(stat.get("stroke_color"), "#000000")
+                       if stat.get("stroke_color") else (0, 0, 0, 190))
+    _draw_display_text(draw, (center_x, value_y), value_text,
                        font=value_font, fill=value_color, anchor="mm",
-                       stroke_width=stroke_width, stroke_fill=(0, 0, 0, 190))
+                       stroke_width=stroke_width, stroke_fill=selected_stroke)
 
 
 def render_profile_card(
@@ -1028,6 +1071,10 @@ def render_profile_card(
             bg,
             (area_width, area_height),
             str(area.get("fit") or "cover"),
+            centering=(
+                _clamp(round(float(area.get("focus_x", 0.5)) * 100), 0, 100, 50) / 100,
+                _clamp(round(float(area.get("focus_y", 0.5)) * 100), 0, 100, 50) / 100,
+            ),
         )
         if fitted_background is not None:
             canvas.alpha_composite(fitted_background, (area_x, area_y))
@@ -1059,7 +1106,9 @@ def render_profile_card(
                          max(76, int(min(width, height) * .2)))
     avatar_x = _scale_position(avatar_box, "x", width-avatar_size-44, width-avatar_size)
     avatar_y = _scale_position(avatar_box, "y", inset * 2, height-avatar_size)
-    avatar = _fit_avatar(avatar_bytes, avatar_size, accent)
+    ring_mode = str(avatar_box.get("ring_mode", "auto")).strip().lower()
+    ring_color = _safe_color(avatar_box.get("ring_color"), accent) if ring_mode == "custom" else accent
+    avatar = _fit_avatar(avatar_bytes, avatar_size, accent, ring_color)
     avatar_dest = (
         max(0, min(width-avatar.width, avatar_x - 9)),
         max(0, min(height-avatar.height, avatar_y - 9)),
@@ -1144,15 +1193,21 @@ def render_profile_card(
             )
         )
     )
-    name_stroke = (0, 0, 0, 175) if name_color == light_text else (255, 255, 255, 125)
+    name_stroke = (_safe_color(name_box.get("stroke_color"), "#000000")
+                   if name_box.get("stroke_color") else
+                   ((0, 0, 0, 175) if name_color == light_text else (255, 255, 255, 125)))
     name_stroke_width = _clamp(name_box.get("stroke_width"), 0, 6, 2)
     handle_stroke_width = _clamp(handle_box.get("stroke_width"), 0, 6, 1)
+    name_anchor = str(name_box.get("anchor") or "ra")
+    handle_anchor = str(handle_box.get("anchor") or "ra")
+    _draw_text_shadow(draw, (name_x, name_y), name, font=name_font, box=name_box, anchor=name_anchor)
+    _draw_text_shadow(draw, (handle_x, handle_y), handle_text, font=handle_font, box=handle_box, anchor=handle_anchor)
     _draw_display_text(draw, (name_x, name_y), name, font=name_font, fill=name_color,
-                        anchor=str(name_box.get("anchor") or "ra"),
-                        stroke_width=name_stroke_width, stroke_fill=name_stroke)
+                        anchor=name_anchor, stroke_width=name_stroke_width, stroke_fill=name_stroke)
+    handle_stroke = (_safe_color(handle_box.get("stroke_color"), "#000000")
+                     if handle_box.get("stroke_color") else (0, 0, 0, 135))
     _draw_display_text(draw, (handle_x, handle_y), handle_text, font=handle_font, fill=handle_color,
-                        anchor=str(handle_box.get("anchor") or "ra"),
-                        stroke_width=handle_stroke_width, stroke_fill=(0, 0, 0, 135))
+                        anchor=handle_anchor, stroke_width=handle_stroke_width, stroke_fill=handle_stroke)
 
     level_box = metadata.get("level") or {}
     level_x = _scale_position(level_box, "x", inset * 3, width)
@@ -1186,12 +1241,16 @@ def render_profile_card(
             )
         )
     )
+    level_anchor = str(level_box.get("anchor") or "ra")
+    _draw_text_shadow(draw, (level_x, level_y), level_text, font=progress_font, box=level_box, anchor=level_anchor)
+    level_stroke = (_safe_color(level_box.get("stroke_color"), "#000000")
+                    if level_box.get("stroke_color") else (0, 0, 0, 190))
     _draw_display_text(
         draw, (level_x, level_y), level_text,
         font=progress_font, fill=level_color,
-        anchor=str(level_box.get("anchor") or "ra"),
+        anchor=level_anchor,
         stroke_width=_clamp(level_box.get("stroke_width"), 0, 6, 2),
-        stroke_fill=(0, 0, 0, 190),
+        stroke_fill=level_stroke,
     )
 
     # Templates may opt into a live, positionable XP overlay. Keep it disabled by default
