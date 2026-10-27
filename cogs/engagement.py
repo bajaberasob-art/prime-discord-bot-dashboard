@@ -1043,9 +1043,28 @@ class Engagement(commands.Cog):
                         elif transform == "capitalize":
                             text_value = text_value.title()
 
-                        font_family = element.get("fontFamily", "sans")
-                        font_weight = element.get("fontWeight", "normal")
-                        font_style = element.get("fontStyle", "normal")
+                        font_preset = element.get("fontPreset", "default")
+                        presets = {
+                            "default": None,
+                            "modern_bold": ("sans", "bold", "normal", "uppercase"),
+                            "formal": ("serif", "normal", "normal", "capitalize"),
+                            "friendly": ("sans", "bold", "normal", "none"),
+                            "tech": ("mono", "bold", "normal", "uppercase"),
+                            "gaming": ("condensed", "bold", "normal", "uppercase"),
+                            "minimal": ("sans", "normal", "normal", "none"),
+                            "luxury": ("serif", "normal", "italic", "capitalize"),
+                        }
+                        preset_values = presets.get(font_preset)
+                        if preset_values:
+                            font_family, font_weight, font_style, preset_transform = preset_values
+                            if preset_transform == "uppercase":
+                                text_value = text_value.upper()
+                            elif preset_transform == "capitalize":
+                                text_value = text_value.title()
+                        else:
+                            font_family = element.get("fontFamily", "sans")
+                            font_weight = element.get("fontWeight", "normal")
+                            font_style = element.get("fontStyle", "normal")
                         max_text_width = max(4, box_w - 8)
                         max_text_height = max(4, box_h - 4)
 
