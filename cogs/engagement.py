@@ -810,13 +810,64 @@ class Engagement(commands.Cog):
 
     @staticmethod
     def _welcome_image_text(value: str) -> str:
+        """Shape Arabic glyphs and resolve bidirectional runs before drawing with Pillow."""
+        text = str(value or "")
+        if not any("\\u0600" <= char <= "\\u06ff" or "\\u0750" <= char <= "\\u077f" for char in text):
+            return text
         try:
             import arabic_reshaper
             from bidi.algorithm import get_display
 
-            return get_display(arabic_reshaper.reshape(str(value)))
-        except ImportError:
-            return str(value)
+            return get_display(arabic_reshaper.reshape(text))
+        except (ImportError, ValueError):
+            # Keep rendering available if an optional shaping dependency is missing.
+            return text
+
+    @staticmethod
+    def _welcome_font(size: int, family: str = "sans", weight: str = "normal", style: str = "normal"):
+        """Load a predictable Unicode font with real bold/italic faces and safe fallbacks."""
+        families = {
+            "sans": "DejaVuSans",
+            "serif": "DejaVuSerif",
+            "mono": "DejaVuSansMono",
+            "condensed": "DejaVuSansCondensed",
+        }
+        family = family if family in families else "sans"
+        weight = "bold" if weight == "bold" else "normal"
+        style = "italic" if style == "italic" else "normal"
+        root = families[family]
+        italic_suffix = "Italic" if family == "serif" else "Oblique"
+        suffix = ("Bold" if weight == "bold" else "") + (italic_suffix if style == "italic" else "")
+        requested = f"{root}-{suffix}.ttf" if suffix else f"{root}.ttf"
+        fallback_names = [
+            requested,
+            f"{root}-Bold.ttf" if weight == "bold" else f"{root}.ttf",
+            "DejaVuSans-BoldOblique.ttf" if weight == "bold" and style == "italic" else "",
+            "DejaVuSans-Bold.ttf" if weight == "bold" else "",
+            "DejaVuSans.ttf",
+        ]
+        roots = (
+            Path("/usr/share/fonts/truetype/dejavu"),
+            Path("/usr/share/fonts/dejavu"),
+            Path("/usr/share/fonts/truetype/noto"),
+            Path("/usr/share/fonts/truetype/liberation2"),
+        )
+        candidates = []
+        for name in fallback_names:
+            if not name:
+                continue
+            candidates.extend(root_dir / name for root_dir in roots)
+        # Noto's Arabic family is a useful fallback on slim Linux containers.
+        candidates.extend([
+            Path("/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf") if weight == "bold" else Path("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf") if weight == "bold" else Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
+        ])
+        for candidate in candidates:
+            try:
+                return ImageFont.truetype(str(candidate), max(6, int(size)))
+            except OSError:
+                continue
+        return ImageFont.load_default()
 
     @classmethod
     def _render_welcome_image(
@@ -897,7 +948,6 @@ class Engagement(commands.Cog):
         if isinstance(elements, list):
             # Editable layers are rendered from the same persisted element model used by Welcome Studio.
             image = image.convert("RGBA")
-            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
             try:
                 avatar_source = Image.open(io.BytesIO(avatar_data)).convert("RGBA")
             except (OSError, ValueError):
@@ -985,20 +1035,69 @@ class Engagement(commands.Cog):
                     else:
                         text_value = template
                     if text_value:
-                        try:
-                            font = ImageFont.truetype(font_path, font_size)
-                        except OSError:
-                            font = ImageFont.load_default()
+                        transform = element.get("textTransform", "none")
+                        if transform == "uppercase":
+                            text_value = text_value.upper()
+                        elif transform == "lowercase":
+                            text_value = text_value.lower()
+                        elif transform == "capitalize":
+                            text_value = text_value.title()
+
+                        font_family = element.get("fontFamily", "sans")
+                        font_weight = element.get("fontWeight", "normal")
+                        font_style = element.get("fontStyle", "normal")
+                        max_text_width = max(4, box_w - 8)
+                        max_text_height = max(4, box_h - 4)
+
+                        def wrap_text(source: str, font: Any) -> list[str]:
+                            lines: list[str] = []
+                            for paragraph in (source.splitlines() or [source]):
+                                words = paragraph.split()
+                                if not words:
+                                    lines.append("")
+                                    continue
+                                line = ""
+                                for word in words:
+                                    candidate = f"{line} {word}".strip()
+                                    shaped_candidate = cls._welcome_image_text(candidate)
+                                    if line and font.getlength(shaped_candidate) > max_text_width:
+                                        lines.append(line)
+                                        line = word
+                                    else:
+                                        line = candidate
+                                if line:
+                                    lines.append(line)
+                            return lines or [""]
+
+                        font = cls._welcome_font(font_size, font_family, font_weight, font_style)
+                        lines = wrap_text(text_value, font)
+                        line_height = max(1, font.getbbox("Ag")[3] - font.getbbox("Ag")[1])
+                        for candidate_size in range(font_size, 5, -1):
+                            candidate_font = cls._welcome_font(candidate_size, font_family, font_weight, font_style)
+                            candidate_lines = wrap_text(text_value, candidate_font)
+                            candidate_height = max(1, int((candidate_font.getbbox("Ag")[3] - candidate_font.getbbox("Ag")[1]) * 1.18))
+                            widest = max((candidate_font.getlength(cls._welcome_image_text(line)) for line in candidate_lines), default=0)
+                            if widest <= max_text_width and candidate_height * len(candidate_lines) <= max_text_height:
+                                font, lines, line_height = candidate_font, candidate_lines, candidate_height
+                                break
+                            font, lines = candidate_font, candidate_lines
+                            line_height = candidate_height
                         align = element.get("align", "left")
                         if align == "right":
-                            anchor, tx = "rm", x0 + box_w - 3
+                            anchor, tx = "rm", x0 + box_w - 4
                         elif align == "center":
                             anchor, tx = "mm", x0 + box_w // 2
                         else:
-                            anchor, tx = "lm", x0 + 3
-                        shaped = cls._welcome_image_text(text_value)
-                        layer_draw.text((tx, y0 + box_h // 2), shaped, font=font,
-                                        fill=(*base_color, alpha), anchor=anchor)
+                            anchor, tx = "lm", x0 + 4
+                        line_height = max(1, int(line_height * 1.18))
+                        total_height = line_height * len(lines)
+                        text_y = y0 + max(0, (box_h - total_height) // 2) + line_height // 2
+                        for line_index, line in enumerate(lines):
+                            shaped = cls._welcome_image_text(line)
+                            layer_draw.text(
+                                (tx, text_y + line_index * line_height), shaped, font=font,
+                                fill=(*base_color, alpha), anchor=anchor,
+                            )
                 if rotation:
                     overlay = overlay.rotate(-rotation, resample=Image.Resampling.BICUBIC,
                                              center=(x0 + box_w / 2, y0 + box_h / 2))
