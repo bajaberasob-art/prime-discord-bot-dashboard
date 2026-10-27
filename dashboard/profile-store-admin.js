@@ -132,12 +132,12 @@ function updateHistoryButtons(){
  if(redo)redo.disabled=!layoutRedoStack.length;
 }
 function undoLayoutChange(){
- if(!layoutUndoStack.length)return;
+ layoutStyleHistoryKey='';if(!layoutUndoStack.length)return;
  layoutRedoStack.push(layoutSnapshot());layoutMetadata=JSON.parse(layoutUndoStack.pop()||'{}');
  renderLayoutEditor();updateHistoryButtons();notice('تم التراجع عن آخر تعديل. احفظ التخطيط لتثبيت النتيجة.');
 }
 function redoLayoutChange(){
- if(!layoutRedoStack.length)return;
+ layoutStyleHistoryKey='';if(!layoutRedoStack.length)return;
  layoutUndoStack.push(layoutSnapshot());layoutMetadata=JSON.parse(layoutRedoStack.pop()||'{}');
  renderLayoutEditor();updateHistoryButtons();notice('تمت إعادة التعديل. احفظ التخطيط لتثبيت النتيجة.');
 }
@@ -377,7 +377,6 @@ function applyElementStyle(){
  if(!['text','stat'].includes(layoutKind(key))){notice('اختر عنصرًا نصيًا قبل تعديل مظهره.',true);return}
  const fontSize=Number($('layoutFontSize').value),strokeWidth=Number($('layoutStrokeWidth').value);
  if(!Number.isFinite(fontSize)||fontSize<8||fontSize>120||!Number.isFinite(strokeWidth)||strokeWidth<0||strokeWidth>6){notice('حجم الخط يجب أن يكون بين 8 و120، وحد النص بين 0 و6.',true);return}
- pushLayoutHistory();
  box.font_size=Math.round(fontSize);
  box.font_family=['modern','tech','elegant','soft','mono'].includes($('layoutFontFamily').value)?$('layoutFontFamily').value:'modern';
  box.bold=$('layoutBold').checked;
@@ -405,7 +404,7 @@ function applyLayoutInputs(){
 }
 function startLayoutPointer(event){
  const el=event.target.closest('[data-layout-key]');if(!el)return;const key=el.dataset.layoutKey;if(!key)return;
- $('layoutField').value=key;ensureLayoutField(key);const box=getLayoutBox(key),stage=$('layoutStage').getBoundingClientRect();
+ layoutStyleHistoryKey='';$('layoutField').value=key;ensureLayoutField(key);const box=getLayoutBox(key),stage=$('layoutStage').getBoundingClientRect();
  pushLayoutHistory();
  layoutDrag={key,kind:box.kind,anchor:box.anchor,mode:event.target.closest('.layout-resize')?'resize':'move',corner:(event.target.closest('.layout-resize')&&event.target.closest('.layout-resize').dataset.corner)||'se',pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,x:box.x,y:box.y,width:box.width,height:box.height,stageWidth:Math.max(1,stage.width),stageHeight:Math.max(1,stage.height),target:el};
  if(el.setPointerCapture)try{el.setPointerCapture(event.pointerId)}catch{}
@@ -422,17 +421,21 @@ function moveLayoutPointer(event){
 }
 function endLayoutPointer(event){if(!layoutDrag||event.pointerId!==layoutDrag.pointerId)return;layoutDrag=null;renderLayoutEditor()}
 $('layoutBackgroundSource').addEventListener('change',updateBackgroundPreview);
-$('layoutField').addEventListener('change',()=>{ensureLayoutField($('layoutField').value);renderLayoutEditor()});
+$('layoutField').addEventListener('change',()=>{layoutStyleHistoryKey='';ensureLayoutField($('layoutField').value);renderLayoutEditor()});
 $('layoutTextColor').addEventListener('input',()=>{if($('layoutAutoColor').checked)$('layoutAutoColor').checked=false;applyLiveElementStyle()});
 $('layoutAutoColor').addEventListener('change',applyLiveElementStyle);
 for(const id of ['layoutFontSize','layoutFontFamily','layoutStrokeWidth','layoutStrokeColor','layoutShadow','layoutShadowColor','layoutShadowOffset','layoutBold','layoutTextContent','layoutAnchor']){
  const control=$(id);if(!control)continue;control.addEventListener(control.type==='color'||id==='layoutTextContent'?'input':'change',applyLiveElementStyle);
 }
-$('layoutStylePanel').addEventListener('focusin',event=>{if(event.target.matches('input,select'))pushLayoutHistory()});
+let layoutStyleHistoryKey='';
+$('layoutStylePanel').addEventListener('focusin',event=>{
+ const key=String($('layoutField').value||'avatar');
+ if(event.target.matches('input,select')&&layoutStyleHistoryKey!==key){pushLayoutHistory();layoutStyleHistoryKey=key}
+});
 
 $('applyElementStyle').addEventListener('click',applyElementStyle);
 $('applyLayout').addEventListener('click',applyLayoutInputs);
-$('saveLayout').addEventListener('click',async()=>{const id=String($('itemId').value||'');if(!id){notice('احفظ المنتج أولاً، ثم احفظ تخطيط القالب.',true);return}const item=items.find(value=>String(value.item_id)===id);if(!item||item.item_type!=='card_template'){notice('اختر قالباً محفوظاً أولاً.',true);return}const button=$('saveLayout');button.disabled=true;try{const desired=payload();const result=await api('/items/'+id,{method:'PUT',body:JSON.stringify({...desired,is_active:!!item.is_active,is_featured:!!item.is_featured})});const saved=result.item;if(!saved||JSON.stringify(saved.metadata||{})!==JSON.stringify(desired.metadata)){await load();const fresh=items.find(value=>String(value.item_id)===id);if(!fresh||JSON.stringify(fresh.metadata||{})!==JSON.stringify(desired.metadata))throw new Error('لم تتطابق الإعدادات بعد إعادة قراءتها من قاعدة البيانات.')}await load();edit(Number(id));notice('تم حفظ التخطيط والتحقق منه بعد إعادة تحميل بيانات المتجر.')}catch(error){notice('تعذر حفظ التخطيط: '+error.message,true)}finally{button.disabled=false}});
+$('saveLayout').addEventListener('click',async()=>{layoutStyleHistoryKey='';const id=String($('itemId').value||'');if(!id){notice('احفظ المنتج أولاً، ثم احفظ تخطيط القالب.',true);return}const item=items.find(value=>String(value.item_id)===id);if(!item||item.item_type!=='card_template'){notice('اختر قالباً محفوظاً أولاً.',true);return}const button=$('saveLayout');button.disabled=true;try{const desired=payload();const result=await api('/items/'+id,{method:'PUT',body:JSON.stringify({...desired,is_active:!!item.is_active,is_featured:!!item.is_featured})});const saved=result.item;if(!saved||JSON.stringify(saved.metadata||{})!==JSON.stringify(desired.metadata)){await load();const fresh=items.find(value=>String(value.item_id)===id);if(!fresh||JSON.stringify(fresh.metadata||{})!==JSON.stringify(desired.metadata))throw new Error('لم تتطابق الإعدادات بعد إعادة قراءتها من قاعدة البيانات.')}await load();edit(Number(id));notice('تم حفظ التخطيط والتحقق منه بعد إعادة تحميل بيانات المتجر.')}catch(error){notice('تعذر حفظ التخطيط: '+error.message,true)}finally{button.disabled=false}});
 $('backgroundFit').addEventListener('change',()=>{ensureLayoutField('background_area').fit=$('backgroundFit').value==='contain'?'contain':'cover';renderLayoutEditor()});
 $('layoutXpEnabled').addEventListener('change',()=>{const xp=ensureLayoutField('xp_bar');xp.enabled=$('layoutXpEnabled').checked;renderLayoutEditor()});
 $('resetLayout').addEventListener('click',()=>{
