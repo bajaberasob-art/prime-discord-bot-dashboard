@@ -825,7 +825,7 @@ class Engagement(commands.Cog):
         guild_id: Optional[int] = None,
     ) -> io.BytesIO:
         layout = canvas_config if isinstance(canvas_config, dict) else {}
-        canvas_format = str(layout.get("canvas_format") or "banner")
+        canvas_format = str(layout.get("canvas_format") or "auto")
         format_sizes = {
             "banner": (1200, 420),
             "landscape": (1200, 675),
