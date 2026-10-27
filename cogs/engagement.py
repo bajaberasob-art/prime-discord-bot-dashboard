@@ -1154,6 +1154,26 @@ class Engagement(commands.Cog):
         target_id = getattr(target, "id", None)
         channel_id = target_id if target_type == "channel" else None
         member_id = getattr(member, "id", None)
+        # A dashboard test is specifically checking the generated image. Do not
+        # silently report success if the upload cannot be rendered.
+        if (
+            delivery_type == "welcome"
+            and trigger_type == "dashboard_test"
+            and config.get("welcome_generated_image_enabled")
+            and file is None
+        ):
+            await self._record_onboarding_delivery(
+                guild_id=guild.id,
+                delivery_type=delivery_type,
+                trigger_type=trigger_type,
+                status="failed",
+                target_type=target_type,
+                target_id=target_id,
+                channel_id=channel_id,
+                member_id=member_id,
+                reason=warning_reason or "welcome_image_generation_failed",
+            )
+            return {"ok": False, "error": "welcome_image_generation_failed"}
         message_content = None if embed is not None else rendered or None
         try:
             try:
