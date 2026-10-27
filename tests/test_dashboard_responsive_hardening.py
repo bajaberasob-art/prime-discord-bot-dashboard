@@ -36,7 +36,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         asset = f"./static/visual-refresh.css?v={match.group(1)}"
         self.assertIn(f'"{asset}"', worker)
         self.assertEqual(match.group(1), "prime-card-anime-cinematic-1")
-        self.assertIn('const CACHE = "prime-dashboard-shell-v66";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v67";', worker)
 
     def test_level_card_preview_tools_and_cache_version_are_wired(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
@@ -51,7 +51,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         version = match.group(1)
         self.assertEqual(version, "prime-card-anime-cinematic-1")
         self.assertIn(f'"./static/app.js?v={version}"', worker)
-        self.assertIn('const CACHE = "prime-dashboard-shell-v66";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v67";', worker)
         self.assertIn('text: "تحديث المعاينة"', app)
         self.assertIn('text: "تنزيل البطاقة"', app)
         self.assertIn("previewBlob.type", app)
@@ -63,7 +63,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         worker = web_server.service_worker_source()
         app = (ROOT / "dashboard/app.js").read_text("utf-8")
         styles = (ROOT / "dashboard/visual-refresh.css").read_text("utf-8")
-        self.assertIn('const CACHE = "prime-dashboard-shell-v66";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v67";', worker)
         self.assertIn('const LV_CARD_PRESET_FORMAT = "prime-level-card-presets";', app)
         self.assertIn("LV_CARD_PRESET_VERSION = 1", app)
         self.assertIn('text: "تصدير الإعداد الحالي"', app)
@@ -140,7 +140,7 @@ class DashboardResponsiveHardeningTests(unittest.TestCase):
         self.assertIn("prime-card-anime-cinematic-1", html)
         self.assertIn("./static/app.js?v=prime-card-anime-cinematic-1", worker)
         self.assertIn("./static/visual-refresh.css?v=prime-card-anime-cinematic-1", worker)
-        self.assertIn('const CACHE = "prime-dashboard-shell-v66";', worker)
+        self.assertIn('const CACHE = "prime-dashboard-shell-v67";', worker)
 
     def test_guild_recovery_script_is_cache_busted_in_html_and_worker(self):
         html = (ROOT / "dashboard/index.html").read_text("utf-8")
