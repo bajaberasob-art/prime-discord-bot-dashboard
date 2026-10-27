@@ -164,6 +164,7 @@
     modal.querySelectorAll("[data-background-slot]").forEach(button => button.addEventListener("click", () => {
       checkpoint();
       current.background_slot = Number(button.dataset.backgroundSlot);
+      current.use_custom_background = true;
       window.PRIMEWelcomeEditor.cacheKey = Date.now();
       renderAll();
       setStatus("تم تحديد خانة الصورة " + current.background_slot + ". ارفع صورة لحفظها بهذه الخانة أو احفظ التصميم لاستخدامها.");
