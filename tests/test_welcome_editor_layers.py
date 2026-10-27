@@ -72,6 +72,26 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("bounded(count.y + count.height / 2, 60, 90)", script)
         self.assertIn("actual editor layers retain their free-form positions in elements", script)
 
+        from database import validate_setting
+        # Reproduce the layer positions visible in the deployment screenshot.
+        config = {
+            "name_x": 52.0,
+            "name_y": 80.3,
+            "elements": [{
+                "id": "name", "type": "name", "label": "اسم العضو",
+                "x": 7.0, "y": 72.8, "width": 45.0, "height": 15.0,
+                "fontSize": 48.0, "color": "#ffffff", "visible": True,
+                "locked": False, "opacity": 100.0, "rotation": 0.0,
+                "align": "right", "text": "اسم العضو",
+            }],
+        }
+        with self.assertRaisesRegex(ValueError, "موضع name_y"):
+            validate_setting("welcome_canvas_config", config)
+        config["name_y"] = 60.0
+        validated = validate_setting("welcome_canvas_config", config)
+        self.assertEqual(validated["name_y"], 60.0)
+        self.assertEqual(validated["elements"][0]["y"], 72.8)
+
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
