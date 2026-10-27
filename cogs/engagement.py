@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any, Optional
+from pathlib import Path
 
 import discord
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -814,6 +815,7 @@ class Engagement(commands.Cog):
     def _render_welcome_image(
         cls, avatar_data: bytes, member_name: str, guild_name: str, member_count: int,
         accent: str, canvas_config: Optional[dict[str, Any]] = None,
+        guild_id: Optional[int] = None,
     ) -> io.BytesIO:
         width, height = 1200, 420
         layout = canvas_config if isinstance(canvas_config, dict) else {}
@@ -832,7 +834,16 @@ class Engagement(commands.Cog):
         for x in range(width):
             blend = x / max(1, width - 1)
             pixels[x, 0] = tuple(int(start[i] * (1 - blend) + end[i] * blend) for i in range(3))
-        image = gradient.resize((width, height)); draw = ImageDraw.Draw(image, "RGBA")
+        image = gradient.resize((width, height))
+        if layout.get("use_custom_background") and guild_id:
+            try:
+                background_path = (Path("data/welcome-backgrounds") / f"{int(guild_id)}.png").resolve()
+                if background_path.is_file():
+                    custom = Image.open(background_path).convert("RGB")
+                    image = ImageOps.fit(custom, (width, height), method=Image.Resampling.LANCZOS)
+            except (OSError, ValueError):
+                logger.warning("Could not load custom welcome background for guild %s", guild_id)
+        draw = ImageDraw.Draw(image, "RGBA")
         draw.rounded_rectangle((22, 22, width - 22, height - 22), radius=34, outline=(*rgb, 100), width=2)
         draw.ellipse((920, -170, 1390, 300), fill=(*rgb, 35)); draw.ellipse((790, 210, 1170, 590), fill=(30, 190, 230, 26))
         avatar_size = 220
@@ -875,6 +886,7 @@ class Engagement(commands.Cog):
                 int(getattr(guild, "member_count", 0) or 0),
                 str(config.get("welcome_embed_color") or "#7c3aed"),
                 config.get("welcome_canvas_config") if isinstance(config.get("welcome_canvas_config"), dict) else {},
+                int(getattr(guild, "id", 0) or 0),
             )
             return discord.File(buffer, filename="prime-welcome.png")
         except (asyncio.TimeoutError, discord.HTTPException, OSError, ValueError):
