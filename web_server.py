@@ -1013,6 +1013,8 @@ const STATIC = [
   "./static/temp-voice.js?v=temp-voice-5",
   "./static/interactive-info-panel.css?v=iip-3",
   "./static/interactive-info-panel.js?v=iip-4",
+  "./static/welcome-editor.css?v=welcome-editor-1",
+  "./static/welcome-editor.js?v=welcome-editor-1",
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
@@ -5017,6 +5019,77 @@ async def api_test_welcome(req):
     return web.json_response(result)
 
 
+WELCOME_BACKGROUND_MAX_BYTES = 5 * 1024 * 1024
+WELCOME_BACKGROUND_ROOT = Path("data/welcome-backgrounds")
+
+def _welcome_background_path(guild_id: int) -> Path:
+    return (WELCOME_BACKGROUND_ROOT / f"{int(guild_id)}.png").resolve()
+
+@routes.get("/api/guild/{guild_id}/onboarding/welcome-background")
+async def api_get_welcome_background(req):
+    _, guild = await authorize(req)
+    path = _welcome_background_path(guild.id)
+    if not path.is_file():
+        raise web.HTTPNotFound()
+    return web.FileResponse(path, headers={"Cache-Control": "private, max-age=60", "Content-Type": "image/png"})
+
+@routes.post("/api/guild/{guild_id}/onboarding/welcome-background")
+async def api_upload_welcome_background(req):
+    _, guild = await authorize(req, write=True)
+    if req.content_type.lower() != "multipart/form-data":
+        return json_error(415, "multipart_required", fields={"file": "ارفع صورة بصيغة ملف."})
+    multipart = await req.multipart()
+    part = await multipart.next()
+    if part is None or part.name != "file" or not part.filename:
+        return json_error(400, "missing_image", fields={"file": "اختر صورة أولاً."})
+    declared_mime = (part.headers.get("Content-Type") or "").lower().split(";", 1)[0].strip()
+    if declared_mime not in {"image/png", "image/jpeg", "image/webp"}:
+        return json_error(415, "unsupported_image_type", fields={"file": "الصيغ المدعومة PNG وJPG وWEBP فقط."})
+    data = bytearray()
+    while True:
+        chunk = await part.read_chunk(size=64 * 1024)
+        if not chunk:
+            break
+        data.extend(chunk)
+        if len(data) > WELCOME_BACKGROUND_MAX_BYTES:
+            return json_error(413, "image_too_large", fields={"file": "الحد الأقصى لحجم الخلفية 5 ميجابايت."})
+    if not data:
+        return json_error(400, "empty_image", fields={"file": "الملف فارغ."})
+    from PIL import Image, ImageOps
+    import io
+    try:
+        image = Image.open(io.BytesIO(bytes(data)))
+        if image.format not in {"PNG", "JPEG", "WEBP"}:
+            return json_error(415, "unsupported_image_type", fields={"file": "الصيغ المدعومة PNG وJPG وWEBP فقط."})
+        if image.width < 320 or image.height < 120 or image.width > 8000 or image.height > 8000:
+            return json_error(400, "invalid_image_dimensions", fields={"file": "أبعاد الصورة يجب أن تكون بين 320×120 و8000×8000 بكسل."})
+        image.verify()
+        image = Image.open(io.BytesIO(bytes(data)))
+        image = ImageOps.exif_transpose(image)
+        if image.mode not in {"RGB", "RGBA"}:
+            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+        output = io.BytesIO()
+        image.save(output, format="PNG", optimize=True)
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return json_error(400, "invalid_image", fields={"file": "الملف ليس صورة سليمة أو تعذر قراءته."})
+    path = _welcome_background_path(guild.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".png.tmp")
+    temporary.write_bytes(output.getvalue())
+    temporary.replace(path)
+    return web.json_response({"ok": True, "url": f"/api/guild/{guild.id}/onboarding/welcome-background", "size": len(output.getvalue()), "width": image.width, "height": image.height})
+
+@routes.delete("/api/guild/{guild_id}/onboarding/welcome-background")
+async def api_delete_welcome_background(req):
+    _, guild = await authorize(req, write=True)
+    path = _welcome_background_path(guild.id)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return json_error(500, "background_delete_failed")
+    return web.json_response({"ok": True})
+
+
 ONBOARDING_KEYS = {
     "welcome_channel_id",
     "leave_channel_id",
@@ -5035,6 +5108,7 @@ ONBOARDING_KEYS = {
     "welcome_embed_footer",
     "welcome_embed_show_avatar",
     "welcome_generated_image_enabled",
+    "welcome_canvas_config",
     "leave_embed_enabled",
     "leave_embed_color",
     "leave_embed_title",

@@ -287,6 +287,7 @@
     "welcome_embed_footer",
     "welcome_embed_show_avatar",
     "welcome_generated_image_enabled",
+    "welcome_canvas_config",
     "leave_embed_enabled",
     "leave_embed_color",
     "leave_embed_title",
@@ -2172,8 +2173,29 @@
           ),
         ),
       );
+      const canvasEditorAction = el("div", { class: "welcome-editor-launch" },
+        el("div", {}, el("strong", { text: "محرر صورة الترحيب" }), el("p", { text: "تحكم مستقل بمواقع العناصر والألوان، مع معاينة مباشرة وحفظ دائم." })),
+        el("button", { class: "btn primary", type: "button", text: "فتح المحرر المرئي", onClick: () => {
+          if (!window.PRIMEWelcomeEditor) return toast("تعذر تحميل محرر الترحيب. حدّث الصفحة.", "error");
+          window.PRIMEWelcomeEditor.guildId = String(state.guild.id);
+          window.PRIMEWelcomeEditor.csrfToken = state.session?.csrf || "";
+          window.PRIMEWelcomeEditor.open({
+            config: state.draft.welcome_canvas_config || {},
+            onSave: async (config) => {
+              state.draft.welcome_canvas_config = config;
+              state.draft.welcome_generated_image_enabled = true;
+              state.fields.welcome_canvas_config = "";
+              renderDynamic();
+              const saved = await saveOnboarding();
+              if (saved) window.PRIMEWelcomeEditor.close();
+              return saved;
+            },
+          });
+        }}),
+      );
       return [
         card("رسالة الترحيب", el("div", { class: "onboarding-card-body" }, fields)),
+        card("تخصيص صورة الترحيب", el("div", { class: "onboarding-card-body" }, canvasEditorAction)),
         embedEditor("welcome_embed", "الترحيب", true),
         card("قواعد الدخول والأدوار", el("div", { class: "onboarding-card-body" }, memberSettings)),
         card("منشئ لوحة الرتب الذاتية", selfRolesBuilder()),
