@@ -1,6 +1,6 @@
 (()=>{'use strict';
 const root=document.getElementById('app'), guildId=root.dataset.guildId, csrf=root.dataset.csrf;
-const $=id=>document.getElementById(id); let items=[],settings={},categories=[],previewUrl='',layoutMetadata={},layoutDrag=null,layoutImageSource='',layoutNeedsDefault=false;
+const $=id=>document.getElementById(id); let items=[],settings={},categories=[],previewUrl='',layoutMetadata={},layoutDrag=null,layoutImageSource='',layoutNeedsDefault=false,layoutUndoStack=[],layoutRedoStack=[],layoutHistoryLimit=60;
 const endpoint=(suffix='')=>'/api/guild/'+encodeURIComponent(guildId)+'/profile-store'+suffix;
 function assetUrl(id){return endpoint('/items/'+encodeURIComponent(id)+'/asset')}
 function refreshBackgroundPreviewOptions(){const select=$('layoutBackgroundSource');if(!select)return;const prior=select.value;const choices=items.filter(item=>item.item_type==='background'&&item.has_asset);select.innerHTML='<option value="">بدون صورة تجريبية</option>'+choices.map(item=>'<option value="'+escape(item.item_id)+'">'+escape(item.name)+'</option>').join('');if(choices.some(item=>String(item.item_id)===prior))select.value=prior;updateBackgroundPreview()}
@@ -103,6 +103,91 @@ function defaultLayoutMetadata(width,height){
  const keys=[['balance','الرصيد'],['messages','الرسائل'],['rank','الترتيب'],['voice','الصوت']];
  return {layout,width:w,height:h,orientation:portrait?'portrait':(w===h?'square':'landscape'),background_area:backgroundArea,avatar,name,handle,level,xp_bar:xp,badges:{x:Math.round(w*.055),y:Math.round(h*.58),size:Math.max(24,Math.round(h*.03)),limit:5},flag:{x:Math.round(w*.045),y:Math.round(h*.035),width:Math.max(24,Math.round(w*.055)),height:Math.max(18,Math.round(h*.035))},stats:keys.map((v,i)=>({key:v[0],label:v[1],x:Math.round(w*boxes[i][0]),y:Math.round(h*boxes[i][1]),w:Math.round(w*boxes[i][2]),h:Math.round(h*boxes[i][3])}))};
 }
+
+function layoutSnapshot(){return JSON.stringify(layoutMetadata||{});}
+function pushLayoutHistory(){
+ const snapshot=layoutSnapshot();
+ if(layoutUndoStack.length&&layoutUndoStack[layoutUndoStack.length-1]===snapshot)return;
+ layoutUndoStack.push(snapshot);if(layoutUndoStack.length>layoutHistoryLimit)layoutUndoStack.shift();
+ layoutRedoStack=[];updateHistoryButtons();
+}
+function updateHistoryButtons(){
+ const undo=$('layoutUndo'),redo=$('layoutRedo');
+ if(undo)undo.disabled=!layoutUndoStack.length;
+ if(redo)redo.disabled=!layoutRedoStack.length;
+}
+function undoLayoutChange(){
+ if(!layoutUndoStack.length)return;
+ layoutRedoStack.push(layoutSnapshot());layoutMetadata=JSON.parse(layoutUndoStack.pop()||'{}');
+ renderLayoutEditor();updateHistoryButtons();notice('تم التراجع عن آخر تعديل. احفظ التخطيط لتثبيت النتيجة.');
+}
+function redoLayoutChange(){
+ if(!layoutRedoStack.length)return;
+ layoutUndoStack.push(layoutSnapshot());layoutMetadata=JSON.parse(layoutRedoStack.pop()||'{}');
+ renderLayoutEditor();updateHistoryButtons();notice('تمت إعادة التعديل. احفظ التخطيط لتثبيت النتيجة.');
+}
+function boxRectForQuality(key){
+ const box=getLayoutBox(key),meta=normalizeLayoutMetadata();
+ return {key,x:displayLayoutLeft(box),y:box.y,w:box.width,h:box.height,kind:box.kind,right:displayLayoutLeft(box)+box.width,bottom:box.y+box.height};
+}
+function inspectLayoutQuality(){
+ const meta=normalizeLayoutMetadata(),elements=layoutElements().filter(el=>el.key!=='background_area');
+ const issues=[],warnings=[];
+ for(const el of elements){
+  const r=boxRectForQuality(el.key);
+  if(r.x<0||r.y<0||r.right>meta.width||r.bottom>meta.height){
+   issues.push({type:'error',key:el.key,label:el.label,message:'العنصر يتجاوز حدود القالب.'});
+  }
+  if(r.w>meta.width*.78&&r.kind==='text'){
+   warnings.push({type:'warn',key:el.key,label:el.label,message:'عرض النص كبير وقد يتداخل مع عناصر أخرى.'});
+  }
+  if(r.w<40||r.h<12){
+   warnings.push({type:'warn',key:el.key,label:el.label,message:'مساحة العنصر صغيرة وقد تؤثر على وضوحه.'});
+  }
+ }
+ for(let i=0;i<elements.length;i++){
+  const a=boxRectForQuality(elements[i].key);
+  for(let j=i+1;j<elements.length;j++){
+   const b=boxRectForQuality(elements[j].key);
+   const overlapX=Math.max(0,Math.min(a.right,b.right)-Math.max(a.x,b.x));
+   const overlapY=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.y,b.y));
+   const area=overlapX*overlapY,smaller=Math.min(a.w*a.h,b.w*b.h);
+   if(area>0&&smaller>0&&area/smaller>.22){
+    warnings.push({type:'warn',key:elements[j].key,label:elements[j].label,message:'يوجد تداخل محتمل مع «'+elements[i].label+'».'});
+   }
+  }
+ }
+ const report=$('layoutQualityReport');if(!report)return {issues,warnings};
+ report.classList.remove('hidden');
+ if(!issues.length&&!warnings.length){
+  report.innerHTML='<h4 class="report-good">✓ التصميم ضمن الحدود الأساسية</h4><p>لم يُكتشف خروج واضح عن حدود القالب أو تداخل كبير بين العناصر. ما زالت المعاينة البشرية مهمة قبل النشر.</p>';
+ }else{
+  report.innerHTML='<h4>نتيجة فحص التصميم</h4><p class="'+(issues.length?'report-error':'report-warn')+'">أخطاء حدود: '+issues.length+' · ملاحظات تحتاج مراجعة: '+warnings.length+'</p><ul>'+issues.concat(warnings).slice(0,30).map(x=>'<li class="'+x.type+'"><strong>'+escape(x.label)+':</strong> '+escape(x.message)+' <button type="button" data-quality-select="'+escape(x.key)+'">تحديد العنصر</button></li>').join('')+'</ul><p class="muted">الفحص هندسي أولي ولا يستطيع ضمان التباين البصري أو سلامة كل خط داخل صورة القالب.</p>';
+ }
+ return {issues,warnings};
+}
+function renderStudioLayerList(){
+ const list=$('studioLayerList');if(!list)return;
+ const selected=$('layoutField').value||'avatar';
+ list.innerHTML=layoutElements().map(el=>'<button type="button" class="studio-layer" data-studio-layer="'+escape(el.key)+'" aria-pressed="'+(el.key===selected?'true':'false')+'"><i class="layer-dot"></i><span>'+escape(el.label)+'</span></button>').join('');
+}
+function applySmartLayoutSuggestions(){
+ const meta=normalizeLayoutMetadata(),elements=layoutElements().filter(el=>el.key!=='background_area');
+ if(!elements.length)return;
+ pushLayoutHistory();
+ let adjusted=0;
+ for(const el of elements){
+  const box=getLayoutBox(el.key),rect=boxRectForQuality(el.key);
+  let x=rect.x,y=rect.y,w=rect.w,h=rect.h;
+  w=Math.max(1,Math.min(w,meta.width));h=Math.max(1,Math.min(h,meta.height));
+  x=Math.max(0,Math.min(meta.width-w,x));y=Math.max(0,Math.min(meta.height-h,y));
+  if(x!==rect.x||y!==rect.y||w!==rect.w||h!==rect.h){writeLayoutBox(el.key,x,y,w,h);adjusted++;}
+ }
+ const report=$('layoutSmartReport');report.classList.remove('hidden');
+ report.innerHTML=adjusted?'<h4 class="report-good">اقتراح تحسين الحدود جاهز</h4><p>عُدلت حدود '+adjusted+' عنصرًا حتى تبقى داخل مساحة القالب. راجع النتيجة ثم احفظها إذا ناسبتك.</p><button type="button" id="layoutUndoSmart">التراجع عن الاقتراح</button>':'<h4 class="report-good">لا توجد عناصر خارج الحدود</h4><p>لم يغيّر النظام توزيعك. راجع تقرير الجودة للتأكد من التداخلات المحتملة يدويًا.</p>';
+ renderLayoutEditor();inspectLayoutQuality();updateHistoryButtons();
+}
+
 function normalizeLayoutMetadata(){
  if(!layoutMetadata||typeof layoutMetadata!=='object'||Array.isArray(layoutMetadata))layoutMetadata={};
  if(!Number.isFinite(Number(layoutMetadata.width))||Number(layoutMetadata.width)<1)layoutMetadata.width=1280;
@@ -202,7 +287,7 @@ function renderLayoutEditor(){
  else {img.classList.remove('hidden');empty.classList.add('hidden')}
  $('layoutOverlayLayer').innerHTML=layoutElements().map(el=>'<div class="layout-element '+(el.key===selected?'selected':'')+'" data-layout-key="'+escape(el.key)+'" data-kind="'+el.kind+'" data-anchor="'+escape(el.box.anchor||"")+'" role="button" tabindex="0" aria-label="تحريك '+escape(el.label)+'"><span>'+escape(el.label)+'</span>'+(el.key==='background_area'?'<i class="layout-resize nw" data-corner="nw" aria-hidden="true"></i><i class="layout-resize ne" data-corner="ne" aria-hidden="true"></i><i class="layout-resize sw" data-corner="sw" aria-hidden="true"></i><i class="layout-resize se" data-corner="se" aria-hidden="true"></i>':'<i class="layout-resize se" data-corner="se" aria-hidden="true"></i>')+'</div>').join('');
  $('layoutOverlayLayer').querySelectorAll('[data-layout-key]').forEach(el=>updateLayoutOverlayStyle(el,el.dataset.layoutKey));
- updateLayoutControls();
+ updateLayoutControls();renderStudioLayerList();updateHistoryButtons();
 }
 function updateBackgroundPreview(){const preview=$('layoutBackgroundPreview'),select=$('layoutBackgroundSource');if(!preview||!select)return;const id=select.value,item=items.find(value=>String(value.item_id)===String(id)&&value.item_type==='background'&&value.has_asset),meta=normalizeLayoutMetadata(),area=meta.background_area;if(!item){preview.removeAttribute('src');preview.classList.add('hidden');preview.dataset.source='';return}const source=assetUrl(item.item_id);if(preview.dataset.source!==source){preview.dataset.source=source;preview.src=source}preview.classList.remove('hidden');preview.style.left=(area.x/meta.width*100)+'%';preview.style.top=(area.y/meta.height*100)+'%';preview.style.width=(area.width/meta.width*100)+'%';preview.style.height=(area.height/meta.height*100)+'%';preview.style.objectFit=area.fit==='contain'?'contain':'cover';preview.style.background='rgba(8,11,20,.5)'}
 function syncLayoutEditor(force){if(force)layoutImageSource='';renderLayoutEditor()}
@@ -244,6 +329,7 @@ function applyElementStyle(){
  if(!['text','stat'].includes(layoutKind(key))){notice('اختر عنصرًا نصيًا قبل تعديل مظهره.',true);return}
  const fontSize=Number($('layoutFontSize').value),strokeWidth=Number($('layoutStrokeWidth').value);
  if(!Number.isFinite(fontSize)||fontSize<8||fontSize>120||!Number.isFinite(strokeWidth)||strokeWidth<0||strokeWidth>6){notice('حجم الخط يجب أن يكون بين 8 و120، وحد النص بين 0 و6.',true);return}
+ pushLayoutHistory();
  box.font_size=Math.round(fontSize);
  box.font_family=['modern','tech','elegant','soft'].includes($('layoutFontFamily').value)?$('layoutFontFamily').value:'modern';
  box.bold=$('layoutBold').checked;
@@ -259,7 +345,7 @@ function applyElementStyle(){
 function applyLayoutInputs(){
  const key=$('layoutField').value||'avatar',box=getLayoutBox(key);let x=Number($('layoutX').value),y=Number($('layoutY').value),w=Number($('layoutWidth').value),h=Number($('layoutHeight').value);
  if(![x,y,w,h].every(Number.isFinite)||w<=0||h<=0){notice('أدخل مواضع وأبعاد صحيحة للقالب.',true);return}
- writeLayoutBox(key,x,y,w,h);const b=ensureLayoutField(key);if(box.kind==='text')b.anchor=$('layoutAnchor').value==='la'?'la':'ra';
+ pushLayoutHistory();writeLayoutBox(key,x,y,w,h);const b=ensureLayoutField(key);if(box.kind==='text')b.anchor=$('layoutAnchor').value==='la'?'la':'ra';
  if(key==='background_area')b.fit=$('backgroundFit').value==='contain'?'contain':'cover';
  if(key==='xp_bar')b.enabled=$('layoutXpEnabled').checked;
  renderLayoutEditor();
@@ -267,6 +353,7 @@ function applyLayoutInputs(){
 function startLayoutPointer(event){
  const el=event.target.closest('[data-layout-key]');if(!el)return;const key=el.dataset.layoutKey;if(!key)return;
  $('layoutField').value=key;ensureLayoutField(key);const box=getLayoutBox(key),stage=$('layoutStage').getBoundingClientRect();
+ pushLayoutHistory();
  layoutDrag={key,kind:box.kind,anchor:box.anchor,mode:event.target.closest('.layout-resize')?'resize':'move',corner:(event.target.closest('.layout-resize')&&event.target.closest('.layout-resize').dataset.corner)||'se',pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,x:box.x,y:box.y,width:box.width,height:box.height,stageWidth:Math.max(1,stage.width),stageHeight:Math.max(1,stage.height),target:el};
  if(el.setPointerCapture)try{el.setPointerCapture(event.pointerId)}catch{}
  $('layoutOverlayLayer').querySelectorAll('[data-layout-key]').forEach(item=>item.classList.toggle('selected',item===el));updateLayoutControls();event.preventDefault();
@@ -294,7 +381,26 @@ $('resetLayout').addEventListener('click',()=>{
  if(!img.naturalWidth||!img.naturalHeight){notice('اختر صورة القالب أولاً حتى يمكن إنشاء تخطيط افتراضي.',true);return}
  layoutMetadata=defaultLayoutMetadata(img.naturalWidth,img.naturalHeight);layoutNeedsDefault=false;renderLayoutEditor();notice('أُعيد التخطيط إلى المواضع الافتراضية. احفظ المنتج لتثبيته.')
 });
+
 $('layoutOverlayLayer').addEventListener('pointerdown',startLayoutPointer);
+$('layoutUndo').addEventListener('click',undoLayoutChange);
+$('layoutRedo').addEventListener('click',redoLayoutChange);
+$('layoutQualityCheck').addEventListener('click',inspectLayoutQuality);
+$('layoutSmartSuggest').addEventListener('click',applySmartLayoutSuggestions);
+$('studioLayerList').addEventListener('click',event=>{
+ const button=event.target.closest('[data-studio-layer]');if(!button)return;
+ $('layoutField').value=button.dataset.studioLayer;ensureLayoutField(button.dataset.studioLayer);renderLayoutEditor();
+ const overlay=$('layoutOverlayLayer').querySelector('[data-layout-key="'+CSS.escape(button.dataset.studioLayer)+'"]');
+ if(overlay)overlay.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});
+});
+document.addEventListener('click',event=>{
+ const button=event.target.closest('[data-quality-select]');if(!button)return;
+ $('layoutField').value=button.dataset.qualitySelect;renderLayoutEditor();
+});
+document.addEventListener('click',event=>{
+ if(event.target&&event.target.id==='layoutUndoSmart')undoLayoutChange();
+});
+
 document.addEventListener('pointermove',moveLayoutPointer);
 document.addEventListener('pointerup',endLayoutPointer);
 window.addEventListener('resize',()=>renderLayoutEditor());
