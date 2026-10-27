@@ -259,6 +259,15 @@
       else if (el.type === "line") node.innerHTML = '<span class="welcome-editor-line-fill"></span>';
       else if (el.type === "frame") node.setAttribute("aria-label", "إطار التصميم");
       else node.textContent = displayText(el);
+      if (el.id === selectedId && el.visible) {
+        ["nw","ne","sw","se"].forEach(corner => {
+          const handle = document.createElement("span");
+          handle.className = "welcome-editor-resize-handle handle-" + corner;
+          handle.setAttribute("aria-label", "تغيير حجم العنصر");
+          handle.addEventListener("pointerdown", event => startResize(event, el, node, handle, corner));
+          node.append(handle);
+        });
+      }
       node.addEventListener("pointerdown", e => startDrag(e, el, node));
       node.addEventListener("click", e => { e.stopPropagation(); if (selectedId !== el.id) { selectedId = el.id; renderAll(); } });
       node.addEventListener("keydown", e => {
@@ -308,6 +317,36 @@
     };
     node.addEventListener("pointermove", move); node.addEventListener("pointerup", up); node.addEventListener("pointercancel", up);
     renderLayers(); renderProperties();
+  }
+  function startResize(event, el, node, handle, corner) {
+    event.stopPropagation(); event.preventDefault();
+    if (el.locked || (event.button !== undefined && event.button !== 0)) return;
+    const stageRect = root.querySelector("#welcome-editor-preview").getBoundingClientRect();
+    const startX = event.clientX, startY = event.clientY;
+    const original = { x:el.x, y:el.y, width:el.width, height:el.height };
+    let changed = false;
+    try { handle.setPointerCapture(event.pointerId); } catch (_) {}
+    const move = e => {
+      if (e.pointerId !== event.pointerId) return;
+      const dx = (e.clientX - startX) / stageRect.width * 100;
+      const dy = (e.clientY - startY) / stageRect.height * 100;
+      if (!changed) { checkpoint(); changed = true; }
+      let x = original.x, y = original.y, width = original.width, height = original.height;
+      if (corner.includes("e")) width = original.width + dx;
+      if (corner.includes("s")) height = original.height + dy;
+      if (corner.includes("w")) { x = original.x + dx; width = original.width - dx; }
+      if (corner.includes("n")) { y = original.y + dy; height = original.height - dy; }
+      el.x = x; el.y = y; el.width = width; el.height = height; clampElement(el);
+      node.style.left = el.x + "%"; node.style.top = el.y + "%";
+      node.style.width = el.width + "%"; node.style.height = el.height + "%";
+      syncPropertyInputs(el);
+    };
+    const up = e => {
+      if (e.pointerId !== event.pointerId) return;
+      handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.removeEventListener("pointercancel", up);
+      renderAll();
+    };
+    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up); handle.addEventListener("pointercancel", up);
   }
   function renderLayers() {
     if (!root) return;
