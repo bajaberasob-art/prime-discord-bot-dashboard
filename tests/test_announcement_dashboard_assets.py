@@ -18,6 +18,8 @@ class AnnouncementAssets(unittest.IsolatedAsyncioTestCase):
             ("announcement-space.js", "application/javascript"),
             ("interactive-info-panel.css", "text/css"),
             ("interactive-info-panel.js", "application/javascript"),
+            ("welcome-editor.css", "text/css"),
+            ("welcome-editor.js", "application/javascript"),
         ):
             result = await web_server.static_asset(SimpleNamespace(match_info={"name": name}))
             self.assertEqual(result.status, 200)
@@ -26,7 +28,7 @@ class AnnouncementAssets(unittest.IsolatedAsyncioTestCase):
     def test_worker_matches_html_asset_versions(self):
         html = (ROOT / "dashboard/index.html").read_text()
         worker = web_server.service_worker_source()
-        for name in ("announcement-space.css", "announcement-space.js", "interactive-info-panel.css", "interactive-info-panel.js", "app.js"):
+        for name in ("announcement-space.css", "announcement-space.js", "interactive-info-panel.css", "interactive-info-panel.js", "welcome-editor.css", "welcome-editor.js", "app.js"):
             asset = re.search(rf'static/{re.escape(name)}\?v=[^"]+', html)
             self.assertIsNotNone(asset)
             self.assertIn("./" + asset.group(), worker)

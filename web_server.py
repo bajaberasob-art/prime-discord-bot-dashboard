@@ -1000,7 +1000,7 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v57";
+    return """const CACHE = "prime-dashboard-shell-v58";
 const STATIC = [
   "./",
   "./static/app.css?v=level-card-media-upload-1",
@@ -1013,8 +1013,8 @@ const STATIC = [
   "./static/temp-voice.js?v=temp-voice-5",
   "./static/interactive-info-panel.css?v=iip-3",
   "./static/interactive-info-panel.js?v=iip-4",
-  "./static/welcome-editor.css?v=welcome-editor-1",
-  "./static/welcome-editor.js?v=welcome-editor-1",
+  "./static/welcome-editor.css?v=welcome-editor-2",
+  "./static/welcome-editor.js?v=welcome-editor-2",
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
@@ -6491,6 +6491,8 @@ async def static_asset(req):
         "temp-voice.js": "application/javascript",
         "interactive-info-panel.css": "text/css",
         "interactive-info-panel.js": "application/javascript",
+        "welcome-editor.css": "text/css",
+        "welcome-editor.js": "application/javascript",
         "app.js": "application/javascript",
         "profile-store-admin.js": "application/javascript",
     }
