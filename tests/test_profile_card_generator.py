@@ -228,5 +228,81 @@ class ProfileCardTemplateTests(unittest.TestCase):
             self.assertNotEqual(image.getpixel((100, 235)), ImageColor.getrgb("#102030") + (255,))
 
 
+    def test_selected_store_text_color_overrides_default_member_white(self):
+        template = io.BytesIO()
+        Image.new("RGBA", (640, 320), "#102030").save(template, format="PNG")
+        metadata = {
+            "width": 640, "height": 320, "layout": "wide",
+            "avatar": {"x": 520, "y": 20, "size": 64},
+            "name": {"x": 480, "y": 120, "max_width": 300, "anchor": "ra"},
+            "handle": {"x": 480, "y": 160, "max_width": 280, "anchor": "ra"},
+            "level": {"x": 30, "y": 210, "max_width": 200, "anchor": "la"},
+            "xp_bar": {"x": 30, "y": 245, "width": 300, "height": 10},
+            "badges": {"x": 30, "y": 275, "size": 24, "limit": 2},
+            "flag": {"x": 20, "y": 15, "width": 36, "height": 24},
+            "stats": [],
+        }
+        image = render_profile_card(
+            {
+                "display_name": "PRIME Member",
+                "username": "prime_member",
+                "level": 12,
+                "xp": 60,
+                "required_xp": 100,
+                "font_color": "#FFFFFF",
+            },
+            template_bytes=template.getvalue(),
+            template={
+                "style": {"text_color": "#FF3030", "font_family": "elegant", "deep": "#102030"},
+                "metadata": metadata,
+            },
+        )
+        with Image.open(image) as rendered:
+            pixels = list(rendered.convert("RGB").getdata())
+        red_pixels = sum(1 for red, green, blue in pixels if red > 200 and green < 100 and blue < 100)
+        self.assertGreater(red_pixels, 10, "The store's chosen text color must not be masked by default white.")
+
+    def test_store_font_family_is_applied_to_arabic_dynamic_text(self):
+        template = io.BytesIO()
+        Image.new("RGBA", (640, 320), "#102030").save(template, format="PNG")
+        metadata = {
+            "width": 640, "height": 320, "layout": "wide",
+            "avatar": {"x": 520, "y": 20, "size": 64},
+            "name": {"x": 480, "y": 120, "max_width": 300, "anchor": "ra"},
+            "handle": {"x": 480, "y": 160, "max_width": 280, "anchor": "ra"},
+            "level": {"x": 30, "y": 210, "max_width": 200, "anchor": "la"},
+            "xp_bar": {"x": 30, "y": 245, "width": 300, "height": 10},
+            "badges": {"x": 30, "y": 275, "size": 24, "limit": 2},
+            "flag": {"x": 20, "y": 15, "width": 36, "height": 24},
+            "stats": [],
+        }
+        seen = []
+        original_fit_font = _fit_font
+
+        def capture_font_request(text, *args, **kwargs):
+            if "الاسم" in str(text):
+                seen.append((kwargs.get("font_family"), kwargs.get("use_family_for_arabic")))
+            return original_fit_font(text, *args, **kwargs)
+
+        with patch("profile_card_generator._fit_font", side_effect=capture_font_request):
+            render_profile_card(
+                {
+                    "display_name": "الاسم العربي",
+                    "username": "member",
+                    "level": 12,
+                    "xp": 60,
+                    "required_xp": 100,
+                },
+                template_bytes=template.getvalue(),
+                template={"style": {"font_family": "elegant"}, "metadata": metadata},
+            )
+        self.assertIn(
+            ("elegant", True),
+            seen,
+            "The selected template font family must be used for Arabic names as well as Latin text.",
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
