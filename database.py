@@ -5899,7 +5899,7 @@ def _row_to_settings(guild_id: int, row: Optional[Any]) -> Dict[str, Any]:
                 }
             elif key == "welcome_canvas_config":
                 defaults = {"avatar_x": 14, "avatar_y": 50, "name_x": 94, "name_y": 38, "title_y": 20, "server_y": 60, "count_y": 75, "accent": "#7c3aed", "background_start": "#040a16", "background_end": "#194876", "show_server": True, "show_count": True, "use_custom_background": False}
-                value = {**defaults, **{k: v for k, v in value.items() if k in defaults}}
+                value = {**defaults, **{k: v for k, v in value.items() if k in defaults or k == "elements"}}
             else:
                 value = {
                     str(key): float(multiplier)
@@ -6044,6 +6044,69 @@ def validate_setting(key: str, value: Any) -> Any:
                 if not isinstance(item, bool):
                     raise ValueError(f"الخيار {field} يجب أن يكون صحيحاً")
                 clean[field] = item
+            elif field == "elements":
+                if not isinstance(item, list) or len(item) > 24:
+                    raise ValueError("يجب أن تحتوي الطبقات على 24 عنصرًا أو أقل")
+                allowed_types = {"avatar", "title", "name", "server", "count", "text", "shape", "line", "frame"}
+                allowed_fields = {"id", "type", "label", "x", "y", "width", "height", "fontSize", "color", "visible", "locked", "opacity", "rotation", "align", "text"}
+                elements = []
+                seen_ids = set()
+                for element in item:
+                    if not isinstance(element, dict) or set(element) - allowed_fields:
+                        raise ValueError("خصائص إحدى الطبقات غير صالحة")
+                    element_id = str(element.get("id", ""))
+                    element_type = element.get("type")
+                    if not re.fullmatch(r"[A-Za-z0-9_-]{1,48}", element_id) or element_id in seen_ids:
+                        raise ValueError("معرّف الطبقة غير صالح أو مكرر")
+                    if element_type not in allowed_types:
+                        raise ValueError("نوع الطبقة غير مدعوم")
+                    seen_ids.add(element_id)
+                    normalized = {
+                        "id": element_id, "type": element_type,
+                        "label": str(element.get("label") or element_type)[:40],
+                        "x": 0.0, "y": 0.0, "width": 30.0, "height": 10.0,
+                        "fontSize": 24.0, "color": clean["accent"],
+                        "visible": True, "locked": False, "opacity": 100.0,
+                        "rotation": 0.0, "align": "left", "text": "",
+                    }
+                    for pos in ("x", "y", "width", "height"):
+                        raw = element.get(pos, normalized[pos])
+                        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not 0 <= raw <= 100:
+                            raise ValueError(f"قيمة {pos} في إحدى الطبقات خارج النطاق")
+                        if pos in {"width", "height"} and raw <= 0:
+                            raise ValueError(f"يجب أن يكون {pos} أكبر من صفر")
+                        normalized[pos] = round(float(raw), 2)
+                    raw_font = element.get("fontSize", normalized["fontSize"])
+                    if isinstance(raw_font, bool) or not isinstance(raw_font, (int, float)) or not 8 <= raw_font <= 160:
+                        raise ValueError("حجم خط إحدى الطبقات خارج النطاق")
+                    normalized["fontSize"] = round(float(raw_font), 1)
+                    raw_opacity = element.get("opacity", 100)
+                    if isinstance(raw_opacity, bool) or not isinstance(raw_opacity, (int, float)) or not 0 <= raw_opacity <= 100:
+                        raise ValueError("شفافية إحدى الطبقات خارج النطاق")
+                    normalized["opacity"] = round(float(raw_opacity), 1)
+                    raw_rotation = element.get("rotation", 0)
+                    if isinstance(raw_rotation, bool) or not isinstance(raw_rotation, (int, float)) or not -180 <= raw_rotation <= 180:
+                        raise ValueError("زاوية إحدى الطبقات خارج النطاق")
+                    normalized["rotation"] = round(float(raw_rotation), 1)
+                    raw_color = element.get("color", normalized["color"])
+                    if not isinstance(raw_color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", raw_color):
+                        raise ValueError("لون إحدى الطبقات غير صالح")
+                    normalized["color"] = raw_color.lower()
+                    for flag in ("visible", "locked"):
+                        raw_flag = element.get(flag, True if flag == "visible" else False)
+                        if not isinstance(raw_flag, bool):
+                            raise ValueError(f"الخيار {flag} في إحدى الطبقات يجب أن يكون صحيحاً")
+                        normalized[flag] = raw_flag
+                    align = element.get("align", "left")
+                    if align not in {"left", "center", "right"}:
+                        raise ValueError("محاذاة إحدى الطبقات غير صالحة")
+                    normalized["align"] = align
+                    raw_text = element.get("text", "")
+                    if not isinstance(raw_text, str) or len(raw_text) > 200:
+                        raise ValueError("نص إحدى الطبقات طويل أو غير صالح")
+                    normalized["text"] = raw_text
+                    elements.append(normalized)
+                clean["elements"] = elements
             else:
                 raise ValueError("يحتوي الإعداد على خيار غير معروف")
         return clean
