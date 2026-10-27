@@ -98,9 +98,18 @@ def _safe_metadata(template: dict) -> dict:
     area_width = _clamp(area.get("width"), 1, width - area_x, width - area_x)
     area_height = _clamp(area.get("height"), 1, height - area_y, height - area_y)
     area_fit = str(area.get("fit") or "cover").strip().lower()
+    try:
+        focus_x = max(0.0, min(1.0, float(area.get("focus_x", 0.5))))
+    except (TypeError, ValueError, OverflowError):
+        focus_x = 0.5
+    try:
+        focus_y = max(0.0, min(1.0, float(area.get("focus_y", 0.5))))
+    except (TypeError, ValueError, OverflowError):
+        focus_y = 0.5
     metadata["background_area"] = {
         "x": area_x, "y": area_y, "width": area_width, "height": area_height,
         "fit": area_fit if area_fit in {"cover", "contain"} else "cover",
+        "focus_x": focus_x, "focus_y": focus_y,
     }
     metadata["avatar"] = metadata.get("avatar") if isinstance(metadata.get("avatar"), dict) else {}
     metadata["name"] = metadata.get("name") if isinstance(metadata.get("name"), dict) else {}
