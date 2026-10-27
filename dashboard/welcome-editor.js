@@ -4,7 +4,7 @@
     avatar_x: 14, avatar_y: 50, name_x: 94, name_y: 38, title_y: 20,
     server_y: 60, count_y: 75, accent: "#7c3aed",
     background_start: "#040a16", background_end: "#194876",
-    show_server: true, show_count: true,
+    show_server: true, show_count: true, use_custom_background: false,
   };
   let root = null, current = null;
   const clamp = (v, min, max) => Math.max(min, Math.min(max, Number(v) || min));
@@ -34,6 +34,7 @@
               <span class="welcome-editor-watermark">PRIME</span>
             </div>
             <p class="welcome-editor-note">المعاينة تقريبية؛ الصورة النهائية تُنشأ بواسطة البوت عند وصول العضو.</p>
+            <div class="welcome-editor-upload"><label class="welcome-editor-file-label">خلفية مخصصة <input type="file" accept="image/png,image/jpeg,image/webp" id="welcome-editor-background-file"></label><span class="welcome-editor-upload-hint">PNG / JPG / WEBP — حتى 5MB</span><div class="welcome-editor-upload-actions"><button type="button" class="btn" data-action="upload-background">رفع الخلفية</button><button type="button" class="btn" data-action="clear-background">إزالة الخلفية</button></div></div>
           </div>
           <div class="welcome-editor-controls">
             <div class="welcome-editor-control-grid">
@@ -82,6 +83,40 @@
     modal.querySelector('[data-action="reset"]').addEventListener("click", () => {
       current = { ...DEFAULTS }; syncControls(); updatePreview();
     });
+
+    const fileInput = modal.querySelector("#welcome-editor-background-file");
+    modal.querySelector('[data-action="upload-background"]').addEventListener("click", async () => {
+      const status = modal.querySelector(".welcome-editor-status");
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) { status.textContent = "اختر صورة أولاً."; return; }
+      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) { status.textContent = "الصيغ المدعومة PNG وJPG وWEBP فقط."; return; }
+      if (file.size > 5 * 1024 * 1024) { status.textContent = "الحد الأقصى لحجم الخلفية 5 ميجابايت."; return; }
+      const button = modal.querySelector('[data-action="upload-background"]');
+      button.disabled = true; status.textContent = "جارٍ رفع الخلفية والتحقق منها…";
+      try {
+        const form = new FormData(); form.append("file", file);
+        const response = await fetch("api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background", {
+          method: "POST", headers: { "X-CSRF-Token": window.PRIMEWelcomeEditor.csrfToken || "" }, body: form, credentials: "same-origin"
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.ok) { status.textContent = result.fields?.file || "تعذر رفع الصورة والتحقق منها."; return; }
+        current.use_custom_background = true;
+        modal.querySelector("#welcome-editor-preview").style.backgroundImage = "url(" + result.url + "?v=" + Date.now() + ")";
+        updatePreview(); status.textContent = "تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.";
+      } catch (_) { status.textContent = "تعذر الاتصال بالخادم أثناء رفع الخلفية."; }
+      finally { button.disabled = false; }
+    });
+    modal.querySelector('[data-action="clear-background"]').addEventListener("click", async () => {
+      const status = modal.querySelector(".welcome-editor-status");
+      try {
+        const response = await fetch("api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background", {
+          method: "DELETE", headers: { "X-CSRF-Token": window.PRIMEWelcomeEditor.csrfToken || "" }, credentials: "same-origin"
+        });
+        if (!response.ok) { status.textContent = "تعذر إزالة الخلفية."; return; }
+        current.use_custom_background = false; updatePreview(); status.textContent = "أزيلت الخلفية. اضغط حفظ التصميم لتطبيق التغيير.";
+      } catch (_) { status.textContent = "تعذر الاتصال بالخادم."; }
+    });
+
     modal.querySelector('[data-action="save"]').addEventListener("click", async () => {
       const button = modal.querySelector('[data-action="save"]');
       const status = modal.querySelector(".welcome-editor-status");
@@ -107,7 +142,7 @@
   function updatePreview() {
     if (!root || !current) return;
     const preview = root.querySelector("#welcome-editor-preview");
-    preview.style.background = `linear-gradient(115deg, ${current.background_start}, ${current.background_end})`;
+    if (current.use_custom_background) { preview.style.backgroundImage = "url(api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?v=" + (window.PRIMEWelcomeEditor.cacheKey || 1) + ")"; preview.style.backgroundSize = "cover"; preview.style.backgroundPosition = "center"; } else { preview.style.backgroundImage = `linear-gradient(115deg, ${current.background_start}, ${current.background_end})`; preview.style.backgroundSize = "cover"; }
     preview.style.setProperty("--welcome-accent", current.accent);
     const avatar = preview.querySelector(".welcome-editor-avatar");
     avatar.style.left = current.avatar_x + "%"; avatar.style.top = current.avatar_y + "%";
@@ -120,5 +155,5 @@
     const count = preview.querySelector(".welcome-editor-count"); count.style.top = current.count_y + "%"; count.hidden = !current.show_count;
     root.querySelectorAll("[data-value]").forEach(out => out.textContent = current[out.dataset.value] + "%");
   }
-  window.PRIMEWelcomeEditor = { open, close };
+  window.PRIMEWelcomeEditor = { open, close, guildId: null, csrfToken: "", cacheKey: 1 };
 })();
