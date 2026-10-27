@@ -64,6 +64,8 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_welcome_studio_allows_free_positions_and_preserves_background(self):
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
         renderer = (ROOT / "cogs" / "engagement.py").read_text(encoding="utf-8")
+        database = (ROOT / "database.py").read_text(encoding="utf-8")
+        server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         self.assertIn("freeform elements are the source of truth", script)
         self.assertNotIn("current.name_y =", script)
         self.assertNotIn("current.avatar_x =", script)
@@ -77,8 +79,6 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("slot=background_slot", renderer)
         self.assertIn('"welcome_canvas_config": (', renderer)
         self.assertIn('"welcome_canvas_config": {}', renderer)
-        database = (ROOT / "database.py").read_text(encoding="utf-8")
-        server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE IF NOT EXISTS welcome_background_assets", database)
         self.assertIn("save_welcome_background_asset(guild.id, normalized_image, slot=slot)", server)
         self.assertIn("delete_welcome_background_asset(guild.id, slot=slot)", server)
