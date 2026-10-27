@@ -308,7 +308,8 @@ function renderLayoutEditor(){
  $('layoutOverlayLayer').querySelectorAll('[data-layout-key]').forEach(el=>updateLayoutOverlayStyle(el,el.dataset.layoutKey));
  updateLayoutControls();renderStudioLayerList();updateHistoryButtons();
 }
-function updateBackgroundPreview(){const preview=$('layoutBackgroundPreview'),select=$('layoutBackgroundSource');if(!preview||!select)return;const id=select.value,item=items.find(value=>String(value.item_id)===String(id)&&value.item_type==='background'&&value.has_asset),meta=normalizeLayoutMetadata(),area=meta.background_area;if(!item){preview.removeAttribute('src');preview.classList.add('hidden');preview.dataset.source='';return}const source=assetUrl(item.item_id);if(preview.dataset.source!==source){preview.dataset.source=source;preview.src=source}preview.classList.remove('hidden');preview.style.left=(area.x/meta.width*100)+'%';preview.style.top=(area.y/meta.height*100)+'%';preview.style.width=(area.width/meta.width*100)+'%';preview.style.height=(area.height/meta.height*100)+'%';preview.style.objectFit=area.fit==='contain'?'contain':'cover';preview.style.background='rgba(8,11,20,.5)'}
+function updateBackgroundPreview(){const preview=$('layoutBackgroundPreview'),select=$('layoutBackgroundSource');if(!preview||!select)return;const id=select.value,item=items.find(value=>String(value.item_id)===String(id)&&value.item_type==='background'&&value.has_asset),meta=normalizeLayoutMetadata(),area=meta.background_area;if(!item){preview.removeAttribute('src');preview.classList.add('hidden');preview.dataset.source='';return}const source=assetUrl(item.item_id);if(preview.dataset.source!==source){preview.dataset.source=source;preview.src=source}preview.classList.remove('hidden');preview.style.left=(area.x/meta.width*100)+'%';preview.style.top=(area.y/meta.height*100)+'%';preview.style.width=(area.width/meta.width*100)+'%';preview.style.height=(area.height/meta.height*100)+'%';preview.style.objectFit=area.fit==='contain'?'contain':'cover';preview.style.objectPosition=`${Math.round(Math.max(0,Math.min(1,Number(area.focus_x??0.5))*100))}% ${Math.round(Math.max(0,Math.min(1,Number(area.focus_y??0.5))*100))}%`;preview.style.background='rgba(8,11,20,.5)'}
+
 function syncLayoutEditor(force){if(force)layoutImageSource='';renderLayoutEditor()}
 function defaultElementFontSize(key,box,meta){
  const short=Math.min(meta.width,meta.height);
@@ -324,6 +325,8 @@ function updateLayoutControls(){
  $('layoutX').value=Math.round(box.x);$('layoutY').value=Math.round(box.y);$('layoutWidth').value=Math.round(box.width);$('layoutHeight').value=Math.round(box.height);
  $('layoutAnchor').disabled=box.kind!=='text';$('layoutAnchor').value=box.anchor==='la'?'la':box.anchor==='ma'?'ma':'ra';
  $('backgroundFit').disabled=key!=='background_area';$('backgroundFit').value=meta.background_area.fit||'cover';
+ $('backgroundFocusX').value=Math.round(Math.max(0,Math.min(1,Number(meta.background_area.focus_x??0.5))*100));$('backgroundFocusY').value=Math.round(Math.max(0,Math.min(1,Number(meta.background_area.focus_y??0.5))*100));$('backgroundFocusXValue').value=$('backgroundFocusX').value+'%';$('backgroundFocusYValue').value=$('backgroundFocusY').value+'%';
+ $('backgroundFocusX').disabled=key!=='background_area'||$('backgroundFit').value==='contain';$('backgroundFocusY').disabled=key!=='background_area'||$('backgroundFit').value==='contain';
  $('layoutXpEnabled').disabled=key!=='xp_bar';$('layoutXpEnabled').checked=!!(meta.xp_bar&&meta.xp_bar.enabled);
  const styleable=box.kind==='text'||box.kind==='stat';
  const editableText=key==='level'||box.kind==='stat';
@@ -398,7 +401,7 @@ function applyLayoutInputs(){
  const key=$('layoutField').value||'avatar',box=getLayoutBox(key);let x=Number($('layoutX').value),y=Number($('layoutY').value),w=Number($('layoutWidth').value),h=Number($('layoutHeight').value);
  if(![x,y,w,h].every(Number.isFinite)||w<=0||h<=0){notice('أدخل مواضع وأبعاد صحيحة للقالب.',true);return}
  pushLayoutHistory();writeLayoutBox(key,x,y,w,h);const b=ensureLayoutField(key);if(box.kind==='text')b.anchor=$('layoutAnchor').value==='la'?'la':'ra';
- if(key==='background_area')b.fit=$('backgroundFit').value==='contain'?'contain':'cover';
+ if(key==='background_area'){b.fit=$('backgroundFit').value==='contain'?'contain':'cover';b.focus_x=Math.max(0,Math.min(1,Number($('backgroundFocusX').value)/100));b.focus_y=Math.max(0,Math.min(1,Number($('backgroundFocusY').value)/100));}
  if(key==='xp_bar')b.enabled=$('layoutXpEnabled').checked;
  renderLayoutEditor();
 }
@@ -437,6 +440,7 @@ $('applyElementStyle').addEventListener('click',applyElementStyle);
 $('applyLayout').addEventListener('click',applyLayoutInputs);
 $('saveLayout').addEventListener('click',async()=>{layoutStyleHistoryKey='';const id=String($('itemId').value||'');if(!id){notice('احفظ المنتج أولاً، ثم احفظ تخطيط القالب.',true);return}const item=items.find(value=>String(value.item_id)===id);if(!item||item.item_type!=='card_template'){notice('اختر قالباً محفوظاً أولاً.',true);return}const button=$('saveLayout');button.disabled=true;try{const desired=payload();const result=await api('/items/'+id,{method:'PUT',body:JSON.stringify({...desired,is_active:!!item.is_active,is_featured:!!item.is_featured})});const saved=result.item;if(!saved||JSON.stringify(saved.metadata||{})!==JSON.stringify(desired.metadata)){await load();const fresh=items.find(value=>String(value.item_id)===id);if(!fresh||JSON.stringify(fresh.metadata||{})!==JSON.stringify(desired.metadata))throw new Error('لم تتطابق الإعدادات بعد إعادة قراءتها من قاعدة البيانات.')}await load();edit(Number(id));notice('تم حفظ التخطيط والتحقق منه بعد إعادة تحميل بيانات المتجر.')}catch(error){notice('تعذر حفظ التخطيط: '+error.message,true)}finally{button.disabled=false}});
 $('backgroundFit').addEventListener('change',()=>{ensureLayoutField('background_area').fit=$('backgroundFit').value==='contain'?'contain':'cover';renderLayoutEditor()});
+for(const [id,key] of [['backgroundFocusX','focus_x'],['backgroundFocusY','focus_y']])$(id).addEventListener('input',()=>{const area=ensureLayoutField('background_area');area[key]=Math.max(0,Math.min(1,Number($(id).value)/100));$(id+'Value').value=$(id).value+'%';updateBackgroundPreview()});
 $('layoutXpEnabled').addEventListener('change',()=>{const xp=ensureLayoutField('xp_bar');xp.enabled=$('layoutXpEnabled').checked;renderLayoutEditor()});
 $('resetLayout').addEventListener('click',()=>{
  const img=$('layoutStageImage');
