@@ -9,6 +9,7 @@
     use_custom_background: false,
   };
   const BASE_ELEMENTS = [
+    { id:"frame", type:"frame", label:"إطار التصميم", x:1.8, y:5.2, width:96.4, height:90, fontSize:20, color:"#7c3aed", visible:true, locked:false, opacity:62, rotation:0, align:"center", text:"" },
     { id:"avatar", type:"avatar", label:"صورة العضو", x:4.8, y:23.8, width:18.3, height:52.4, fontSize:30, color:"#ffffff", visible:true, locked:false, opacity:100, rotation:0, align:"center", text:"" },
     { id:"title", type:"title", label:"عنوان الترحيب", x:44, y:15, width:50, height:10, fontSize:27, color:"#7c3aed", visible:true, locked:false, opacity:100, rotation:0, align:"right", text:"أهلاً بك في PRIME" },
     { id:"name", type:"name", label:"اسم العضو", x:49, y:27, width:45, height:15, fontSize:48, color:"#f8fafc", visible:true, locked:false, opacity:100, rotation:0, align:"right", text:"اسم العضو" },
@@ -21,13 +22,13 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
   const uid = () => "layer-" + Math.random().toString(36).slice(2, 9);
   const findElement = id => current?.elements?.find(item => item.id === id);
-  const labelFor = type => ({avatar:"صورة العضو",title:"عنوان الترحيب",name:"اسم العضو",server:"اسم السيرفر",count:"رقم العضو",text:"نص مخصص",shape:"شكل",line:"خط"}[type] || "عنصر");
+  const labelFor = type => ({avatar:"صورة العضو",title:"عنوان الترحيب",name:"اسم العضو",server:"اسم السيرفر",count:"رقم العضو",text:"نص مخصص",shape:"شكل",line:"خط",frame:"إطار التصميم"}[type] || "عنصر");
 
   function normalize(config) {
     const base = { ...DEFAULTS, ...(config && typeof config === "object" ? config : {}) };
     if (Array.isArray(base.elements) && base.elements.length) {
       base.elements = base.elements.slice(0, 24).map((e, i) => ({
-        id: String(e.id || uid()), type: ["avatar","title","name","server","count","text","shape","line"].includes(e.type) ? e.type : "text",
+        id: String(e.id || uid()), type: ["avatar","title","name","server","count","text","shape","line","frame"].includes(e.type) ? e.type : "text",
         label: String(e.label || labelFor(e.type)), x: clamp(e.x, 0, 100), y: clamp(e.y, 0, 100),
         width: clamp(e.width ?? 30, 2, 100), height: clamp(e.height ?? 10, 2, 100),
         fontSize: clamp(e.fontSize ?? 24, 8, 160), color: /^#[0-9a-f]{6}$/i.test(e.color || "") ? e.color : base.accent,
@@ -192,9 +193,6 @@
       stage.style.backgroundImage = "linear-gradient(115deg," + current.background_start + "," + current.background_end + ")";
     }
     stage.replaceChildren();
-    if (!current.elements.some(e => e.type === "shape" || e.type === "line")) {
-      const frame = document.createElement("div"); frame.className = "welcome-editor-preview-frame"; stage.append(frame);
-    }
     current.elements.forEach(el => {
       const node = document.createElement("div");
       node.className = "welcome-editor-object type-" + el.type + (el.id === selectedId ? " is-selected" : "") + (!el.visible ? " is-hidden" : "") + (el.locked ? " is-locked" : "");
@@ -211,6 +209,7 @@
       if (el.type === "avatar") node.innerHTML = '<span class="welcome-editor-avatar-placeholder">P</span>';
       else if (el.type === "shape") node.innerHTML = '<span class="welcome-editor-shape-fill"></span>';
       else if (el.type === "line") node.innerHTML = '<span class="welcome-editor-line-fill"></span>';
+      else if (el.type === "frame") node.setAttribute("aria-label", "إطار التصميم");
       else node.textContent = displayText(el);
       node.addEventListener("pointerdown", e => startDrag(e, el, node));
       node.addEventListener("click", e => { e.stopPropagation(); if (selectedId !== el.id) { selectedId = el.id; renderAll(); } });
@@ -332,7 +331,7 @@
     if (!root) return;
     root.querySelectorAll("[data-property]").forEach(input => {
       const key = input.dataset.property;
-      if (Object.prototype.hasOwnProperty.call(el,key)) input.value = el[key];
+      if (Object.prototype.hasOwnProperty.call(el,key)) { if (input.type === "checkbox") input.checked = Boolean(el[key]); else input.value = el[key]; }
     });
   }
   window.PRIMEWelcomeEditor = { open, close, guildId:null, csrfToken:"", cacheKey:4 };
