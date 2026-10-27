@@ -270,13 +270,13 @@
     stage.style.setProperty("--welcome-accent", current.accent);
     const fixedRatios = { banner: "1200 / 420", landscape: "16 / 9", square: "1 / 1", portrait: "2 / 3" };
     stage.style.aspectRatio = fixedRatios[current.canvas_format] || "1200 / 420";
+    let fittedBackgroundUrl = null;
+    stage.style.backgroundImage = "linear-gradient(115deg," + current.background_start + "," + current.background_end + ")";
+    stage.style.backgroundSize = "cover";
+    stage.style.backgroundRepeat = "no-repeat";
+    stage.style.backgroundColor = "#080c16";
     if (current.use_custom_background) {
-      const backgroundUrl = "url(api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?v=" + (window.PRIMEWelcomeEditor.cacheKey || Date.now()) + ")";
-      stage.style.backgroundImage = backgroundUrl;
-      stage.style.backgroundSize = "contain";
-      stage.style.backgroundRepeat = "no-repeat";
-      stage.style.backgroundPosition = "center";
-      stage.style.backgroundColor = "#080c16";
+      fittedBackgroundUrl = "api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background?v=" + (window.PRIMEWelcomeEditor.cacheKey || Date.now());
       if (current.canvas_format === "auto") {
         const preload = new Image();
         preload.onload = () => {
@@ -284,15 +284,30 @@
             stage.style.aspectRatio = preload.naturalWidth + " / " + preload.naturalHeight;
           }
         };
-        preload.src = backgroundUrl.slice(4, -1);
+        preload.src = fittedBackgroundUrl;
       }
-    } else {
-      stage.style.backgroundImage = "linear-gradient(115deg," + current.background_start + "," + current.background_end + ")";
-      stage.style.backgroundSize = "cover";
-      stage.style.backgroundRepeat = "no-repeat";
-      stage.style.backgroundColor = "transparent";
     }
     stage.replaceChildren();
+    if (fittedBackgroundUrl) {
+      const addBackgroundLayer = (fit, blur) => {
+        const image = document.createElement("img");
+        image.src = fittedBackgroundUrl;
+        image.alt = "";
+        image.draggable = false;
+        image.setAttribute("aria-hidden", "true");
+        Object.assign(image.style, {
+          position: "absolute", inset: "0", width: "100%", height: "100%",
+          objectFit: fit, pointerEvents: "none", zIndex: "0",
+        });
+        if (blur) {
+          image.style.filter = "blur(16px)";
+          image.style.transform = "scale(1.08)";
+        }
+        stage.append(image);
+      };
+      addBackgroundLayer("cover", true);
+      addBackgroundLayer("contain", false);
+    }
     current.elements.forEach(el => {
       const node = document.createElement("div");
       node.className = "welcome-editor-object type-" + el.type + (el.id === selectedId ? " is-selected" : "") + (!el.visible ? " is-hidden" : "") + (el.locked ? " is-locked" : "");
