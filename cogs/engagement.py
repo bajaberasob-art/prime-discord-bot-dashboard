@@ -837,7 +837,7 @@ class Engagement(commands.Cog):
         image = gradient.resize((width, height))
         if layout.get("use_custom_background") and guild_id:
             try:
-                background_path = (Path("data/welcome-backgrounds") / f"{int(guild_id)}.png").resolve()
+                background_path = (Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds" / f"{int(guild_id)}.png").resolve()
                 if background_path.is_file():
                     custom = Image.open(background_path).convert("RGB")
                     # Use a blurred fill behind the full uploaded artwork to avoid
