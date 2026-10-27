@@ -1004,7 +1004,7 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v63";
+    return """const CACHE = "prime-dashboard-shell-v64";
 const STATIC = [
   "./",
   "./static/app.css?v=level-card-media-upload-1",
@@ -1017,8 +1017,8 @@ const STATIC = [
   "./static/temp-voice.js?v=temp-voice-5",
   "./static/interactive-info-panel.css?v=iip-3",
   "./static/interactive-info-panel.js?v=iip-4",
-  "./static/welcome-editor.css?v=welcome-editor-8",
-  "./static/welcome-editor.js?v=welcome-editor-9",
+  "./static/welcome-editor.css?v=welcome-editor-9",
+  "./static/welcome-editor.js?v=welcome-editor-10",
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
@@ -5028,26 +5028,51 @@ WELCOME_BACKGROUND_MAX_BYTES = 15 * 1024 * 1024
 # This keeps the dashboard and bot renderer reading the same file after restarts.
 WELCOME_BACKGROUND_ROOT = Path(__file__).resolve().parent / "data" / "welcome-backgrounds"
 
-def _welcome_background_path(guild_id: int) -> Path:
-    return (WELCOME_BACKGROUND_ROOT / f"{int(guild_id)}.png").resolve()
+def _welcome_background_path(guild_id: int, slot: int = 1) -> Path:
+    slot = max(1, min(4, int(slot)))
+    filename = f"{int(guild_id)}.png" if slot == 1 else f"{int(guild_id)}-{slot}.png"
+    return (WELCOME_BACKGROUND_ROOT / filename).resolve()
+
+
+def _welcome_background_slot(req) -> int:
+    raw = req.query.get("slot", "1")
+    if not str(raw).isdigit():
+        raise ValueError("invalid background slot")
+    slot = int(raw)
+    if not 1 <= slot <= 4:
+        raise ValueError("invalid background slot")
+    return slot
+
 
 @routes.get("/api/guild/{guild_id}/onboarding/welcome-background")
 async def api_get_welcome_background(req):
     _, guild = await authorize(req)
-    image_data = await get_welcome_background_asset(guild.id)
+    try:
+        slot = _welcome_background_slot(req)
+    except ValueError:
+        return json_error(400, "invalid_background_slot", fields={"slot": "اختر خانة من 1 إلى 4."})
+    image_data = await get_welcome_background_asset(guild.id, slot=slot)
     if image_data:
-        return web.Response(body=image_data, content_type="image/png", headers={"Cache-Control": "private, max-age=60"})
-    # Migrate backgrounds uploaded by older versions on first read.
-    path = _welcome_background_path(guild.id)
+        return web.Response(body=image_data, content_type="image/png", headers={"Cache-Control": "private, no-cache, must-revalidate"})
+    # Migrate older file-only images to durable storage without clobbering other slots.
+    path = _welcome_background_path(guild.id, slot)
     if path.is_file():
-        image_data = path.read_bytes()
-        await save_welcome_background_asset(guild.id, image_data)
-        return web.Response(body=image_data, content_type="image/png", headers={"Cache-Control": "private, max-age=60"})
+        try:
+            image_data = path.read_bytes()
+            await save_welcome_background_asset(guild.id, image_data, slot=slot)
+        except (OSError, ValueError):
+            logger.exception("Could not migrate Welcome Studio background slot %s for guild %s", slot, guild.id)
+            raise web.HTTPInternalServerError(text="background_migration_failed")
+        return web.Response(body=image_data, content_type="image/png", headers={"Cache-Control": "private, no-cache, must-revalidate"})
     raise web.HTTPNotFound()
 
 @routes.post("/api/guild/{guild_id}/onboarding/welcome-background")
 async def api_upload_welcome_background(req):
     _, guild = await authorize(req, write=True)
+    try:
+        slot = _welcome_background_slot(req)
+    except ValueError:
+        return json_error(400, "invalid_background_slot", fields={"slot": "اختر خانة من 1 إلى 4."})
     if req.content_type.lower() != "multipart/form-data":
         return json_error(415, "multipart_required", fields={"file": "ارفع صورة بصيغة ملف."})
     try:
@@ -5095,33 +5120,36 @@ async def api_upload_welcome_background(req):
         return json_error(400, "invalid_image", fields={"file": "الملف ليس صورة سليمة أو تعذر قراءته."})
     normalized_image = output.getvalue()
     try:
-        await save_welcome_background_asset(guild.id, normalized_image)
+        await save_welcome_background_asset(guild.id, normalized_image, slot=slot)
     except Exception:
         logger.exception("Could not persist welcome background in SQLite for guild %s", guild.id)
         return json_error(500, "background_persistence_failed", fields={"file": "تعذر حفظ الصورة بشكل دائم في قاعدة البيانات."})
     # Mirror the durable asset for compatibility with older bot versions during rollout.
     # The DB commit is authoritative; a non-writable file cache is not an upload failure.
     try:
-        path = _welcome_background_path(guild.id)
+        path = _welcome_background_path(guild.id, slot)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".png.tmp")
         temporary.write_bytes(normalized_image)
         temporary.replace(path)
     except OSError:
         logger.warning("Welcome background saved in SQLite but file cache could not be refreshed for guild %s", guild.id, exc_info=True)
-    return web.json_response({"ok": True, "url": f"/api/guild/{guild.id}/onboarding/welcome-background", "size": len(normalized_image), "width": image.width, "height": image.height, "persisted": True})
+    return web.json_response({"ok": True, "url": f"/api/guild/{guild.id}/onboarding/welcome-background?slot={slot}", "slot": slot, "size": len(normalized_image), "width": image.width, "height": image.height, "persisted": True})
 
 @routes.delete("/api/guild/{guild_id}/onboarding/welcome-background")
 async def api_delete_welcome_background(req):
     _, guild = await authorize(req, write=True)
     try:
-        await delete_welcome_background_asset(guild.id)
-        path = _welcome_background_path(guild.id)
-        path.unlink(missing_ok=True)
+        slot = _welcome_background_slot(req)
+    except ValueError:
+        return json_error(400, "invalid_background_slot", fields={"slot": "اختر خانة من 1 إلى 4."})
+    try:
+        await delete_welcome_background_asset(guild.id, slot=slot)
+        _welcome_background_path(guild.id, slot).unlink(missing_ok=True)
     except Exception:
-        logger.exception("Could not delete Welcome Studio background for guild %s", guild.id)
+        logger.exception("Could not delete Welcome Studio background slot %s for guild %s", slot, guild.id)
         return json_error(500, "background_delete_failed")
-    return web.json_response({"ok": True, "persisted": True})
+    return web.json_response({"ok": True, "slot": slot, "persisted": True})
 
 
 ONBOARDING_KEYS = {
