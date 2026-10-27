@@ -94,6 +94,63 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn("ImageFilter.GaussianBlur(radius=22)", renderer)
         self.assertIn("backdrop.paste(foreground, (x_offset, y_offset), foreground.getchannel(\"A\"))", renderer)
 
+    def test_welcome_typography_controls_are_validated_and_persisted(self):
+        from database import validate_setting
+
+        config = validate_setting("welcome_canvas_config", {
+            "elements": [{
+                "id": "arabic-font", "type": "text", "label": "عنوان",
+                "x": 5, "y": 5, "width": 80, "height": 25, "fontSize": 34,
+                "color": "#ffffff", "visible": True, "locked": False,
+                "opacity": 100, "rotation": 0, "align": "right",
+                "text": "أهلاً بك في PRIME", "fontPreset": "luxury", "fontFamily": "serif",
+                "fontWeight": "bold", "fontStyle": "italic",
+                "textTransform": "uppercase",
+            }]
+        })
+        element = config["elements"][0]
+        self.assertEqual(element["fontPreset"], "luxury")
+        self.assertEqual(element["fontFamily"], "serif")
+        self.assertEqual(element["fontWeight"], "bold")
+        self.assertEqual(element["fontStyle"], "italic")
+        self.assertEqual(element["textTransform"], "uppercase")
+
+        with self.assertRaises(ValueError):
+            validate_setting("welcome_canvas_config", {
+                "elements": [{
+                    "id": "bad-font", "type": "text", "x": 5, "y": 5,
+                    "width": 80, "height": 25, "fontSize": 34,
+                    "color": "#ffffff", "fontFamily": "unsupported-font",
+                }]
+            })
+        with self.assertRaises(ValueError):
+            validate_setting("welcome_canvas_config", {
+                "elements": [{
+                    "id": "bad-preset", "type": "text", "x": 5, "y": 5,
+                    "width": 80, "height": 25, "fontSize": 34,
+                    "color": "#ffffff", "fontPreset": "unsupported-preset",
+                }]
+            })
+
+        editor = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
+        renderer = (ROOT / "cogs" / "engagement.py").read_text(encoding="utf-8")
+        self.assertIn('propertyField("النمط الجاهز (عربي/إنجليزي)","fontPreset"', editor)
+        self.assertIn('"modern_bold"', editor)
+        self.assertIn('"formal"', editor)
+        self.assertIn('"tech"', editor)
+        self.assertIn('"gaming"', editor)
+        self.assertIn('propertyField("نوع الخط","fontFamily"', editor)
+        self.assertIn('propertyField("سماكة الخط","fontWeight"', editor)
+        self.assertIn('propertyField("ميل الخط","fontStyle"', editor)
+        self.assertIn('propertyField("تنسيق الإنجليزية","textTransform"', editor)
+        self.assertIn("node.style.fontWeight", editor)
+        self.assertIn("arabic_reshaper.reshape(text)", renderer)
+        self.assertIn("def _welcome_font(", renderer)
+        self.assertIn("def wrap_text(source: str, font: Any)", renderer)
+        self.assertIn("textTransform", renderer)
+        self.assertIn('"modern_bold": ("sans", "bold", "normal", "uppercase")', renderer)
+        self.assertIn('"luxury": ("serif", "normal", "italic", "capitalize")', renderer)
+
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
@@ -156,11 +213,11 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v65", server)
+        self.assertIn("prime-dashboard-shell-v67", server)
         self.assertIn("welcome-editor.css?v=welcome-editor-10", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-11", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-13", server)
         self.assertIn("welcome-editor.css?v=welcome-editor-10", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-11", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-13", index)
 
 
 if __name__ == "__main__":

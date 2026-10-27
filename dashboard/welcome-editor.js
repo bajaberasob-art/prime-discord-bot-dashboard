@@ -35,12 +35,20 @@
         label: String(e.label || labelFor(e.type)), x: clamp(e.x, 0, 100), y: clamp(e.y, 0, 100),
         width: clamp(e.width ?? 30, 2, 100), height: clamp(e.height ?? 10, 2, 100),
         fontSize: clamp(e.fontSize ?? 24, 8, 160), color: /^#[0-9a-f]{6}$/i.test(e.color || "") ? e.color : base.accent,
+        fontPreset: ["default","modern_bold","formal","friendly","tech","gaming","minimal","luxury"].includes(e.fontPreset) ? e.fontPreset : "default",
+        fontFamily: ["sans","serif","mono","condensed"].includes(e.fontFamily) ? e.fontFamily : "sans",
+        fontWeight: e.fontWeight === "bold" ? "bold" : "normal",
+        fontStyle: e.fontStyle === "italic" ? "italic" : "normal",
+        textTransform: ["none","uppercase","lowercase","capitalize"].includes(e.textTransform) ? e.textTransform : "none",
         visible: e.visible !== false, locked: e.locked === true, opacity: clamp(e.opacity ?? 100, 0, 100),
         rotation: clamp(e.rotation ?? 0, -180, 180), align: ["left","center","right"].includes(e.align) ? e.align : "left",
         text: String(e.text ?? "").slice(0, 200),
       }));
     } else {
-      base.elements = BASE_ELEMENTS.map(e => ({ ...e }));
+      base.elements = BASE_ELEMENTS.map(e => ({
+        ...e, fontFamily: e.fontFamily || "sans", fontWeight: e.fontWeight || "normal",
+        fontStyle: e.fontStyle || "normal", textTransform: e.textTransform || "none",
+      }));
       const update = (id, patch) => Object.assign(base.elements.find(e => e.id === id), patch);
       update("avatar", { x: clamp((base.avatar_x || 14) - 9.15, 0, 81.7), y: clamp((base.avatar_y || 50) - 26.2, 0, 47.6) });
       update("title", { y: clamp(base.title_y ?? 20, 0, 90), color: base.accent });
@@ -330,6 +338,7 @@
       id, type, label: labelFor(type), x: type === "line" ? 35 : 38, y: 42 + (current.elements.length % 4) * 5,
       width: type === "shape" ? 18 : type === "line" ? 30 : 24, height: type === "shape" ? 12 : type === "line" ? 1.5 : 10,
       fontSize: 26, color: current.accent || "#a78bfa", visible: true, locked: false, opacity: 100, rotation: 0, align: "left",
+      fontFamily: "sans", fontWeight: "normal", fontStyle: "normal", textTransform: "none",
       text: type === "text" ? "اكتب النص هنا" : "",
     };
     checkpoint(); current.elements.push(el); selectedId = id; renderAll(); setStatus("أُضيف عنصر جديد.");
@@ -424,6 +433,30 @@
       node.style.setProperty("--element-rotation", el.rotation + "deg");
       node.style.setProperty("--element-font", "clamp(6px," + Math.max(.5, el.fontSize / 12) + "cqw,80px)");
       node.style.textAlign = el.align || "left";
+      const fontStacks = {
+        sans: 'Tahoma, "Noto Sans Arabic", "DejaVu Sans", Arial, sans-serif',
+        serif: '"Noto Naskh Arabic", "Traditional Arabic", "DejaVu Serif", Georgia, serif',
+        mono: '"DejaVu Sans Mono", "Noto Sans Arabic", monospace',
+        condensed: '"Arial Narrow", Tahoma, "DejaVu Sans", sans-serif',
+      };
+      const presets = {
+        default: { family: el.fontFamily || "sans", weight: el.fontWeight || "normal", style: el.fontStyle || "normal", transform: el.textTransform || "none", spacing: "0" },
+        modern_bold: { family: "sans", weight: "bold", style: "normal", transform: "uppercase", spacing: ".02em" },
+        formal: { family: "serif", weight: "normal", style: "normal", transform: "capitalize", spacing: ".015em" },
+        friendly: { family: "sans", weight: "bold", style: "normal", transform: "none", spacing: "0" },
+        tech: { family: "mono", weight: "bold", style: "normal", transform: "uppercase", spacing: ".045em" },
+        gaming: { family: "condensed", weight: "bold", style: "normal", transform: "uppercase", spacing: ".025em" },
+        minimal: { family: "sans", weight: "normal", style: "normal", transform: "none", spacing: "0" },
+        luxury: { family: "serif", weight: "normal", style: "italic", transform: "capitalize", spacing: ".06em" },
+      };
+      const preset = presets[el.fontPreset || "default"] || presets.default;
+      node.style.fontFamily = fontStacks[preset.family] || fontStacks.sans;
+      node.style.fontWeight = preset.weight === "bold" ? "700" : "400";
+      node.style.fontStyle = preset.style === "italic" ? "italic" : "normal";
+      node.style.textTransform = preset.transform;
+      node.style.letterSpacing = preset.spacing;
+      node.dir = "auto";
+      node.style.unicodeBidi = "plaintext";
       node.style.justifyContent = el.align === "right" ? "flex-end" : (el.align === "center" ? "center" : "flex-start");
       node.hidden = !el.visible;
       if (el.type === "avatar") node.innerHTML = '<span class="welcome-editor-avatar-placeholder">P</span>';
@@ -582,7 +615,23 @@
     host.append(propertyField("لون العنصر","color",el.color,"color"));
     host.append(propertyField("المحور الأفقي (%)","x",el.x,"number",{min:0,max:98,step:.5}), propertyField("المحور العمودي (%)","y",el.y,"number",{min:0,max:98,step:.5}));
     host.append(propertyField("العرض (%)","width",el.width,"number",{min:2,max:100,step:.5}), propertyField("الارتفاع (%)","height",el.height,"number",{min:1,max:100,step:.5}));
-    if (["text","title","name","server","count"].includes(el.type)) host.append(propertyField("حجم الخط","fontSize",el.fontSize,"number",{min:8,max:160,step:1}), propertyField("محاذاة النص","align",el.align,"select",{options:[["right","يمين"],["center","وسط"],["left","يسار"]]}));
+    if (["text","title","name","server","count"].includes(el.type)) {
+      host.append(
+        propertyField("حجم الخط","fontSize",el.fontSize,"number",{min:8,max:160,step:1}),
+        propertyField("النمط الجاهز (عربي/إنجليزي)","fontPreset",el.fontPreset || "default","select",{options:[
+          ["default","مخصص — تحكم يدوي"],["modern_bold","عريض عصري / Modern Bold"],["formal","رسمي وأنيق / Formal"],["friendly","ودّي وواضح / Friendly"],["tech","تقني / Tech"],["gaming","ألعاب / Gaming"],["minimal","بسيط / Minimal"],["luxury","فاخر / Luxury"]
+        ]}),
+        propertyField("نوع الخط","fontFamily",el.fontFamily || "sans","select",{options:[
+          ["sans","عربي واضح (Sans)"],["serif","كلاسيكي (Serif)"],["mono","تقني (Mono)"],["condensed","مضغوط (Condensed)"]
+        ]}),
+        propertyField("سماكة الخط","fontWeight",el.fontWeight || "normal","select",{options:[["normal","عادي"],["bold","عريض / Bold"]]}),
+        propertyField("ميل الخط","fontStyle",el.fontStyle || "normal","select",{options:[["normal","مستقيم"],["italic","مائل"]]}),
+        propertyField("تنسيق الإنجليزية","textTransform",el.textTransform || "none","select",{options:[
+          ["none","كما كُتب"],["uppercase","أحرف كبيرة"],["lowercase","أحرف صغيرة"],["capitalize","أول حرف كبير"]
+        ]}),
+        propertyField("محاذاة النص","align",el.align,"select",{options:[["right","يمين"],["center","وسط"],["left","يسار"]]})
+      );
+    }
     host.append(propertyField("الشفافية (%)","opacity",el.opacity,"number",{min:0,max:100,step:1}), propertyField("الدوران (درجة)","rotation",el.rotation,"number",{min:-180,max:180,step:1}));
     const vis = propertyField("إظهار العنصر","visible",el.visible,"checkbox");
     host.append(vis);

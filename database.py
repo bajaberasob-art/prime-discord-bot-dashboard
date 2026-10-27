@@ -6143,7 +6143,7 @@ def validate_setting(key: str, value: Any) -> Any:
                 if not isinstance(item, list) or len(item) > 24:
                     raise ValueError("يجب أن تحتوي الطبقات على 24 عنصرًا أو أقل")
                 allowed_types = {"avatar", "title", "name", "server", "count", "text", "shape", "line", "frame"}
-                allowed_fields = {"id", "type", "label", "x", "y", "width", "height", "fontSize", "color", "visible", "locked", "opacity", "rotation", "align", "text"}
+                allowed_fields = {"id", "type", "label", "x", "y", "width", "height", "fontSize", "color", "visible", "locked", "opacity", "rotation", "align", "text", "fontPreset", "fontFamily", "fontWeight", "fontStyle", "textTransform"}
                 elements = []
                 seen_ids = set()
                 for element in item:
@@ -6163,6 +6163,8 @@ def validate_setting(key: str, value: Any) -> Any:
                         "fontSize": 24.0, "color": clean["accent"],
                         "visible": True, "locked": False, "opacity": 100.0,
                         "rotation": 0.0, "align": "left", "text": "",
+                        "fontPreset": "default", "fontFamily": "sans", "fontWeight": "normal",
+                        "fontStyle": "normal", "textTransform": "none",
                     }
                     for pos in ("x", "y", "width", "height"):
                         raw = element.get(pos, normalized[pos])
@@ -6200,6 +6202,26 @@ def validate_setting(key: str, value: Any) -> Any:
                     if not isinstance(raw_text, str) or len(raw_text) > 200:
                         raise ValueError("نص إحدى الطبقات طويل أو غير صالح")
                     normalized["text"] = raw_text
+                    font_preset = element.get("fontPreset", "default")
+                    font_family = element.get("fontFamily", "sans")
+                    font_weight = element.get("fontWeight", "normal")
+                    font_style = element.get("fontStyle", "normal")
+                    text_transform = element.get("textTransform", "none")
+                    if font_preset not in {"default", "modern_bold", "formal", "friendly", "tech", "gaming", "minimal", "luxury"}:
+                        raise ValueError("نمط الخط الجاهز غير مدعوم")
+                    if font_family not in {"sans", "serif", "mono", "condensed"}:
+                        raise ValueError("نوع خط إحدى الطبقات غير مدعوم")
+                    if font_weight not in {"normal", "bold"}:
+                        raise ValueError("وزن خط إحدى الطبقات غير مدعوم")
+                    if font_style not in {"normal", "italic"}:
+                        raise ValueError("نمط خط إحدى الطبقات غير مدعوم")
+                    if text_transform not in {"none", "uppercase", "lowercase", "capitalize"}:
+                        raise ValueError("تنسيق النص غير مدعوم")
+                    normalized["fontPreset"] = font_preset
+                    normalized["fontFamily"] = font_family
+                    normalized["fontWeight"] = font_weight
+                    normalized["fontStyle"] = font_style
+                    normalized["textTransform"] = text_transform
                     elements.append(normalized)
                 clean["elements"] = elements
             else:
