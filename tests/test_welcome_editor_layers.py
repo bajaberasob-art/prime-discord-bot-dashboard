@@ -80,6 +80,8 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn('"welcome_canvas_config": (', renderer)
         self.assertIn('"welcome_canvas_config": {}', renderer)
         self.assertIn("member = guild.get_member(int(actor_user_id))", renderer)
+        self.assertIn('trigger_type == "dashboard_test"', renderer)
+        self.assertIn('"error": "welcome_image_generation_failed"', renderer)
         self.assertIn('if "slot" not in welcome_asset_columns', database)
         self.assertIn("SELECT guild_id, 1, image_data, updated_at", database)
         self.assertIn("CREATE TABLE IF NOT EXISTS welcome_background_assets", database)
