@@ -29,7 +29,7 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         })
         self.assertEqual(
             metadata["background_area"],
-            {"x": 600, "y": 300, "width": 40, "height": 20, "fit": "cover"},
+            {"x": 600, "y": 300, "width": 40, "height": 20, "fit": "cover", "focus_x": 0.5, "focus_y": 0.5},
         )
 
     def test_existing_template_without_area_gets_safe_inset_default(self):
@@ -40,6 +40,8 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         self.assertLess(area["x"] + area["width"], metadata["width"])
         self.assertLess(area["y"] + area["height"], metadata["height"])
         self.assertEqual(area["fit"], "cover")
+        self.assertEqual(area["focus_x"], 0.5)
+        self.assertEqual(area["focus_y"], 0.5)
 
     def test_background_image_is_visible_only_inside_configured_area(self):
         frame = png_bytes(Image.new("RGBA", (640, 320), (0, 0, 0, 0)))
