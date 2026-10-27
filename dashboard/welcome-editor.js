@@ -205,6 +205,7 @@
       node.style.setProperty("--element-rotation", el.rotation + "deg");
       node.style.setProperty("--element-font", "clamp(6px," + Math.max(.5, el.fontSize / 12) + "cqw,80px)");
       node.style.textAlign = el.align || "left";
+      node.style.justifyContent = el.align === "right" ? "flex-end" : (el.align === "center" ? "center" : "flex-start");
       node.hidden = !el.visible;
       if (el.type === "avatar") node.innerHTML = '<span class="welcome-editor-avatar-placeholder">P</span>';
       else if (el.type === "shape") node.innerHTML = '<span class="welcome-editor-shape-fill"></span>';
@@ -334,5 +335,5 @@
       if (Object.prototype.hasOwnProperty.call(el,key)) { if (input.type === "checkbox") input.checked = Boolean(el[key]); else input.value = el[key]; }
     });
   }
-  window.PRIMEWelcomeEditor = { open, close, guildId:null, csrfToken:"", cacheKey:4 };
+  window.PRIMEWelcomeEditor = { open, close, guildId:null, csrfToken:"", cacheKey:5 };
 })();
