@@ -106,17 +106,11 @@
       } catch (_) { status.textContent = "تعذر الاتصال بالخادم أثناء رفع الخلفية."; }
       finally { button.disabled = false; }
     });
-    modal.querySelector('[data-action="clear-background"]').addEventListener("click", async () => {
-      const status = modal.querySelector(".welcome-editor-status");
-      try {
-        const response = await fetch("api/guild/" + encodeURIComponent(window.PRIMEWelcomeEditor.guildId) + "/onboarding/welcome-background", {
-          method: "DELETE", headers: { "X-CSRF-Token": window.PRIMEWelcomeEditor.csrfToken || "" }, credentials: "same-origin"
-        });
-        if (!response.ok) { status.textContent = "تعذر إزالة الخلفية."; return; }
-        current.use_custom_background = false; updatePreview(); status.textContent = "أزيلت الخلفية. اضغط حفظ التصميم لتطبيق التغيير.";
-      } catch (_) { status.textContent = "تعذر الاتصال بالخادم."; }
+    modal.querySelector('[data-action="clear-background"]').addEventListener("click", () => {
+      current.use_custom_background = false;
+      updatePreview();
+      modal.querySelector(".welcome-editor-status").textContent = "تم إيقاف الخلفية المخصصة. اضغط حفظ التصميم لتطبيق التغيير.";
     });
-
     modal.querySelector('[data-action="save"]').addEventListener("click", async () => {
       const button = modal.querySelector('[data-action="save"]');
       const status = modal.querySelector(".welcome-editor-status");
