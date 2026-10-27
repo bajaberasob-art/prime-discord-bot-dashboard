@@ -145,6 +145,7 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn('propertyField("تنسيق الإنجليزية","textTransform"', editor)
         self.assertIn("node.style.fontWeight", editor)
         self.assertIn("arabic_reshaper.reshape(text)", renderer)
+        self.assertIn('get_display(arabic_reshaper.reshape(text), base_dir="R")', renderer)
         self.assertIn("def _welcome_font(", renderer)
         self.assertIn("def wrap_text(source: str, font: Any)", renderer)
         self.assertIn("textTransform", renderer)

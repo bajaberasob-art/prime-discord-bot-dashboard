@@ -818,7 +818,7 @@ class Engagement(commands.Cog):
             import arabic_reshaper
             from bidi.algorithm import get_display
 
-            return get_display(arabic_reshaper.reshape(text))
+            return get_display(arabic_reshaper.reshape(text), base_dir="R")
         except (ImportError, ValueError):
             # Keep rendering available if an optional shaping dependency is missing.
             return text
