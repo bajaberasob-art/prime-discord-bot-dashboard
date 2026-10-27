@@ -5061,10 +5061,10 @@ async def api_upload_welcome_background(req):
         image = Image.open(io.BytesIO(bytes(data)))
         if image.format not in {"PNG", "JPEG", "WEBP"}:
             return json_error(415, "unsupported_image_type", fields={"file": "الصيغ المدعومة PNG وJPG وWEBP فقط."})
-        image.verify()
-        image = Image.open(io.BytesIO(bytes(data)))
         if image.width < 320 or image.height < 120 or image.width > 8000 or image.height > 8000:
             return json_error(400, "invalid_image_dimensions", fields={"file": "أبعاد الصورة يجب أن تكون بين 320×120 و8000×8000 بكسل."})
+        image.verify()
+        image = Image.open(io.BytesIO(bytes(data)))
         image = ImageOps.exif_transpose(image)
         if image.mode not in {"RGB", "RGBA"}:
             image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
