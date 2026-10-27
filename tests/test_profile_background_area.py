@@ -294,6 +294,38 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
             self.assertEqual(card.format, "PNG")
             self.assertEqual(card.size, (640, 320))
 
+    def test_renderer_supports_custom_avatar_ring_color(self):
+        frame = png_bytes(Image.new("RGBA", (640, 320), (0, 0, 0, 0)))
+        avatar = png_bytes(Image.new("RGB", (80, 80), "#222222"))
+        metadata = {
+            "width": 640, "height": 320, "layout": "wide",
+            "background_area": {"x": 20, "y": 20, "width": 600, "height": 280, "fit": "cover"},
+            "avatar": {"x": 220, "y": 100, "size": 80, "ring_mode": "custom", "ring_color": "#00FF00"},
+            "name": {"x": 590, "y": 35, "max_width": 220, "anchor": "ra"},
+            "handle": {"x": 590, "y": 75, "max_width": 220, "anchor": "ra"},
+            "level": {"x": 30, "y": 35, "max_width": 220, "anchor": "la"},
+            "xp_bar": {"x": 30, "y": 280, "width": 120, "height": 8, "enabled": False},
+            "badges": {"x": 10, "y": 10, "size": 20, "limit": 0},
+            "flag": {"x": 10, "y": 10, "width": 24, "height": 18}, "stats": [],
+        }
+        result = render_profile_card(
+            {"display_name": "RingTest", "username": "member", "level": 2},
+            avatar_bytes=avatar, template_bytes=frame, template={"metadata": metadata},
+        )
+        with Image.open(result) as card:
+            pixels = list(card.convert("RGBA").getdata())
+        green = sum(1 for red, green, blue, alpha in pixels if alpha > 0 and green > 170 and red < 90 and blue < 90)
+        self.assertGreater(green, 20, "The configured avatar ring color must be rendered")
+
+    def test_avatar_ring_controls_are_available_in_admin_studio(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
+        client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        self.assertIn('id="avatarRingMode"', html)
+        self.assertIn('id="avatarRingColor"', html)
+        self.assertIn("layoutMetadata.avatar.ring_mode", client)
+        self.assertIn("box.ring_color", client)
+
     def test_cover_fit_respects_focal_point(self):
         source = Image.new("RGBA", (120, 40), (0, 0, 0, 255))
         from PIL import ImageDraw
