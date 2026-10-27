@@ -230,7 +230,9 @@ textarea{line-height:1.7}
         <button type="button" id="applyElementStyle" class="primary">تطبيق مظهر العنصر</button>
       </section>
       <label for="layoutBackgroundSource">صورة تجريبية للمعاينة</label><select id="layoutBackgroundSource"><option value="">بدون صورة تجريبية</option></select><div class="muted">اختر منتج خلفية محفوظًا في المتجر لتشاهد كيف يظهر داخل المساحة المحددة. هذا الاختيار للمعاينة فقط ولا يغيّر خلفية العميل.</div><label for="backgroundFit">طريقة ملاءمة صورة الخلفية</label>
-      <select id="backgroundFit"><option value="cover">ملء المساحة المحددة مع قص الأطراف الزائدة</option><option value="contain">إظهار الصورة كاملة دون قص</option></select>
+      <select id="backgroundFit"><option value="cover">ملء المساحة بالكامل (قد يقص الأطراف)</option><option value="contain">إظهار الصورة كاملة دون قص</option></select>
+      <div class="layout-number-grid image-fit-controls"><label for="backgroundFocusX">موضع الصورة أفقيًا <output id="backgroundFocusXValue">50%</output><input id="backgroundFocusX" type="range" min="0" max="100" step="1" value="50"></label><label for="backgroundFocusY">موضع الصورة عموديًا <output id="backgroundFocusYValue">50%</output><input id="backgroundFocusY" type="range" min="0" max="100" step="1" value="50"></label></div>
+      <div class="muted">إذا كان جزء مهم من الصورة يختفي مع وضع «ملء المساحة»، حرّك نقطة التركيز حتى يظهر الجزء المطلوب. ستتطابق المعاينة مع الصورة النهائية.</div>
       <label class="checks"><span><input id="layoutXpEnabled" type="checkbox"> رسم شريط خبرة فعلي في هذا الموضع</span></label>
       <div class="actions"><button type="button" class="primary" id="applyLayout">تطبيق الموضع والحجم</button><button type="button" id="saveLayout">حفظ التخطيط</button><button type="button" id="resetLayout">إعادة التخطيط الافتراضي</button></div>
       <div id="layoutHelp" class="layout-help" role="status">حدد العنصر واسحبه داخل القالب. القيم بوحدات بكسل الصورة الأصلية، وليس حجم المعاينة على الشاشة.</div>
