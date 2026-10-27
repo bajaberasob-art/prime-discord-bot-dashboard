@@ -151,6 +151,26 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn('"modern_bold": ("sans", "bold", "normal", "uppercase")', renderer)
         self.assertIn('"luxury": ("serif", "normal", "italic", "capitalize")', renderer)
 
+    def test_arabic_welcome_text_uses_native_rtl_shaping_without_pre_reversing(self):
+        from PIL import features
+
+        sample = "يا هلااااا والله | WELCOME"
+        shaped = Engagement._welcome_image_text(sample)
+        if features.check("raqm"):
+            self.assertEqual(shaped, sample)
+            self.assertEqual(
+                Engagement._welcome_text_draw_options(sample),
+                {"direction": "rtl", "language": "ar"},
+            )
+        else:
+            self.assertTrue(Engagement._welcome_text_draw_options(sample) == {})
+            self.assertTrue(shaped)
+
+    def test_english_welcome_text_does_not_force_rtl_direction(self):
+        sample = "WELCOME TO PRIME"
+        self.assertEqual(Engagement._welcome_image_text(sample), sample)
+        self.assertEqual(Engagement._welcome_text_draw_options(sample), {})
+
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
