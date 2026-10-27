@@ -89,6 +89,10 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         # The background file is only replaced after the complete image has been verified.
         self.assertLess(server.index("image.verify()"), server.index("temporary.replace(path)"))
 
+    def test_editor_treats_unchanged_design_save_as_success(self):
+        editor = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const saved = onboardingDirty() ? await saveOnboarding() : true;", editor)
+
     def test_welcome_canvas_formats_render_with_distinct_aspect_ratios(self):
         avatar = self._avatar_bytes()
         cases = [
