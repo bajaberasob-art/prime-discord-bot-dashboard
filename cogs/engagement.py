@@ -812,66 +812,46 @@ class Engagement(commands.Cog):
 
     @classmethod
     def _render_welcome_image(
-        cls,
-        avatar_data: bytes,
-        member_name: str,
-        guild_name: str,
-        member_count: int,
-        accent: str,
+        cls, avatar_data: bytes, member_name: str, guild_name: str, member_count: int,
+        accent: str, canvas_config: Optional[dict[str, Any]] = None,
     ) -> io.BytesIO:
         width, height = 1200, 420
-        try:
-            rgb = tuple(int(accent[index:index + 2], 16) for index in (1, 3, 5))
-            if len(rgb) != 3:
-                raise ValueError
-        except (TypeError, ValueError):
-            rgb = (124, 58, 237)
-        gradient = Image.new("RGB", (width, 1))
-        pixels = gradient.load()
+        layout = canvas_config if isinstance(canvas_config, dict) else {}
+        def pct(key: str, default: float) -> float:
+            try: return max(0.0, min(100.0, float(layout.get(key, default)))) / 100.0
+            except (TypeError, ValueError): return default / 100.0
+        def color(key: str, default: str) -> tuple[int, int, int]:
+            value = str(layout.get(key) or default)
+            try:
+                if len(value) == 7 and value.startswith("#"): return tuple(int(value[i:i + 2], 16) for i in (1, 3, 5))
+            except ValueError: pass
+            return tuple(int(default[i:i + 2], 16) for i in (1, 3, 5))
+        rgb = color("accent", accent or "#7c3aed")
+        start, end = color("background_start", "#040a16"), color("background_end", "#194876")
+        gradient = Image.new("RGB", (width, 1)); pixels = gradient.load()
         for x in range(width):
             blend = x / max(1, width - 1)
-            edge = (4, 10, 22)
-            tint = (25, 72, 118)
-            pixels[x, 0] = tuple(
-                int(edge[i] * (1 - blend) + tint[i] * blend + rgb[i] * 0.16)
-                for i in range(3)
-            )
-        image = gradient.resize((width, height))
-        draw = ImageDraw.Draw(image, "RGBA")
-        draw.rounded_rectangle((22, 22, width - 22, height - 22), radius=34,
-                               outline=(104, 155, 220, 100), width=2)
-        draw.ellipse((920, -170, 1390, 300), fill=(124, 58, 237, 35))
-        draw.ellipse((790, 210, 1170, 590), fill=(30, 190, 230, 26))
-
-        avatar = Image.open(io.BytesIO(avatar_data)).convert("RGB")
-        avatar = ImageOps.fit(avatar, (250, 250), method=Image.Resampling.LANCZOS)
-        mask = Image.new("L", (250, 250), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, 249, 249), fill=255)
-        draw.ellipse((65, 72, 325, 332), fill=(*rgb, 80), outline=(119, 211, 255, 210), width=4)
-        image.paste(avatar, (70, 77), mask)
-        draw = ImageDraw.Draw(image, "RGBA")
-
+            pixels[x, 0] = tuple(int(start[i] * (1 - blend) + end[i] * blend) for i in range(3))
+        image = gradient.resize((width, height)); draw = ImageDraw.Draw(image, "RGBA")
+        draw.rounded_rectangle((22, 22, width - 22, height - 22), radius=34, outline=(*rgb, 100), width=2)
+        draw.ellipse((920, -170, 1390, 300), fill=(*rgb, 35)); draw.ellipse((790, 210, 1170, 590), fill=(30, 190, 230, 26))
+        avatar_size = 220
+        avatar = ImageOps.fit(Image.open(io.BytesIO(avatar_data)).convert("RGB"), (avatar_size, avatar_size), method=Image.Resampling.LANCZOS)
+        mask = Image.new("L", (avatar_size, avatar_size), 0); ImageDraw.Draw(mask).ellipse((0, 0, avatar_size - 1, avatar_size - 1), fill=255)
+        cx, cy = int(width * pct("avatar_x", 14)), int(height * pct("avatar_y", 50))
+        left, top = cx - avatar_size // 2, cy - avatar_size // 2
+        draw.ellipse((left - 7, top - 7, left + avatar_size + 7, top + avatar_size + 7), fill=(*rgb, 75), outline=(*rgb, 220), width=4)
+        image.paste(avatar, (left, top), mask); draw = ImageDraw.Draw(image, "RGBA")
         font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         try:
-            title_font = ImageFont.truetype(font_path, 27)
-            name_font = ImageFont.truetype(font_path, 48)
-            detail_font = ImageFont.truetype(font_path, 23)
-        except OSError:
-            title_font = name_font = detail_font = ImageFont.load_default()
-        draw.text((1124, 83), cls._welcome_image_text("أهلاً بك في PRIME"),
-                  font=title_font, fill=(112, 210, 255, 255), anchor="ra")
-        safe_name = str(member_name or "عضو جديد")[:32]
-        draw.text((1124, 150), cls._welcome_image_text(safe_name),
-                  font=name_font, fill=(248, 250, 252, 255), anchor="ra")
-        draw.text((1124, 242), cls._welcome_image_text(str(guild_name or "السيرفر")[:48]),
-                  font=detail_font, fill=(192, 207, 226, 255), anchor="ra")
-        count_text = cls._welcome_image_text(f"العضو رقم {max(0, int(member_count)):,}")
-        draw.text((1124, 296), count_text, font=detail_font,
-                  fill=(181, 162, 255, 255), anchor="ra")
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG", optimize=True)
-        buffer.seek(0)
-        return buffer
+            title_font, name_font, detail_font = ImageFont.truetype(font_path, 27), ImageFont.truetype(font_path, 48), ImageFont.truetype(font_path, 23)
+        except OSError: title_font = name_font = detail_font = ImageFont.load_default()
+        text_x = int(width * pct("name_x", 94))
+        draw.text((text_x, int(height * pct("title_y", 20))), cls._welcome_image_text("أهلاً بك في PRIME"), font=title_font, fill=(*rgb, 255), anchor="ra")
+        draw.text((text_x, int(height * pct("name_y", 38))), cls._welcome_image_text(str(member_name or "عضو جديد")[:32]), font=name_font, fill=(248, 250, 252, 255), anchor="ra")
+        if layout.get("show_server", True): draw.text((text_x, int(height * pct("server_y", 60))), cls._welcome_image_text(str(guild_name or "السيرفر")[:48]), font=detail_font, fill=(192, 207, 226, 255), anchor="ra")
+        if layout.get("show_count", True): draw.text((text_x, int(height * pct("count_y", 75))), cls._welcome_image_text(f"العضو رقم {max(0, int(member_count)):,}"), font=detail_font, fill=(*rgb, 255), anchor="ra")
+        buffer = io.BytesIO(); image.save(buffer, format="PNG", optimize=True); buffer.seek(0); return buffer
 
     async def _generate_welcome_image(
         self,
@@ -894,6 +874,7 @@ class Engagement(commands.Cog):
                 getattr(guild, "name", "السيرفر"),
                 int(getattr(guild, "member_count", 0) or 0),
                 str(config.get("welcome_embed_color") or "#7c3aed"),
+                config.get("welcome_canvas_config") if isinstance(config.get("welcome_canvas_config"), dict) else {},
             )
             return discord.File(buffer, filename="prime-welcome.png")
         except (asyncio.TimeoutError, discord.HTTPException, OSError, ValueError):
