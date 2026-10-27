@@ -61,6 +61,17 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn('elif field == "elements":', source)
         self.assertIn('"frame"', source)
 
+    def test_legacy_welcome_positions_are_clamped_without_moving_editor_layers(self):
+        script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
+        self.assertIn("bounded(avatar.x + avatar.width / 2, 12, 35)", script)
+        self.assertIn("bounded(avatar.y + avatar.height / 2, 25, 75)", script)
+        self.assertIn("bounded(title.y, 8, 30)", script)
+        self.assertIn("bounded(name.x + name.width, 45, 96)", script)
+        self.assertIn("bounded(name.y + name.height / 2, 25, 60)", script)
+        self.assertIn("bounded(server.y + server.height / 2, 45, 78)", script)
+        self.assertIn("bounded(count.y + count.height / 2, 60, 90)", script)
+        self.assertIn("actual editor layers retain their free-form positions in elements", script)
+
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
@@ -74,11 +85,11 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v59", server)
+        self.assertIn("prime-dashboard-shell-v60", server)
         self.assertIn("welcome-editor.css?v=welcome-editor-5", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-5", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-6", server)
         self.assertIn("welcome-editor.css?v=welcome-editor-5", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-5", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-6", index)
 
 
 if __name__ == "__main__":
