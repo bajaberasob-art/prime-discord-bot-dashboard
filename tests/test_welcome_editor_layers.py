@@ -85,11 +85,11 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v61", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-7", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-7", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-7", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-7", index)
+        self.assertIn("prime-dashboard-shell-v62", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-8", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-8", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-8", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-8", index)
 
 
 if __name__ == "__main__":
