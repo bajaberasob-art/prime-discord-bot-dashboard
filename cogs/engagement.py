@@ -9,7 +9,7 @@ from typing import Any, Optional
 from pathlib import Path
 
 import discord
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from discord import app_commands
 from discord.ext import commands
 
@@ -840,7 +840,15 @@ class Engagement(commands.Cog):
                 background_path = (Path("data/welcome-backgrounds") / f"{int(guild_id)}.png").resolve()
                 if background_path.is_file():
                     custom = Image.open(background_path).convert("RGB")
-                    image = ImageOps.fit(custom, (width, height), method=Image.Resampling.LANCZOS)
+                    # Use a blurred fill behind the full uploaded artwork to avoid
+                    # cropping important content when the image aspect ratio differs.
+                    backdrop = ImageOps.fit(custom, (width, height), method=Image.Resampling.LANCZOS)
+                    backdrop = backdrop.filter(ImageFilter.GaussianBlur(radius=22))
+                    foreground = ImageOps.contain(custom, (width, height), method=Image.Resampling.LANCZOS)
+                    x_offset = (width - foreground.width) // 2
+                    y_offset = (height - foreground.height) // 2
+                    backdrop.paste(foreground, (x_offset, y_offset))
+                    image = backdrop
             except (OSError, ValueError):
                 logger.warning("Could not load custom welcome background for guild %s", guild_id)
         elements = layout.get("elements")
