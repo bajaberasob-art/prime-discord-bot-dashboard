@@ -26,7 +26,7 @@
 
   function normalize(config) {
     const base = { ...DEFAULTS, ...(config && typeof config === "object" ? config : {}) };
-    if (Array.isArray(base.elements) && base.elements.length) {
+    if (Array.isArray(base.elements)) {
       base.elements = base.elements.slice(0, 24).map((e, i) => ({
         id: String(e.id || uid()), type: ["avatar","title","name","server","count","text","shape","line","frame"].includes(e.type) ? e.type : "text",
         label: String(e.label || labelFor(e.type)), x: clamp(e.x, 0, 100), y: clamp(e.y, 0, 100),
