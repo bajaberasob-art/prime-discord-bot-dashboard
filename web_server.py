@@ -1004,7 +1004,7 @@ def pwa_svg() -> str:
 
 
 def service_worker_source() -> str:
-    return """const CACHE = "prime-dashboard-shell-v62";
+    return """const CACHE = "prime-dashboard-shell-v63";
 const STATIC = [
   "./",
   "./static/app.css?v=level-card-media-upload-1",
@@ -1018,7 +1018,7 @@ const STATIC = [
   "./static/interactive-info-panel.css?v=iip-3",
   "./static/interactive-info-panel.js?v=iip-4",
   "./static/welcome-editor.css?v=welcome-editor-8",
-  "./static/welcome-editor.js?v=welcome-editor-8",
+  "./static/welcome-editor.js?v=welcome-editor-9",
   "./static/leveling-card-assets.css?v=phase7",
   "./static/ai-control.js?v=prime-ai-usage-1",
   "./static/ai-magic-island.js?v=prime-ai-usage-1",
@@ -5078,13 +5078,17 @@ async def api_upload_welcome_background(req):
         image = Image.open(io.BytesIO(bytes(data)))
         if image.format not in {"PNG", "JPEG", "WEBP"}:
             return json_error(415, "unsupported_image_type", fields={"file": "الصيغ المدعومة PNG وJPG وWEBP فقط."})
-        if image.width < 1 or image.height < 1 or image.width > 12000 or image.height > 12000:
-            return json_error(400, "invalid_image_dimensions", fields={"file": "أبعاد الصورة يجب ألا تتجاوز 12000×12000 بكسل."})
+        if (
+            image.width < 1 or image.height < 1
+            or image.width > 12000 or image.height > 12000
+            or image.width * image.height > 60_000_000
+        ):
+            return json_error(400, "invalid_image_dimensions", fields={"file": "أبعاد الصورة غير مناسبة للمعالجة (الحد الأقصى 12000 بكسل لكل ضلع و60 مليون بكسل إجمالاً)."})
         image.verify()
         image = Image.open(io.BytesIO(bytes(data)))
         image = ImageOps.exif_transpose(image)
         if image.mode not in {"RGB", "RGBA"}:
-            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+            image = image.convert("RGBA" if ("A" in image.getbands() or "transparency" in image.info) else "RGB")
         output = io.BytesIO()
         image.save(output, format="PNG", optimize=True)
     except (OSError, ValueError, Image.DecompressionBombError):
@@ -5096,12 +5100,16 @@ async def api_upload_welcome_background(req):
         logger.exception("Could not persist welcome background in SQLite for guild %s", guild.id)
         return json_error(500, "background_persistence_failed", fields={"file": "تعذر حفظ الصورة بشكل دائم في قاعدة البيانات."})
     # Mirror the durable asset for compatibility with older bot versions during rollout.
-    path = _welcome_background_path(guild.id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".png.tmp")
-    temporary.write_bytes(normalized_image)
-    temporary.replace(path)
-    return web.json_response({"ok": True, "url": f"/api/guild/{guild.id}/onboarding/welcome-background", "size": len(normalized_image), "width": image.width, "height": image.height})
+    # The DB commit is authoritative; a non-writable file cache is not an upload failure.
+    try:
+        path = _welcome_background_path(guild.id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".png.tmp")
+        temporary.write_bytes(normalized_image)
+        temporary.replace(path)
+    except OSError:
+        logger.warning("Welcome background saved in SQLite but file cache could not be refreshed for guild %s", guild.id, exc_info=True)
+    return web.json_response({"ok": True, "url": f"/api/guild/{guild.id}/onboarding/welcome-background", "size": len(normalized_image), "width": image.width, "height": image.height, "persisted": True})
 
 @routes.delete("/api/guild/{guild_id}/onboarding/welcome-background")
 async def api_delete_welcome_background(req):
@@ -5110,9 +5118,10 @@ async def api_delete_welcome_background(req):
         await delete_welcome_background_asset(guild.id)
         path = _welcome_background_path(guild.id)
         path.unlink(missing_ok=True)
-    except OSError:
+    except Exception:
+        logger.exception("Could not delete Welcome Studio background for guild %s", guild.id)
         return json_error(500, "background_delete_failed")
-    return web.json_response({"ok": True})
+    return web.json_response({"ok": True, "persisted": True})
 
 
 ONBOARDING_KEYS = {
