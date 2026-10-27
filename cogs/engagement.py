@@ -27,6 +27,7 @@ from database import (
     save_rules_panel,
     get_self_role_panels,
     save_self_role_panel,
+    get_welcome_background_asset,
 )
 
 
@@ -837,9 +838,12 @@ class Engagement(commands.Cog):
         image = gradient.resize((width, height))
         if layout.get("use_custom_background") and guild_id:
             try:
-                background_path = (Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds" / f"{int(guild_id)}.png").resolve()
-                if background_path.is_file():
-                    custom = Image.open(background_path).convert("RGB")
+                background_data = layout.get("_background_image_data")
+                if not isinstance(background_data, (bytes, bytearray)):
+                    background_path = (Path(__file__).resolve().parent.parent / "data" / "welcome-backgrounds" / f"{int(guild_id)}.png").resolve()
+                    background_data = background_path.read_bytes() if background_path.is_file() else None
+                if background_data:
+                    custom = Image.open(io.BytesIO(background_data)).convert("RGB")
                     # Use a blurred fill behind the full uploaded artwork to avoid
                     # cropping important content when the image aspect ratio differs.
                     backdrop = ImageOps.fit(custom, (width, height), method=Image.Resampling.LANCZOS)
@@ -1000,6 +1004,12 @@ class Engagement(commands.Cog):
             avatar_data = await asyncio.wait_for(read_avatar(), timeout=8)
             if not avatar_data or len(avatar_data) > 4 * 1024 * 1024:
                 return None
+            canvas_config = dict(config.get("welcome_canvas_config") if isinstance(config.get("welcome_canvas_config"), dict) else {})
+            if canvas_config.get("use_custom_background"):
+                try:
+                    canvas_config["_background_image_data"] = await get_welcome_background_asset(guild.id)
+                except Exception:
+                    logger.warning("[WELCOME_IMAGE] تعذر تحميل الخلفية المحفوظة للسيرفر %s", guild.id, exc_info=True)
             buffer = await asyncio.to_thread(
                 self._render_welcome_image,
                 avatar_data,
@@ -1007,7 +1017,7 @@ class Engagement(commands.Cog):
                 getattr(guild, "name", "السيرفر"),
                 int(getattr(guild, "member_count", 0) or 0),
                 str(config.get("welcome_embed_color") or "#7c3aed"),
-                config.get("welcome_canvas_config") if isinstance(config.get("welcome_canvas_config"), dict) else {},
+                canvas_config,
                 int(getattr(guild, "id", 0) or 0),
             )
             return discord.File(buffer, filename="prime-welcome.png")
