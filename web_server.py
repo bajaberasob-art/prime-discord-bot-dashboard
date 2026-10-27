@@ -5038,21 +5038,26 @@ async def api_upload_welcome_background(req):
     _, guild = await authorize(req, write=True)
     if req.content_type.lower() != "multipart/form-data":
         return json_error(415, "multipart_required", fields={"file": "ارفع صورة بصيغة ملف."})
-    multipart = await req.multipart()
-    part = await multipart.next()
-    if part is None or part.name != "file" or not part.filename:
-        return json_error(400, "missing_image", fields={"file": "اختر صورة أولاً."})
-    declared_mime = (part.headers.get("Content-Type") or "").lower().split(";", 1)[0].strip()
-    if declared_mime not in {"image/png", "image/jpeg", "image/webp"}:
-        return json_error(415, "unsupported_image_type", fields={"file": "الصيغ المدعومة PNG وJPG وWEBP فقط."})
-    data = bytearray()
-    while True:
-        chunk = await part.read_chunk(size=64 * 1024)
-        if not chunk:
-            break
-        data.extend(chunk)
-        if len(data) > WELCOME_BACKGROUND_MAX_BYTES:
-            return json_error(413, "image_too_large", fields={"file": "الحد الأقصى لحجم الخلفية 5 ميجابايت."})
+    try:
+        multipart = await req.multipart()
+        part = await multipart.next()
+        if part is None or part.name != "file" or not part.filename:
+            return json_error(400, "missing_image", fields={"file": "اختر صورة أولاً."})
+        declared_mime = (part.headers.get("Content-Type") or "").lower().split(";", 1)[0].strip()
+        if declared_mime not in {"image/png", "image/jpeg", "image/webp"}:
+            return json_error(415, "unsupported_image_type", fields={"file": "الصيغ المدعومة PNG وJPG وWEBP فقط."})
+        data = bytearray()
+        while True:
+            chunk = await part.read_chunk(size=64 * 1024)
+            if not chunk:
+                break
+            data.extend(chunk)
+            if len(data) > WELCOME_BACKGROUND_MAX_BYTES:
+                return json_error(413, "image_too_large", fields={"file": "الحد الأقصى لحجم الخلفية 5 ميجابايت."})
+    except (ConnectionResetError, asyncio.IncompleteReadError, aiohttp.ClientPayloadError):
+        # The browser or proxy closed the upload stream. The old background remains untouched.
+        logger.info("Welcome background upload disconnected before completion for guild %s", guild.id)
+        return web.Response(status=499, text="upload_disconnected")
     if not data:
         return json_error(400, "empty_image", fields={"file": "الملف فارغ."})
     from PIL import Image, ImageOps
