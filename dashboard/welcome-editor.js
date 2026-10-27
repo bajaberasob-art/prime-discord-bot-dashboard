@@ -112,7 +112,8 @@
     const avatar = preview.querySelector(".welcome-editor-avatar");
     avatar.style.left = current.avatar_x + "%"; avatar.style.top = current.avatar_y + "%";
     const copy = preview.querySelector(".welcome-editor-copy");
-    copy.style.left = current.name_x + "%";
+    copy.style.left = "0";
+    copy.querySelectorAll(".welcome-editor-title,.welcome-editor-name,.welcome-editor-server,.welcome-editor-count").forEach(node => node.style.right = (100 - current.name_x) + "%");
     const title = preview.querySelector(".welcome-editor-title"); title.style.top = current.title_y + "%";
     const name = preview.querySelector(".welcome-editor-name"); name.style.top = current.name_y + "%";
     const server = preview.querySelector(".welcome-editor-server"); server.style.top = current.server_y + "%"; server.hidden = !current.show_server;
