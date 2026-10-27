@@ -843,25 +843,139 @@ class Engagement(commands.Cog):
                     image = ImageOps.fit(custom, (width, height), method=Image.Resampling.LANCZOS)
             except (OSError, ValueError):
                 logger.warning("Could not load custom welcome background for guild %s", guild_id)
-        draw = ImageDraw.Draw(image, "RGBA")
-        draw.rounded_rectangle((22, 22, width - 22, height - 22), radius=34, outline=(*rgb, 100), width=2)
-        draw.ellipse((920, -170, 1390, 300), fill=(*rgb, 35)); draw.ellipse((790, 210, 1170, 590), fill=(30, 190, 230, 26))
-        avatar_size = 220
-        avatar = ImageOps.fit(Image.open(io.BytesIO(avatar_data)).convert("RGB"), (avatar_size, avatar_size), method=Image.Resampling.LANCZOS)
-        mask = Image.new("L", (avatar_size, avatar_size), 0); ImageDraw.Draw(mask).ellipse((0, 0, avatar_size - 1, avatar_size - 1), fill=255)
-        cx, cy = int(width * pct("avatar_x", 14)), int(height * pct("avatar_y", 50))
-        left, top = cx - avatar_size // 2, cy - avatar_size // 2
-        draw.ellipse((left - 7, top - 7, left + avatar_size + 7, top + avatar_size + 7), fill=(*rgb, 75), outline=(*rgb, 220), width=4)
-        image.paste(avatar, (left, top), mask); draw = ImageDraw.Draw(image, "RGBA")
-        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-        try:
-            title_font, name_font, detail_font = ImageFont.truetype(font_path, 27), ImageFont.truetype(font_path, 48), ImageFont.truetype(font_path, 23)
-        except OSError: title_font = name_font = detail_font = ImageFont.load_default()
-        text_x = int(width * pct("name_x", 94))
-        draw.text((text_x, int(height * pct("title_y", 20))), cls._welcome_image_text("أهلاً بك في PRIME"), font=title_font, fill=(*rgb, 255), anchor="ra")
-        draw.text((text_x, int(height * pct("name_y", 38))), cls._welcome_image_text(str(member_name or "عضو جديد")[:32]), font=name_font, fill=(248, 250, 252, 255), anchor="ra")
-        if layout.get("show_server", True): draw.text((text_x, int(height * pct("server_y", 60))), cls._welcome_image_text(str(guild_name or "السيرفر")[:48]), font=detail_font, fill=(192, 207, 226, 255), anchor="ra")
-        if layout.get("show_count", True): draw.text((text_x, int(height * pct("count_y", 75))), cls._welcome_image_text(f"العضو رقم {max(0, int(member_count)):,}"), font=detail_font, fill=(*rgb, 255), anchor="ra")
+        elements = layout.get("elements")
+        if isinstance(elements, list):
+            # Editable layers are rendered from the same persisted element model used by Welcome Studio.
+            image = image.convert("RGBA")
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+            try:
+                avatar_source = Image.open(io.BytesIO(avatar_data)).convert("RGBA")
+            except (OSError, ValueError):
+                avatar_source = None
+
+            def element_color(value: Any, fallback: str = "#7c3aed") -> tuple[int, int, int]:
+                raw = str(value or fallback)
+                try:
+                    if len(raw) == 7 and raw.startswith("#"):
+                        return tuple(int(raw[i:i + 2], 16) for i in (1, 3, 5))
+                except ValueError:
+                    pass
+                return tuple(int(fallback[i:i + 2], 16) for i in (1, 3, 5))
+
+            def render_element(element: dict[str, Any]) -> None:
+                if not isinstance(element, dict) or not element.get("visible", True):
+                    return
+                element_type = str(element.get("type") or "text")
+                if element_type not in {"avatar", "title", "name", "server", "count", "text", "shape", "line", "frame"}:
+                    return
+                try:
+                    ex = max(0, min(100, float(element.get("x", 0)))) / 100
+                    ey = max(0, min(100, float(element.get("y", 0)))) / 100
+                    ew = max(1, min(100, float(element.get("width", 30)))) / 100
+                    eh = max(1, min(100, float(element.get("height", 10)))) / 100
+                    font_size = max(8, min(160, int(float(element.get("fontSize", 24)))))
+                    opacity = max(0, min(100, float(element.get("opacity", 100)))) / 100
+                    rotation = max(-180, min(180, float(element.get("rotation", 0))))
+                except (TypeError, ValueError):
+                    return
+                if opacity <= 0:
+                    return
+                x0, y0 = int(width * ex), int(height * ey)
+                box_w, box_h = max(2, int(width * ew)), max(2, int(height * eh))
+                box_w, box_h = min(box_w, width - x0), min(box_h, height - y0)
+                if box_w <= 0 or box_h <= 0:
+                    return
+                base_color = element_color(element.get("color"), str(layout.get("accent") or accent or "#7c3aed"))
+                alpha = int(255 * opacity)
+                overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+                layer_draw = ImageDraw.Draw(overlay, "RGBA")
+                box = (x0, y0, x0 + box_w - 1, y0 + box_h - 1)
+                if element_type == "frame":
+                    border_width = max(1, int(min(box_w, box_h) * 0.012))
+                    radius = max(4, int(min(box_w, box_h) * 0.08))
+                    layer_draw.rounded_rectangle(box, radius=radius, outline=(*base_color, alpha), width=border_width)
+                elif element_type == "shape":
+                    radius = max(2, int(min(box_w, box_h) * 0.08))
+                    layer_draw.rounded_rectangle(box, radius=radius, fill=(*base_color, alpha))
+                elif element_type == "line":
+                    stroke = max(1, min(box_h, int(max(2, height * 0.008))))
+                    layer_draw.line((x0, y0 + box_h // 2, x0 + box_w - 1, y0 + box_h // 2), fill=(*base_color, alpha), width=stroke)
+                elif element_type == "avatar":
+                    if avatar_source is not None:
+                        diameter = max(2, min(box_w, box_h))
+                        avatar = ImageOps.fit(avatar_source, (diameter, diameter), method=Image.Resampling.LANCZOS)
+                        mask = Image.new("L", (diameter, diameter), 0)
+                        ImageDraw.Draw(mask).ellipse((0, 0, diameter - 1, diameter - 1), fill=int(255 * opacity))
+                        ring = ImageDraw.Draw(overlay, "RGBA")
+                        ring_width = max(2, int(diameter * 0.025))
+                        cx, cy = x0 + box_w // 2, y0 + box_h // 2
+                        ring.ellipse((cx - diameter // 2 - ring_width, cy - diameter // 2 - ring_width,
+                                      cx + diameter // 2 + ring_width, cy + diameter // 2 + ring_width),
+                                     fill=(*base_color, int(90 * opacity)), outline=(*base_color, alpha), width=ring_width)
+                        overlay.paste(avatar, (cx - diameter // 2, cy - diameter // 2), mask)
+                else:
+                    template = str(element.get("text") or "")
+                    dynamic_values = {
+                        "{username}": str(member_name or "عضو جديد")[:32],
+                        "{server}": str(guild_name or "السيرفر")[:48],
+                        "{member_count}": str(max(0, int(member_count))),
+                        "{count}": str(max(0, int(member_count))),
+                    }
+                    for token, dynamic in dynamic_values.items():
+                        template = template.replace(token, dynamic)
+                    if element_type == "title" and template in {"", "أهلاً بك في PRIME"}:
+                        text_value = "أهلاً بك في PRIME"
+                    elif element_type == "name" and template in {"", "اسم العضو"}:
+                        text_value = str(member_name or "عضو جديد")[:32]
+                    elif element_type == "server" and template in {"", "اسم السيرفر"}:
+                        text_value = str(guild_name or "السيرفر")[:48]
+                    elif element_type == "count" and template in {"", "العضو رقم 128"}:
+                        text_value = f"العضو رقم {max(0, int(member_count)):,}"
+                    else:
+                        text_value = template
+                    if text_value:
+                        try:
+                            font = ImageFont.truetype(font_path, font_size)
+                        except OSError:
+                            font = ImageFont.load_default()
+                        align = element.get("align", "left")
+                        if align == "right":
+                            anchor, tx = "rm", x0 + box_w - 3
+                        elif align == "center":
+                            anchor, tx = "mm", x0 + box_w // 2
+                        else:
+                            anchor, tx = "lm", x0 + 3
+                        shaped = cls._welcome_image_text(text_value)
+                        layer_draw.text((tx, y0 + box_h // 2), shaped, font=font,
+                                        fill=(*base_color, alpha), anchor=anchor)
+                if rotation:
+                    overlay = overlay.rotate(-rotation, resample=Image.Resampling.BICUBIC,
+                                             center=(x0 + box_w / 2, y0 + box_h / 2))
+                image.alpha_composite(overlay)
+
+            for element in elements[:24]:
+                render_element(element)
+        else:
+            # Legacy saved layouts remain supported until the server owner opens and saves the new editor.
+            draw = ImageDraw.Draw(image, "RGBA")
+            draw.rounded_rectangle((22, 22, width - 22, height - 22), radius=34, outline=(*rgb, 100), width=2)
+            draw.ellipse((920, -170, 1390, 300), fill=(*rgb, 35)); draw.ellipse((790, 210, 1170, 590), fill=(30, 190, 230, 26))
+            avatar_size = 220
+            avatar = ImageOps.fit(Image.open(io.BytesIO(avatar_data)).convert("RGB"), (avatar_size, avatar_size), method=Image.Resampling.LANCZOS)
+            mask = Image.new("L", (avatar_size, avatar_size), 0); ImageDraw.Draw(mask).ellipse((0, 0, avatar_size - 1, avatar_size - 1), fill=255)
+            cx, cy = int(width * pct("avatar_x", 14)), int(height * pct("avatar_y", 50))
+            left, top = cx - avatar_size // 2, cy - avatar_size // 2
+            draw.ellipse((left - 7, top - 7, left + avatar_size + 7, top + avatar_size + 7), fill=(*rgb, 75), outline=(*rgb, 220), width=4)
+            image.paste(avatar, (left, top), mask); draw = ImageDraw.Draw(image, "RGBA")
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+            try:
+                title_font, name_font, detail_font = ImageFont.truetype(font_path, 27), ImageFont.truetype(font_path, 48), ImageFont.truetype(font_path, 23)
+            except OSError: title_font = name_font = detail_font = ImageFont.load_default()
+            text_x = int(width * pct("name_x", 94))
+            draw.text((text_x, int(height * pct("title_y", 20))), cls._welcome_image_text("أهلاً بك في PRIME"), font=title_font, fill=(*rgb, 255), anchor="ra")
+            draw.text((text_x, int(height * pct("name_y", 38))), cls._welcome_image_text(str(member_name or "عضو جديد")[:32]), font=name_font, fill=(248, 250, 252, 255), anchor="ra")
+            if layout.get("show_server", True): draw.text((text_x, int(height * pct("server_y", 60))), cls._welcome_image_text(str(guild_name or "السيرفر")[:48]), font=detail_font, fill=(192, 207, 226, 255), anchor="ra")
+            if layout.get("show_count", True): draw.text((text_x, int(height * pct("count_y", 75))), cls._welcome_image_text(f"العضو رقم {max(0, int(member_count)):,}"), font=detail_font, fill=(*rgb, 255), anchor="ra")
         buffer = io.BytesIO(); image.save(buffer, format="PNG", optimize=True); buffer.seek(0); return buffer
 
     async def _generate_welcome_image(
