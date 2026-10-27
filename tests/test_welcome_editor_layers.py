@@ -61,36 +61,15 @@ class WelcomeStudioLayerTests(unittest.TestCase):
         self.assertIn('elif field == "elements":', source)
         self.assertIn('"frame"', source)
 
-    def test_legacy_welcome_positions_are_clamped_without_moving_editor_layers(self):
+    def test_welcome_studio_allows_free_positions_and_preserves_background(self):
         script = (ROOT / "dashboard" / "welcome-editor.js").read_text(encoding="utf-8")
-        self.assertIn("bounded(avatar.x + avatar.width / 2, 12, 35)", script)
-        self.assertIn("bounded(avatar.y + avatar.height / 2, 25, 75)", script)
-        self.assertIn("bounded(title.y, 8, 30)", script)
-        self.assertIn("bounded(name.x + name.width, 45, 96)", script)
-        self.assertIn("bounded(name.y + name.height / 2, 25, 60)", script)
-        self.assertIn("bounded(server.y + server.height / 2, 45, 78)", script)
-        self.assertIn("bounded(count.y + count.height / 2, 60, 90)", script)
-        self.assertIn("actual editor layers retain their free-form positions in elements", script)
-
-        from database import validate_setting
-        # Reproduce the layer positions visible in the deployment screenshot.
-        config = {
-            "name_x": 52.0,
-            "name_y": 80.3,
-            "elements": [{
-                "id": "name", "type": "name", "label": "اسم العضو",
-                "x": 7.0, "y": 72.8, "width": 45.0, "height": 15.0,
-                "fontSize": 48.0, "color": "#ffffff", "visible": True,
-                "locked": False, "opacity": 100.0, "rotation": 0.0,
-                "align": "right", "text": "اسم العضو",
-            }],
-        }
-        with self.assertRaisesRegex(ValueError, "موضع name_y"):
-            validate_setting("welcome_canvas_config", config)
-        config["name_y"] = 60.0
-        validated = validate_setting("welcome_canvas_config", config)
-        self.assertEqual(validated["name_y"], 60.0)
-        self.assertEqual(validated["elements"][0]["y"], 72.8)
+        renderer = (ROOT / "cogs" / "engagement.py").read_text(encoding="utf-8")
+        self.assertIn("freeform elements are the source of truth", script)
+        self.assertNotIn("current.name_y =", script)
+        self.assertNotIn("current.avatar_x =", script)
+        self.assertIn("ImageOps.contain(custom, (width, height)", renderer)
+        self.assertIn("ImageFilter.GaussianBlur(radius=22)", renderer)
+        self.assertIn("backdrop.paste(foreground, (x_offset, y_offset))", renderer)
 
     def test_welcome_background_upload_handles_disconnect_and_retries(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
@@ -105,11 +84,11 @@ class WelcomeStudioLayerTests(unittest.TestCase):
     def test_service_worker_cache_matches_welcome_editor_assets(self):
         server = (ROOT / "web_server.py").read_text(encoding="utf-8")
         index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("prime-dashboard-shell-v60", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-5", server)
-        self.assertIn("welcome-editor.js?v=welcome-editor-6", server)
-        self.assertIn("welcome-editor.css?v=welcome-editor-5", index)
-        self.assertIn("welcome-editor.js?v=welcome-editor-6", index)
+        self.assertIn("prime-dashboard-shell-v61", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-7", server)
+        self.assertIn("welcome-editor.js?v=welcome-editor-7", server)
+        self.assertIn("welcome-editor.css?v=welcome-editor-7", index)
+        self.assertIn("welcome-editor.js?v=welcome-editor-7", index)
 
 
 if __name__ == "__main__":
