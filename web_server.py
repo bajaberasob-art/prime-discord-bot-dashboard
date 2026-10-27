@@ -5024,6 +5024,7 @@ async def api_test_welcome(req):
 
 
 WELCOME_BACKGROUND_MAX_BYTES = 15 * 1024 * 1024
+WELCOME_BACKGROUND_MAX_PIXELS = 6_000_000
 # Anchor uploaded assets to the application directory, not the process working directory.
 # This keeps the dashboard and bot renderer reading the same file after restarts.
 WELCOME_BACKGROUND_ROOT = Path(__file__).resolve().parent / "data" / "welcome-backgrounds"
@@ -5112,6 +5113,16 @@ async def api_upload_welcome_background(req):
         image.verify()
         image = Image.open(io.BytesIO(bytes(data)))
         image = ImageOps.exif_transpose(image)
+        # The final Discord card is at most 1200px wide. Normalize very large
+        # source images once, preserving their ratio, so four saved slots do not
+        # inflate the persistent SQLite database with unnecessary full-resolution PNGs.
+        if image.width * image.height > WELCOME_BACKGROUND_MAX_PIXELS:
+            scale = (WELCOME_BACKGROUND_MAX_PIXELS / (image.width * image.height)) ** 0.5
+            resized = (
+                max(1, int(round(image.width * scale))),
+                max(1, int(round(image.height * scale))),
+            )
+            image = image.resize(resized, Image.Resampling.LANCZOS)
         if image.mode not in {"RGB", "RGBA"}:
             image = image.convert("RGBA" if ("A" in image.getbands() or "transparency" in image.info) else "RGB")
         output = io.BytesIO()
