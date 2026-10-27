@@ -340,7 +340,7 @@ function updateLayoutControls(){
  $('layoutShadowColor').value=/^#[0-9a-fA-F]{6}$/.test(String(box.shadow_color||''))?box.shadow_color:'#000000';
  $('layoutShadowOffset').value=Number.isFinite(Number(box.shadow_offset))&&box.shadow_offset!==''?Math.max(0,Math.min(12,Math.round(Number(box.shadow_offset)))):3;
  for(const id of ['layoutFontSize','layoutFontFamily','layoutAutoColor','layoutBold','layoutStrokeWidth','layoutStrokeColor','layoutShadow','layoutShadowColor','layoutShadowOffset','applyElementStyle'])$(id).disabled=!styleable;
- $('layoutTextColor').disabled=!styleable||$('layoutAutoColor').checked;
+ $('layoutTextColor').disabled=!styleable;
  $('layoutStrokeColor').disabled=!styleable;
  $('layoutShadowColor').disabled=!styleable||!$('layoutShadow').checked;
  $('layoutShadowOffset').disabled=!styleable||!$('layoutShadow').checked;
@@ -426,8 +426,9 @@ $('layoutField').addEventListener('change',()=>{ensureLayoutField($('layoutField
 $('layoutTextColor').addEventListener('input',()=>{if($('layoutAutoColor').checked)$('layoutAutoColor').checked=false;applyLiveElementStyle()});
 $('layoutAutoColor').addEventListener('change',applyLiveElementStyle);
 for(const id of ['layoutFontSize','layoutFontFamily','layoutStrokeWidth','layoutStrokeColor','layoutShadow','layoutShadowColor','layoutShadowOffset','layoutBold','layoutTextContent','layoutAnchor']){
- const control=$(id);if(!control)continue;control.addEventListener(control.tagName==='SELECT'||control.type==='checkbox'?'change':'input',applyLiveElementStyle);
+ const control=$(id);if(!control)continue;control.addEventListener(control.type==='color'||id==='layoutTextContent'?'input':'change',applyLiveElementStyle);
 }
+$('layoutStylePanel').addEventListener('focusin',event=>{if(event.target.matches('input,select'))pushLayoutHistory()});
 
 $('applyElementStyle').addEventListener('click',applyElementStyle);
 $('applyLayout').addEventListener('click',applyLayoutInputs);
