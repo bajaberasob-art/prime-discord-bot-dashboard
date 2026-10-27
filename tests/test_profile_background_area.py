@@ -126,6 +126,20 @@ class ProfileBackgroundAreaTests(unittest.TestCase):
         self.assertIn("b.fit=$('backgroundFit').value", client)
 
 
+    def test_transparency_editor_supports_multiple_black_regions_and_real_png_alpha(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "dashboard" / "profile-store-admin.html").read_text("utf-8")
+        client = (root / "dashboard" / "profile-store-admin.js").read_text("utf-8")
+        self.assertIn('id="transparencyTemplate"', html)
+        self.assertIn('id="transparencyCanvas"', html)
+        self.assertIn('id="transparencyTolerance"', html)
+        self.assertIn("function transparencyFlood(seedX,seedY)", client)
+        self.assertIn("transparency.seeds.push", client)
+        self.assertIn("canvas.toBlob(resolve,'image/png')", client)
+        self.assertIn("form.append('file',new File([blob],'transparent-template.png',{type:'image/png'}))", client)
+        self.assertIn("refreshTransparencyOptions();", client)
+        self.assertIn("await api('/items/'+encodeURIComponent(transparency.itemId)+'/asset'", client)
+
     def test_startup_seed_does_not_overwrite_saved_template_layout(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "profile_store_db.py").read_text("utf-8")
