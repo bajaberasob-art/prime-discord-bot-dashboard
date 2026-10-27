@@ -58,6 +58,7 @@
   function open({ config = {}, onSave } = {}) {
     close();
     current = normalize(config); history = []; future = []; selectedId = current.elements.some(e => e.id === "name") ? "name" : current.elements[0]?.id;
+    window.PRIMEWelcomeEditor.cacheKey = Date.now();
     onSaveCallback = onSave;
     const modal = document.createElement("div");
     modal.className = "welcome-editor-backdrop";
@@ -147,7 +148,7 @@
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.ok) return setStatus(result.fields?.file || "تعذر رفع الخلفية والتحقق منها.");
-        checkpoint(); current.use_custom_background = true; renderStage(); setStatus("تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.");
+        checkpoint(); current.use_custom_background = true; window.PRIMEWelcomeEditor.cacheKey = Date.now(); renderStage(); setStatus("تم رفع الخلفية. اضغط حفظ التصميم لتطبيقها.");
       } catch (_) { setStatus("تعذر الاتصال بالخادم أثناء رفع الخلفية."); }
       finally { button.disabled = false; }
     });
