@@ -320,17 +320,23 @@ class EnterpriseBot(commands.Bot):
                 "yes",
                 "on",
             }:
-                if self.sync_guild is not None:
-                    self.tree.copy_global_to(guild=self.sync_guild)
-                    synced = await self.tree.sync(guild=self.sync_guild)
-                    logger.info(
-                        "✨ تمت مزامنة %d أمر Slash مع سيرفر التطوير %s.",
-                        len(synced),
-                        self.sync_guild.id,
-                    )
-                else:
-                    synced = await self.tree.sync()
-                    logger.info("✨ تمت مزامنة %d أمر Slash عالمياً بنجاح.", len(synced))
+                try:
+                    if self.sync_guild is not None:
+                        self.tree.copy_global_to(guild=self.sync_guild)
+                        synced = await self.tree.sync(guild=self.sync_guild)
+                        logger.info(
+                            "✨ تمت مزامنة %d أمر Slash مع سيرفر التطوير %s.",
+                            len(synced),
+                            self.sync_guild.id,
+                        )
+                    else:
+                        synced = await self.tree.sync()
+                        logger.info("✨ تمت مزامنة %d أمر Slash عالمياً بنجاح.", len(synced))
+                except discord.HTTPException as error:
+                    # A transient Discord sync outage should not prevent the bot
+                    # from serving already-published commands. Log it clearly;
+                    # errors in the explicit upsert path below still roll back.
+                    logger.error("⚠️ فشل مزامنة أوامر Slash: %s", error)
             else:
                 logger.info("⏭️ تم تخطي مزامنة أوامر Slash؛ فعّل SYNC_COMMANDS=true عند الحاجة.")
                 from cogs.rank_commands import publish_rank_commands
