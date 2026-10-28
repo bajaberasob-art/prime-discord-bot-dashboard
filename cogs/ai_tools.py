@@ -3409,10 +3409,12 @@ class AITools(commands.Cog):
                             timeout_seconds=120, aspect_ratio=aspect_ratio,
                         )
                 except prime_ai_service.AIProviderUnavailable as error:
+                    image_error_reason = str(error)[:120] or "image_provider_unavailable"
                     LOGGER.warning("[AI] Image provider generation failed (%s).", str(error)[:100])
                     failures.append(_provider_failure_message(error))
                     break
                 except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
+                    image_error_reason = "image_request_" + type(error).__name__
                     LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
                     failures.append("تعذر توليد إحدى الصور. تحقق من مفتاح المزوّد وحدود الاستخدام ثم حاول مرة أخرى.")
                     break
@@ -3454,6 +3456,7 @@ class AITools(commands.Cog):
             image_result = "success"
             image_error_reason = ""
         except discord.HTTPException:
+            image_error_reason = "discord_delivery_failed"
             LOGGER.exception("[AI] Discord could not deliver generated image.")
             if not itx.is_expired():
                 await itx.followup.send(
@@ -3462,6 +3465,7 @@ class AITools(commands.Cog):
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
         except Exception:
+            image_error_reason = "unexpected_image_generation_failure"
             LOGGER.exception("[AI] Unexpected image generation failure.")
             await itx.followup.send(
                 "تعذر إكمال توليد الصورة. لم يتم إرسال رابط وهمي؛ تحقق من السجلات وإعدادات مزوّد الصور.",
