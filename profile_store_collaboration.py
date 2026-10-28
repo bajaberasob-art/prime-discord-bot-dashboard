@@ -151,7 +151,9 @@ async def resolve_request_collaborator(request):
         # when the owner created the link, and the token is bound to that guild ID.
         guild = SimpleNamespace(id=int(raw_guild))
     session = {
-        "id": int(link["created_by"]),
+        # Shared links are anonymous bearer access; do not falsely attribute every
+        # collaborator's catalog changes to the owner who created the link.
+        "id": 0,
         "csrf": "",
         "_profile_store_collaboration": True,
         "_profile_store_collaboration_permissions": sorted(perms),
@@ -418,9 +420,11 @@ def register_profile_store_collaboration_routes(routes, authorize, read_json_bod
         response = web.HTTPFound(location=f"/profile-store-collab/{int(raw_guild)}")
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
+        forwarded_proto = str(request.headers.get("X-Forwarded-Proto", "")).split(",", 1)[0].strip().lower()
         response.set_cookie(
             f"{COOKIE_PREFIX}{int(raw_guild)}", token,
-            max_age=seconds, httponly=True, secure=request.scheme == "https",
+            max_age=seconds, httponly=True,
+            secure=request.scheme == "https" or forwarded_proto == "https",
             samesite="Strict", path="/",
         )
         return response
