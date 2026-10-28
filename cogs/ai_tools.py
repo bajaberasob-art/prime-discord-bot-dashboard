@@ -3330,6 +3330,7 @@ class AITools(commands.Cog):
             )
 
         await itx.response.defer(thinking=True)
+        image_started = time.monotonic()
         session = self._current_http_session()
         reference_data = None
         try:
@@ -3401,6 +3402,20 @@ class AITools(commands.Cog):
                     text=f"توليد {provider_label} · طلب بواسطة {itx.user.display_name}",
                 )
                 embeds.append(embed)
+
+            # Keep image requests visible in PRIME AI reliability analytics. Image
+            # cost is not inferred from text tokens; provider billing remains separate.
+            try:
+                await prime_ai_control.record_request(
+                    limit_guild, int(itx.user.id), getattr(itx, "channel_id", None),
+                    skill="imagine", mode="IMAGE",
+                    result="success" if files else "failed",
+                    latency_ms=int((time.monotonic() - image_started) * 1000),
+                    tokens_used=0,
+                    error_reason="" if files else "image_generation_failed",
+                )
+            except Exception:
+                LOGGER.warning("[AI] Could not record image request analytics.", exc_info=True)
 
             if not files:
                 return await itx.followup.send(
