@@ -729,6 +729,33 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
         return
 
     async def store_authorize(request, *, write=False):
+        # Shared collaboration cookies are scoped to the store API only. The
+        # dedicated owner page and all collaboration-management routes remain owner-only.
+        if request.path.startswith("/api/guild/") and "/profile-store/collaboration" not in request.path:
+            from profile_store_collaboration import (
+                resolve_request_collaborator,
+                authorize_item_update_fields,
+                authorize_item_create_fields,
+            )
+            collaborator = await resolve_request_collaborator(request)
+            if collaborator:
+                session, guild, link = collaborator
+                if write and request.method.upper() == "POST" and request.path.endswith("/profile-store/items"):
+                    if not await authorize_item_create_fields(request, link):
+                        raise web.HTTPForbidden(
+                            text=json.dumps({"error": "profile_store_collaboration_permission_denied"}),
+                            content_type="application/json",
+                        )
+                elif write and request.method.upper() == "PUT" and re.fullmatch(
+                    r"/api/guild/\\d+/profile-store/items/\\d+", request.path
+                ):
+                    if not await authorize_item_update_fields(request, link):
+                        raise web.HTTPForbidden(
+                            text=json.dumps({"error": "profile_store_collaboration_permission_denied"}),
+                            content_type="application/json",
+                        )
+                return session, guild
+
         session, guild = await authorize(
             request, write=write, management_tier="admin",
         )
