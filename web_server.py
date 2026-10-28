@@ -7194,6 +7194,8 @@ async def start_web_server(bot):
     register_profile_store_admin_routes(routes, authorize, read_json_body)
     from profile_store_public import register_profile_store_public_routes
     register_profile_store_public_routes(routes)
+    from profile_store_collaboration import register_profile_store_collaboration_routes
+    register_profile_store_collaboration_routes(routes, authorize, read_json_body)
     app = web.Application(middlewares=[private_responses], client_max_size=max(MAX_BODY, 40 * 1024 * 1024))
     app['bot'] = bot
     app.add_routes(routes)

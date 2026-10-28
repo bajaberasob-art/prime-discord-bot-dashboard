@@ -1,5 +1,5 @@
 (()=>{'use strict';
-const root=document.getElementById('app'), guildId=root.dataset.guildId, csrf=root.dataset.csrf;
+const root=document.getElementById('app'), guildId=root.dataset.guildId, csrf=root.dataset.csrf, collaboratorMode=root.dataset.collaborator==='true';
 const $=id=>document.getElementById(id); let items=[],settings={},categories=[],previewUrl='',layoutMetadata={},layoutDrag=null,layoutImageSource='',layoutNeedsDefault=false,layoutUndoStack=[],layoutRedoStack=[],layoutHistoryLimit=60;
 const endpoint=(suffix='')=>'/api/guild/'+encodeURIComponent(guildId)+'/profile-store'+suffix;
 function assetUrl(id){return endpoint('/items/'+encodeURIComponent(id)+'/asset')}
@@ -516,7 +516,56 @@ $('designTemplateSelect').addEventListener('change',()=>{
  $('designStatus').textContent=selected?'سيتم فتح «'+selected.name+'» في الاستوديو عند الضغط على زر الفتح.':'اختر قالبًا محفوظًا لبدء التحرير.';
 });
 $('designManageProducts').addEventListener('click',()=>switchAdminTab('products'));
+async function loadCollaborationLinks(){
+ const box=$('collaborationLinks');if(!box||collaboratorMode)return;
+ try{
+  const data=await api('/collaboration');
+  const labels={upload_templates:'رفع القوالب',edit_designs:'تعديل التصميم',manage_pricing:'إدارة الأسعار',manage_products:'إدارة المنتجات',publish_changes:'النشر'};
+  const links=data.links||[];
+  if(!links.length){box.innerHTML='<p class="muted">لا توجد روابط تعاون بعد.</p>';return}
+  box.innerHTML=links.map(link=>{
+   const status=link.active?'فعّال':(link.revoked_at?'ملغي':'منتهي');
+   const scopes=(link.permissions||[]).map(p=>labels[p]||p).join('، ');
+   return '<article class="category-card"><div class="sectionhead"><strong>رابط تعاون #'+escape(link.link_id)+'</strong><span class="pill">'+status+'</span></div><div class="muted" style="margin-top:7px">ينتهي: '+escape(new Date(link.expires_at).toLocaleString('ar'))+'</div><div class="muted" style="margin-top:4px">الصلاحيات: '+escape(scopes)+'</div>'+(link.active?'<div class="actions"><button type="button" class="danger" data-revoke-collab="'+escape(link.link_id)+'">إلغاء الرابط فورًا</button></div>':'')+'</article>';
+  }).join('');
+  box.querySelectorAll('[data-revoke-collab]').forEach(button=>button.addEventListener('click',async()=>{
+   if(!window.confirm('إلغاء هذا الرابط الآن؟ سيتوقف عند جميع من يستخدمه.'))return;
+   button.disabled=true;
+   try{await api('/collaboration/'+encodeURIComponent(button.dataset.revokeCollab),{method:'DELETE'});notice('تم إلغاء رابط التعاون.');await loadCollaborationLinks()}
+   catch(error){notice('تعذر إلغاء الرابط: '+error.message,true);button.disabled=false}
+  }));
+ }catch(error){box.innerHTML='<p class="muted">تعذر تحميل روابط التعاون: '+escape(error.message)+'</p>'}
+}
+$('createCollaboration')?.addEventListener('click',async()=>{
+ const chosen=[
+  ['collabUpload','upload_templates'],['collabDesign','edit_designs'],
+  ['collabPricing','manage_pricing'],['collabProducts','manage_products'],
+  ['collabPublish','publish_changes']
+ ].filter(([id])=>$(id)?.checked).map(([,key])=>key);
+ if(!chosen.length){notice('حدد صلاحية واحدة على الأقل.',true);return}
+ const button=$('createCollaboration');button.disabled=true;
+ try{
+  const result=await api('/collaboration',{method:'POST',body:JSON.stringify({permissions:chosen,ttl_seconds:Number($('collabDuration').value||86400)})});
+  $('collaborationLink').value=window.location.origin+result.share_path;
+  $('collaborationExpiry').textContent='ينتهي: '+new Date(result.expires_at).toLocaleString('ar');
+  $('collaborationResult').classList.remove('hidden');
+  notice('تم إنشاء رابط تعاون قابل للمشاركة.');
+  await loadCollaborationLinks();
+ }catch(error){notice('تعذر إنشاء رابط التعاون: '+error.message,true)}
+ finally{button.disabled=false}
+});
+$('copyCollaborationLink')?.addEventListener('click',async()=>{
+ const input=$('collaborationLink');if(!input?.value)return;
+ try{await navigator.clipboard.writeText(input.value);notice('تم نسخ الرابط.')}
+ catch{input.focus();input.select();notice('حدد الرابط وانسخه يدويًا.')}
+});
+$('refreshCollaboration')?.addEventListener('click',loadCollaborationLinks);
+if(collaboratorMode){
+ const panel=$('collaborationPanel');if(panel)panel.style.display='none';
+ const settingsTab=document.querySelector('[data-admin-tab="settings"]');if(settingsTab)settingsTab.style.display='none';
+}
 switchAdminTab('overview');
 updateAssetField();resetCategory();
 load();
+if(!collaboratorMode)loadCollaborationLinks();
 })();
