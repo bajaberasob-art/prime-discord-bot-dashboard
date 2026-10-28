@@ -454,7 +454,7 @@ class OpenRouterFreeProvider:
         # this provider. The OpenRouter free router is accepted, as are explicit
         # model IDs ending in :free. A plain model ID is not proof of zero cost.
         if (
-            not model or len(model) > 160
+            not model or len(model) > 80
             or (model != "openrouter/free" and not model.endswith(":free"))
         ):
             raise AIProviderUnavailable("openrouter_paid_model_blocked")
