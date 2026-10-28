@@ -66,18 +66,26 @@ def _provider_failure_message(error: Exception) -> str:
         return "تعذر الاتصال بمسار OpenRouter المجاني من الخادم. تحقق من اتصال Discloud ثم أعد المحاولة."
     if "openrouter_timeout" in reason or status == 504:
         return "انتهت مهلة مسار OpenRouter المجاني قبل اكتمال الإجابة. أعد المحاولة لاحقاً."
-    if status in {401, 403} and ("openrouter" in reason or not reason.startswith("gemini_")):
+    # Keep clear diagnostics for legacy provider adapters that are tested in
+    # isolation; the live request path below still never selects Gemini.
+    if reason.startswith("gemini_") and status in {401, 403}:
         return (
-            "رفض OpenRouter المفتاح أو صلاحيات الوصول. تحقق من OPENROUTER_API_KEY "
-            "وحالة حساب المزوّد؛ لم يستخدم PRIME بديلاً مدفوعاً."
+            "رفضت Google مفتاح Gemini أو صلاحيات الوصول. تحقق من GEMINI_API_KEY "
+            "وتفعيل Gemini API للمشروع في Google AI Studio."
         )
+    if reason.startswith("gemini_") and status == 400:
+        return "رفض Gemini الطلب أو أحد إعداداته. راجع اسم النموذج وإعداداته، ثم افحص سجل المزوّد."
+    if reason.startswith("gemini_") and status == 503:
+        return "خدمة Gemini مشغولة مؤقتاً. لم ينفّذ PRIME أي إجراء إداري؛ انتظر قليلاً ثم أعد المحاولة."
     if "gemini_api_key_missing" in reason:
         return (
             "مفتاح Gemini غير مضبوط. هذا المسار ليس مفعلاً في وضع المجانية الصارمة؛ "
             "اضبط OpenRouter المجاني بدلاً من تفعيل Gemini المدفوع."
         )
-    if "gemini_connection_failed" in reason or "gemini_timeout" in reason:
-        return "تعذر إكمال طلب مزوّد قديم غير مستخدم في مسار النص المجاني الحالي."
+    if "gemini_connection_failed" in reason:
+        return "تعذر إنشاء اتصال بخدمة Google Gemini من الخادم."
+    if "gemini_timeout" in reason:
+        return "انتهت مهلة رد Gemini قبل اكتمال الإجابة."
     if status == 404 or "openrouter_status_404" in reason:
         return "النموذج المجاني المطلوب غير متاح حالياً. تحقق من معرّف النموذج المجاني أو جرّب لاحقاً."
     if status == 400 or "invalid_argument" in reason:
