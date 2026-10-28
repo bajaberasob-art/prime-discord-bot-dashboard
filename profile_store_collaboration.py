@@ -180,6 +180,33 @@ def _decode_json(value):
         return {}
 
 
+async def authorize_item_create_fields(request, link: dict) -> bool:
+    """Guard new item fields using the same per-capability policy as item updates."""
+    body = await _read_body_cached(request)
+    allowed = set(link.get("permissions", []))
+    item_type = body.get("item_type")
+    asset_types = {"background", "card_template", "flag", "badge", "shape", "club_logo"}
+    if item_type in asset_types:
+        if not ({"manage_products", "upload_templates"} & allowed):
+            return False
+    elif "manage_products" not in allowed:
+        return False
+    price = body.get("price", 0)
+    currency = body.get("currency", "moon")
+    sale_values = (body.get("sale_price"), body.get("sale_starts_at"), body.get("sale_ends_at"))
+    if (price not in (0, "0", None) or currency not in ("moon", None) or any(v not in (None, "") for v in sale_values)):
+        if "manage_pricing" not in allowed:
+            return False
+    if body.get("is_active") is True and "publish_changes" not in allowed:
+        return False
+    if body.get("is_featured") is True and "publish_changes" not in allowed:
+        return False
+    if body.get("style") not in (None, {}) or body.get("metadata") not in (None, {}):
+        if "edit_designs" not in allowed:
+            return False
+    return True
+
+
 async def authorize_item_update_fields(request, link: dict) -> bool:
     """Allow only changed field groups for a collaborator-only PUT item request."""
     if not link:
