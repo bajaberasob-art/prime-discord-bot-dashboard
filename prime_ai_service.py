@@ -1696,9 +1696,18 @@ async def generate_response(
     if guild_id is not None:
         try:
             budget_status = await prime_ai_control.check_usage_budget(guild_id)
-        except Exception:
-            LOGGER.warning("Could not check PRIME AI monthly budget; allowing request.", exc_info=True)
-            budget_status = {"exceeded": False}
+        except Exception as error:
+            LOGGER.error(
+                "Could not verify PRIME AI monthly budget; blocking request to prevent unmetered usage.",
+                exc_info=True,
+            )
+            await record_outcome(
+                "failed",
+                "provider=PRIME AI · reason=monthly_budget_check_unavailable",
+            )
+            raise AIProviderUnavailable(
+                "monthly_budget_check_unavailable", status_code=503
+            ) from error
         if budget_status.get("exceeded"):
             await record_outcome(
                 "failed",
