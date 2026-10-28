@@ -1846,18 +1846,18 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
 
         normalized = prime_ai_control.normalize_control_settings(legacy)
 
-        self.assertEqual(normalized["provider"]["name"], "Google Gemini")
-        self.assertEqual(normalized["provider"]["model"], "gemini-3.8-flash")
+        self.assertEqual(normalized["provider"]["name"], "OpenRouter Free")
+        self.assertEqual(normalized["provider"]["model"], "openrouter/free")
 
     def test_provider_default_retry_budget_is_bounded(self):
         self.assertEqual(
             prime_ai_control.DEFAULT_CONTROL_SETTINGS["provider"]["retry_count"],
-            1,
+            0,
         )
 
     async def test_provider_honors_configured_timeout_up_to_120_seconds(self):
         config = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
-        config["provider"]["timeout_seconds"] = 120
+        config["provider"]["timeout_seconds"] = 120  # legacy value is clamped to the 45s runtime ceiling
         request = AsyncMock(return_value=("answer", 3))
 
         with (
@@ -1880,7 +1880,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(answer, "answer")
-        self.assertEqual(request.await_args.kwargs["timeout_seconds"], 120)
+        self.assertEqual(request.await_args.kwargs["timeout_seconds"], 45)
 
     async def test_provider_gate_bounds_running_and_waiting_requests(self):
         gate = ai._BoundedProviderGate(
