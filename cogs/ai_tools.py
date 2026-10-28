@@ -3316,27 +3316,6 @@ class AITools(commands.Cog):
             return await itx.response.send_message(message, ephemeral=True)
 
         limit_guild = int(getattr(itx, "guild_id", 0) or 0)
-        try:
-            monthly_image_limit = max(
-                0, min(int(os.getenv("PRIME_AI_IMAGE_MONTHLY_LIMIT", "100")), 10000)
-            )
-        except (TypeError, ValueError):
-            monthly_image_limit = 100
-        try:
-            image_usage = await prime_ai_control.check_image_monthly_limit(
-                limit_guild, monthly_image_limit
-            )
-        except Exception:
-            LOGGER.exception("[AI] Could not verify monthly image request limit; blocking image generation.")
-            return await itx.response.send_message(
-                "تعذر التأكد من حصة الصور الشهرية؛ أوقفت التوليد مؤقتاً لحماية الميزانية.",
-                ephemeral=True,
-            )
-        if image_usage["exceeded"]:
-            return await itx.response.send_message(
-                "وصل الخادم إلى حد الصور الشهري ({}/{}). يمكن للمشرف تعديل PRIME_AI_IMAGE_MONTHLY_LIMIT في إعدادات البيئة.".format(image_usage["used"], image_usage["limit"]),
-                ephemeral=True,
-            )
 
         wait = prime_ai_service.allow_request(
             limit_guild,
@@ -3355,6 +3334,9 @@ class AITools(commands.Cog):
         image_started = time.monotonic()
         session = self._current_http_session()
         reference_data = None
+        image_event_id = None
+        image_result = "failed"
+        image_error_reason = "image_generation_failed"
         try:
             if reference_image:
                 prepared = await prime_ai_multimodal.prepare_inputs(
@@ -3375,6 +3357,30 @@ class AITools(commands.Cog):
                         "تعذّر قراءة الصورة المرجعية. أرسل صورة PNG أو JPEG أو WEBP أصغر من 6 ميغابايت.",
                         ephemeral=True,
                     )
+
+            try:
+                monthly_image_limit = max(
+                    0, min(int(os.getenv("PRIME_AI_IMAGE_MONTHLY_LIMIT", "100")), 10000)
+                )
+            except (TypeError, ValueError):
+                monthly_image_limit = 100
+            try:
+                reservation = await prime_ai_control.reserve_image_request(
+                    limit_guild, int(itx.user.id), getattr(itx, "channel_id", None),
+                    monthly_image_limit,
+                )
+            except Exception:
+                LOGGER.exception("[AI] Could not reserve monthly image usage; blocking image generation.")
+                return await itx.followup.send(
+                    "تعذر التأكد من حصة الصور الشهرية؛ أوقفت التوليد مؤقتاً لحماية الميزانية.",
+                    ephemeral=True,
+                )
+            if reservation["exceeded"]:
+                return await itx.followup.send(
+                    "وصل الخادم إلى حد الصور الشهري ({}/{}). يمكن للمشرف تعديل PRIME_AI_IMAGE_MONTHLY_LIMIT في إعدادات البيئة.".format(reservation["used"], reservation["limit"]),
+                    ephemeral=True,
+                )
+            image_event_id = reservation["event_id"]
 
             provider_label = "Pollinations" if use_pollinations else "Gemini"
             files = []
@@ -3425,19 +3431,6 @@ class AITools(commands.Cog):
                 )
                 embeds.append(embed)
 
-            # Keep image requests visible in PRIME AI reliability analytics. Image
-            # cost is not inferred from text tokens; provider billing remains separate.
-            try:
-                await prime_ai_control.record_request(
-                    limit_guild, int(itx.user.id), getattr(itx, "channel_id", None),
-                    skill="imagine", mode="IMAGE",
-                    result="success" if files else "failed",
-                    latency_ms=int((time.monotonic() - image_started) * 1000),
-                    tokens_used=0,
-                    error_reason="" if files else "image_generation_failed",
-                )
-            except Exception:
-                LOGGER.warning("[AI] Could not record image request analytics.", exc_info=True)
 
             if not files:
                 return await itx.followup.send(
@@ -3458,6 +3451,8 @@ class AITools(commands.Cog):
                 files=files,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
+            image_result = "success"
+            image_error_reason = ""
         except discord.HTTPException:
             LOGGER.exception("[AI] Discord could not deliver generated image.")
             if not itx.is_expired():
@@ -3473,6 +3468,17 @@ class AITools(commands.Cog):
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
+        finally:
+            if image_event_id is not None:
+                try:
+                    await prime_ai_control.finish_image_request(
+                        image_event_id,
+                        result=image_result,
+                        latency_ms=int((time.monotonic() - image_started) * 1000),
+                        error_reason=image_error_reason,
+                    )
+                except Exception:
+                    LOGGER.exception("[AI] Could not finalize reserved image usage event.")
 
     @app_commands.command(
         name="summarize",
