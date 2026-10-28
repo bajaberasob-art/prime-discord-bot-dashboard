@@ -3291,18 +3291,17 @@ class AITools(commands.Cog):
                 ephemeral=True,
             )
 
-        # Gemini native image generation is a paid path. Require an explicit
-        # operator opt-in until image usage is metered and a free provider is verified.
-        allow_paid_images = os.getenv(
-            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION", ""
-        ).strip().lower() in {"1", "true", "yes", "on"}
-        if not allow_paid_images:
-            return await itx.response.send_message(
-                "توليد الصور المدفوع متوقف افتراضياً لحماية الميزانية. "
-                "فعّل PRIME_AI_ALLOW_PAID_IMAGE_GENERATION=1 في إعدادات البيئة "
-                "فقط إذا كنت تقبل تكلفة Gemini، أو انتظر تفعيل مزوّد الصور المجاني.",
-                ephemeral=True,
-            )
+        # Prefer the keyed Pollinations API for ordinary image prompts.
+        # Provider-side limits and terms apply; this is not unlimited usage.
+        allow_paid_images = os.getenv("PRIME_AI_ALLOW_PAID_IMAGE_GENERATION", "").strip().lower() in {"1", "true", "yes", "on"}
+        use_pollinations = bool(os.getenv("POLLINATIONS_API_KEY", "").strip()) and not reference_image
+        if not use_pollinations and not allow_paid_images:
+            if reference_image:
+                message = "المزوّد الحالي لا يدعم صورة مرجعية. فعّل Gemini المدفوع صراحةً إذا كنت تقبل تكلفته."
+            else:
+                message = ("توليد الصور متوقف لحماية الميزانية: أضف POLLINATIONS_API_KEY، أو فعّل "
+                           "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION=1 إذا كنت تقبل تكلفة Gemini. راجع حدود المزوّد.")
+            return await itx.response.send_message(message, ephemeral=True)
 
         limit_guild = int(getattr(itx, "guild_id", 0) or 0)
         wait = prime_ai_service.allow_request(
@@ -3342,6 +3341,7 @@ class AITools(commands.Cog):
                         ephemeral=True,
                     )
 
+            provider_label = "Pollinations" if use_pollinations else "Gemini"
             files = []
             embeds = []
             failures = []
@@ -3358,20 +3358,22 @@ class AITools(commands.Cog):
                         failures.append("وصلت إلى حد الاستخدام؛ أنشأت بعض النتائج فقط.")
                         break
                 try:
-                    image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
-                        session,
-                        prompt,
-                        reference_image=reference_data,
-                        timeout_seconds=120,
-                        aspect_ratio=aspect_ratio,
-                    )
+                    if use_pollinations:
+                        image_bytes, mime_type = await prime_ai_service.POLLINATIONS_IMAGE_PROVIDER.generate(
+                            session, prompt, timeout_seconds=90, aspect_ratio=aspect_ratio,
+                        )
+                    else:
+                        image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
+                            session, prompt, reference_image=reference_data,
+                            timeout_seconds=120, aspect_ratio=aspect_ratio,
+                        )
                 except prime_ai_service.AIProviderUnavailable as error:
-                    LOGGER.warning("[AI] Gemini image generation failed (%s).", str(error)[:100])
+                    LOGGER.warning("[AI] Image provider generation failed (%s).", str(error)[:100])
                     failures.append(_provider_failure_message(error))
                     break
                 except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
                     LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
-                    failures.append("تعذر توليد إحدى الصور. تحقق من توفر Gemini وحاول مرة أخرى.")
+                    failures.append("تعذر توليد إحدى الصور. تحقق من مفتاح المزوّد وحدود الاستخدام ثم حاول مرة أخرى.")
                     break
 
                 extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
@@ -3384,7 +3386,7 @@ class AITools(commands.Cog):
                 )
                 embed.set_image(url=f"attachment://{filename}")
                 embed.set_footer(
-                    text=f"توليد Gemini الفعلي · طلب بواسطة {itx.user.display_name}",
+                    text=f"توليد {provider_label} · طلب بواسطة {itx.user.display_name}",
                 )
                 embeds.append(embed)
 
@@ -3395,9 +3397,9 @@ class AITools(commands.Cog):
                     ephemeral=True,
                 )
             note = (
-                "تم توليد الصورة عبر Gemini، وليست صورة خارجية معروضة من رابط بحث."
+                f"تم توليد الصورة عبر {provider_label}، وليست صورة خارجية معروضة من رابط بحث."
                 if len(files) == 1
-                else f"تم توليد {len(files)} نتائج فعلية عبر Gemini."
+                else f"تم توليد {len(files)} نتائج عبر {provider_label}."
             )
             if failures:
                 note += "\n\n" + failures[0]
@@ -3418,7 +3420,7 @@ class AITools(commands.Cog):
         except Exception:
             LOGGER.exception("[AI] Unexpected image generation failure.")
             await itx.followup.send(
-                "تعذر إكمال توليد الصورة. لم يتم إرسال رابط وهمي؛ تحقق من السجلات وإعداد Gemini.",
+                "تعذر إكمال توليد الصورة. لم يتم إرسال رابط وهمي؛ تحقق من السجلات وإعدادات مزوّد الصور.",
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
