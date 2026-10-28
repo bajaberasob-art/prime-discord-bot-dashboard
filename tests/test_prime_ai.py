@@ -117,7 +117,7 @@ def provider_messages(payload):
             if isinstance(value, str):
                 text_value = value
             elif isinstance(value, list):
-                text_value = "\\n".join(
+                text_value = "\n".join(
                     str(part.get("text", ""))
                     for part in value
                     if isinstance(part, dict) and isinstance(part.get("text"), str)
