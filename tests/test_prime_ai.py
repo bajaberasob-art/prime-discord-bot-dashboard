@@ -2067,9 +2067,9 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.method, "POST")
         self.assertEqual(
             session.url,
-            "https://openrouter.ai/api/v1/chat/completions",
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            "gemini-3.8-flash:generateContent",
         )
-        self.assertEqual(session.payload["model"], "openrouter/free")
         self.assertEqual(session.headers["x-goog-api-key"], "prime-ai-test-key")
         self.assertNotIn("prime-ai-test-key", session.url)
         self.assertNotIn("prime-ai-test-key", json.dumps(session.payload))
@@ -2830,9 +2830,9 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.method, "POST")
         self.assertEqual(
             session.url,
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            "gemini-3.8-flash:generateContent",
+            "https://openrouter.ai/api/v1/chat/completions",
         )
+        self.assertEqual(session.payload["model"], "openrouter/free")
         system_message, user_message = provider_messages(session.payload)
         self.assertEqual(system_message["role"], "system")
         self.assertEqual(
