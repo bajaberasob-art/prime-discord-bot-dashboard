@@ -464,7 +464,12 @@ class OpenRouterFreeProvider:
             content = item.get("content", "")
             if not isinstance(content, str):
                 raise AIProviderUnavailable("openrouter_invalid_message")
-            messages.append({"role": item["role"], "content": content})
+            # Keep adjacent same-role messages readable and compatible across
+            # the previous Gemini adapter and OpenRouter's chat-completions API.
+            if messages and messages[-1]["role"] == item["role"]:
+                messages[-1]["content"] += "\\n" + content
+            else:
+                messages.append({"role": item["role"], "content": content})
         if not messages:
             raise AIProviderUnavailable("openrouter_empty_messages")
         body = {
