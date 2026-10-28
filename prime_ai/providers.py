@@ -377,6 +377,113 @@ class GeminiProvider:
         return answer.strip(), tokens_used
 
 
+class OpenRouterFreeProvider:
+    """Optional OpenRouter free-router adapter for text-only chat fallback.
+
+    This is opt-in because prompts are sent to a third-party provider. The
+    OpenRouter free router may choose among eligible free models and is not
+    an availability or quality guarantee.
+    """
+
+    api_endpoint = "https://openrouter.ai/api/v1/chat/completions"
+
+    async def complete(self, session, payload: dict, *, timeout_seconds: int):
+        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise AIProviderUnavailable("openrouter_api_key_missing")
+        model = os.getenv("OPENROUTER_FREE_MODEL", "openrouter/free").strip()
+        if not model or len(model) > 160:
+            raise AIProviderUnavailable("openrouter_model_invalid")
+        messages = []
+        for item in payload.get("messages", []):
+            if not isinstance(item, dict) or item.get("role") not in {"system", "user", "assistant"}:
+                continue
+            # Do not silently discard multimodal inputs and then answer as if
+            # they had been analyzed. This adapter is text-only by design.
+            if item.get("media_parts"):
+                raise AIProviderUnavailable("openrouter_text_only")
+            content = item.get("content", "")
+            if not isinstance(content, str):
+                raise AIProviderUnavailable("openrouter_invalid_message")
+            messages.append({"role": item["role"], "content": content})
+        if not messages:
+            raise AIProviderUnavailable("openrouter_empty_messages")
+        body = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max(1, min(int(payload.get("max_tokens", 1200)), 1600)),
+            "temperature": max(0.0, min(float(payload.get("temperature", 0.7)), 1.5)),
+            "stream": False,
+        }
+        async with session.post(
+            self.api_endpoint,
+            json=body,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "https://prime-panel.discloud.app"),
+                "X-Title": "PRIME Discord Bot",
+            },
+            timeout=aiohttp.ClientTimeout(
+                total=max(3, min(int(timeout_seconds), 45)), connect=8,
+            ),
+        ) as response:
+            if response.status != 200:
+                raise AIProviderUnavailable(
+                    f"openrouter_status_{response.status}",
+                    retryable=response.status in FALLBACK_PROVIDER_STATUSES,
+                    status_code=response.status,
+                )
+            try:
+                data = await response.json(content_type=None)
+            except (aiohttp.ClientError, ValueError, TypeError) as error:
+                raise AIProviderUnavailable("openrouter_invalid_response") from error
+        try:
+            choices = data.get("choices", []) if isinstance(data, dict) else []
+            message = choices[0].get("message", {}) if choices else {}
+            answer = message.get("content", "") if isinstance(message, dict) else ""
+            usage = data.get("usage", {}) if isinstance(data, dict) else {}
+            tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
+            if not isinstance(answer, str) or not answer.strip():
+                raise AIProviderUnavailable("openrouter_no_text_candidate")
+            if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
+                tokens = None
+            return answer.strip(), tokens
+        except (IndexError, KeyError, TypeError, AttributeError) as error:
+            raise AIProviderUnavailable("openrouter_invalid_response") from error
+
+
+async def request_with_openrouter_fallback(
+    session, payload: dict, *, timeout_seconds: float, retry_count: int,
+    complete, logger, allow_fallback: bool = False,
+) -> tuple[str, int | None]:
+    """Use OpenRouter's free router only after Gemini fails, when explicitly enabled."""
+    try:
+        return await request_with_fallback(
+            session, payload, timeout_seconds=timeout_seconds,
+            retry_count=retry_count, complete=complete, logger=logger,
+        )
+    except (AIProviderUnavailable, aiohttp.ClientError, asyncio.TimeoutError) as primary_error:
+        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if not allow_fallback or not api_key:
+            raise
+        if any(
+            isinstance(message, dict) and message.get("media_parts")
+            for message in payload.get("messages", [])
+        ):
+            raise primary_error
+        # Reserve a bounded portion of the caller's configured timeout for the
+        # alternate provider. Never retry indefinitely or send multimodal data.
+        fallback = OpenRouterFreeProvider()
+        try:
+            logger.warning("[AI] Gemini unavailable; attempting opt-in OpenRouter free-router fallback.")
+            return await fallback.complete(
+                session, payload, timeout_seconds=max(3, min(int(timeout_seconds), 45)),
+            )
+        except (AIProviderUnavailable, aiohttp.ClientError, asyncio.TimeoutError):
+            raise primary_error
+
+
 async def complete_with_retries(
     session, payload: dict, *, provider: GeminiProvider,
     timeout_seconds: int, retry_count: int,
