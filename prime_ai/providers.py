@@ -444,7 +444,12 @@ class OpenRouterFreeProvider:
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not api_key:
             raise AIProviderUnavailable("openrouter_api_key_missing")
-        model = os.getenv("OPENROUTER_FREE_MODEL", "openrouter/free").strip()
+        # An explicit deployment override wins; otherwise use the validated
+        # free-only model selected in the Dashboard settings.
+        model = (
+            os.getenv("OPENROUTER_FREE_MODEL", "").strip()
+            or str(payload.get("model") or "openrouter/free").strip()
+        )
         # Hard free-only guard: never allow a configurable paid model through
         # this provider. The OpenRouter free router is accepted, as are explicit
         # model IDs ending in :free. A plain model ID is not proof of zero cost.
