@@ -3311,7 +3311,7 @@ class AITools(commands.Cog):
             if reference_image:
                 message = "المزوّد الحالي لا يدعم صورة مرجعية. فعّل Gemini المدفوع صراحةً إذا كنت تقبل تكلفته."
             else:
-                message = ("توليد الصور متوقف لحماية الميزانية: أضف POLLINATIONS_API_KEY، أو فعّل "
+                message = ("توليد الصور متوقف افتراضياً لحماية الميزانية: أضف POLLINATIONS_API_KEY، أو فعّل "
                            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION=1 إذا كنت تقبل تكلفة Gemini. راجع حدود المزوّد.")
             return await itx.response.send_message(message, ephemeral=True)
 
