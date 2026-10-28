@@ -120,3 +120,15 @@ The profile-store API is served by the existing authenticated dashboard backend.
 Uploaded catalog images are validated server-side and accept PNG, JPEG/JPG, WebP, and bounded animated GIFs. GIF uploads preserve animation with a maximum of 60 frames, 32 million aggregate frame pixels, and a 5MB sanitized output limit; APNG and animated WebP remain rejected. Static files are re-encoded to strip source metadata and stored outside the public dashboard directory beside the configured database volume, under `profile_store_assets/catalog/`. Set `PROFILE_STORE_ASSET_DIR` to an alternate private persistent directory if needed; paths inside `dashboard/` are rejected. The profile-card output remains a static PNG and uses the first GIF frame.
 
 The custom-upload toggle and price are global store settings, but the member-facing custom-upload workflow is not yet wired into the public storefront routes. The shop does have a separate `user_profile_gem_wallets` table and transactional gem debiting in the existing purchase service; do not treat the custom-upload toggle as proof that the member upload purchase flow is implemented.
+
+## PRIME AI provider and budget guardrails
+
+PRIME AI keeps paid image generation disabled unless an operator explicitly enables it. Optional provider fallbacks are also opt-in; configure secrets in Discloud environment variables, never in source code or Discord messages.
+
+- `PRIME_AI_ALLOW_OPENROUTER_FALLBACK=1` enables the text-only fallback after Gemini fails.
+- `OPENROUTER_API_KEY` is required for the OpenRouter fallback. `OPENROUTER_FREE_MODEL` optionally overrides the default `openrouter/free` router.
+- `POLLINATIONS_API_KEY` enables image generation through the current Pollinations API for prompts without a reference image. Provider limits and terms apply; this is not guaranteed unlimited or free.
+- `POLLINATIONS_IMAGE_MODEL` optionally selects the image model; default is `flux`.
+- `PRIME_AI_ALLOW_PAID_IMAGE_GENERATION=1` explicitly enables the paid Gemini image path. Keep it unset to avoid accidental Gemini image charges.
+
+OpenRouter fallback is restricted to text-only chat/assistant requests and is disabled unless both the opt-in flag and API key are present. Do not enable third-party fallbacks if your server policy does not permit sending prompts to that provider. The existing monthly usage dashboard is still an estimate and must not be treated as a provider invoice; image-provider billing requires checking the provider account directly.
