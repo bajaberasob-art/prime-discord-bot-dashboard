@@ -37,6 +37,18 @@ def _provider_failure_message(error: Exception) -> str:
     reason = str(error or "")[:120].lower()
     status = getattr(error, "status_code", None)
 
+    if "openrouter_api_key_missing" in reason:
+        return (
+            "تعذر استخدام البديل النصي لأن OPENROUTER_API_KEY غير مضبوط. "
+            "أضف المفتاح من إعدادات البيئة فقط إذا أردت تفعيل المزوّد البديل."
+        )
+    if "pollinations_api_key_missing" in reason:
+        return (
+            "مفتاح Pollinations غير مضبوط. أضف POLLINATIONS_API_KEY في إعدادات البيئة "
+            "وتحقق من حدود حساب المزوّد."
+        )
+    if "openrouter_status_429" in reason or "pollinations_image_status_429" in reason:
+        return "وصل المزوّد إلى حد الطلبات المتاح حالياً. انتظر قليلاً أو راجع حصتك لدى المزوّد."
     if "gemini_api_key_missing" in reason:
         return (
             "مفتاح Gemini غير مضبوط على الخادم. أضف GEMINI_API_KEY في متغيرات "
