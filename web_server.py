@@ -5600,8 +5600,12 @@ async def api_get_prime_ai_control(req):
             "channels": channels,
             "roles": roles,
             "is_bot_owner": is_bot_owner,
+            # Dashboard health must reflect the provider used by the live
+            # free-only router, not the retired Gemini adapter.
             "provider_status": (
-                "configured" if os.getenv("GEMINI_API_KEY", "").strip() else "missing"
+                "configured"
+                if os.getenv("OPENROUTER_API_KEY", "").strip()
+                else "missing"
             ),
         })
     except Exception:
