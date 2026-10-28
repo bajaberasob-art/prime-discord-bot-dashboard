@@ -1582,7 +1582,7 @@
       const budgetCard = el("section", "prime-ai-budget-panel");
       budgetCard.append(
         el("h3", "", "حصة الاستخدام والميزانية الشهرية"),
-        el("p", "prime-ai-budget-note", "الإعدادات مستقلة لهذا السيرفر. التكلفة تقديرية حسب معدل الرموز الذي تضبطه وليست فاتورة المزوّد الفعلية."),
+        el("p", "prime-ai-budget-note", "المسار الفعلي OpenRouter Free: رسوم المزوّد على النماذج المجانية المؤهلة $0. رقم USD هنا تقدير افتراضي حسب السعر الذي تضبطه للمقارنة وحد الميزانية داخل PRIME، وليس فاتورة أو خصماً من OpenRouter. عند انتهاء الحصة المجانية يتوقف الطلب ولا يتحول إلى نموذج مدفوع."),
       );
       const budgetNumbers = el("div", "prime-ai-budget-summary");
       [
