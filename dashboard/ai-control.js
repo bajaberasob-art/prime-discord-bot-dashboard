@@ -3021,6 +3021,8 @@
           const messages = {
             ai_provider_not_configured: "لم يُضبط OPENROUTER_API_KEY في بيئة Discloud. لا حاجة لإضافة رصيد أو تشغيل نموذج مدفوع.",
             ai_provider_misconfigured: "معرّف النموذج غير مجاني أو غير صالح. استخدم openrouter/free أو معرّفاً ينتهي بـ :free.",
+            ai_provider_auth_failed: "رفض OpenRouter المفتاح أو صلاحياته. تحقق من OPENROUTER_API_KEY في Discloud ولوحة OpenRouter.",
+            ai_provider_model_unavailable: "النموذج المجاني المحدد غير متاح الآن. استخدم openrouter/free أو معرّفاً مجانياً صالحاً.",
             ai_provider_rate_limited: "انتهت الحصة المجانية أو بلغ المزوّد حد الطلبات. انتظر تجدد الحصة.",
             ai_provider_timeout: "انتهت مهلة المزوّد المجاني. حاول لاحقاً.",
             ai_provider_busy: "المزوّد المجاني غير متاح مؤقتاً. لم يتم التحويل إلى نموذج مدفوع.",
