@@ -109,6 +109,9 @@ class EnterpriseBot(commands.Bot):
         self._retry_delay = 5
         self.started_at = time.monotonic()
         self._active_cog_name: str | None = None
+        # Persistent client-level views survive setup retries; never register
+        # the same global view twice if a later startup step rolls back.
+        self._core_views_registered = False
 
     async def add_cog(self, cog, /, *, override=False, guild=None, guilds=None):
         options = {"override": override}
@@ -323,7 +326,9 @@ class EnterpriseBot(commands.Bot):
             # Register restart-safe controls only after their owning extensions loaded.
             from cogs.community import PersistentDMRatingView
 
-            self.add_view(PersistentDMRatingView())
+            if not self._core_views_registered:
+                self.add_view(PersistentDMRatingView())
+                self._core_views_registered = True
             self.install_interaction_guards()
             if os.getenv("SYNC_COMMANDS", "false").strip().lower() in {
                 "1",
