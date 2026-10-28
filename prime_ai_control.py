@@ -807,6 +807,16 @@ def normalize_control_settings(
         clean_roles[str(role_id)] = clean_entry
     value["role_overrides"] = clean_roles
     provider = value["provider"]
+    if allow_legacy_values:
+        # Existing guild configs could store the old 120-second ceiling.
+        # Migrate it to the current hard cap before validating the new schema.
+        legacy_timeout = provider.get("timeout_seconds")
+        if (
+            isinstance(legacy_timeout, int)
+            and not isinstance(legacy_timeout, bool)
+            and legacy_timeout > 45
+        ):
+            provider["timeout_seconds"] = 45
     legacy_provider_names = {"Pollinations", LEGACY_PROVIDER_NAME, FREE_PROVIDER_NAME}
     if provider["name"] in {"Pollinations", LEGACY_PROVIDER_NAME}:
         # Migrate previously saved provider choices to the active free route.
