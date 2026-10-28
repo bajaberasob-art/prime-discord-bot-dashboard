@@ -838,85 +838,73 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
         interaction.response.defer.assert_not_awaited()
         generate.assert_not_awaited()
 
-    async def test_imagine_uses_gemini_native_image_generator(self):
+    async def test_imagine_stays_disabled_even_with_legacy_paid_opt_in(self):
         user = SimpleNamespace(id=9988776655, display_name="PRIME member")
         interaction = SimpleNamespace(
             user=user,
             guild_id=12345,
-            response=SimpleNamespace(defer=AsyncMock()),
+            response=SimpleNamespace(
+                defer=AsyncMock(),
+                send_message=AsyncMock(),
+            ),
             followup=SimpleNamespace(send=AsyncMock()),
         )
         cog = AITools(SimpleNamespace(session=FakeProviderSession()))
 
         with patch.dict(os.environ, {
             "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "1",
-            "POLLINATIONS_API_KEY": "",
+            "POLLINATIONS_API_KEY": "legacy-test-key",
             "PRIME_AI_IMAGE_MONTHLY_LIMIT": "100",
         }), patch(
-            "cogs.ai_tools.prime_ai_control.reserve_image_request",
-            new_callable=AsyncMock,
-            return_value={"event_id": 42, "used": 1, "limit": 100, "exceeded": False},
-        ), patch(
-            "cogs.ai_tools.prime_ai_control.finish_image_request",
-            new_callable=AsyncMock,
-        ) as finish, patch(
             "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
             new_callable=AsyncMock,
-            return_value=(b"generated-png-bytes", "image/png"),
-        ) as generate:
+        ) as gemini_generate, patch(
+            "cogs.ai_tools.prime_ai_service.POLLINATIONS_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+        ) as pollinations_generate:
             await AITools.imagine.callback(cog, interaction, "blue moon / city")
 
-        interaction.response.defer.assert_awaited_once()
-        generate.assert_awaited_once_with(
-            cog._current_http_session(),
-            "blue moon / city",
-            reference_image=None,
-            timeout_seconds=120,
-            aspect_ratio="1:1",
-        )
-        kwargs = interaction.followup.send.await_args.kwargs
-        self.assertIn("Gemini", kwargs["content"])
-        self.assertEqual(len(kwargs["embeds"]), 1)
-        self.assertEqual(len(kwargs["files"]), 1)
-        self.assertEqual(kwargs["files"][0].filename, "prime-imagine-1.png")
-        self.assertEqual(
-            kwargs["embeds"][0].image.url,
-            "attachment://prime-imagine-1.png",
-        )
-        self.assertNotIn("embed", kwargs)
-        finish.assert_awaited_once()
-        self.assertEqual(finish.await_args.kwargs["result"], "success")
+        interaction.response.send_message.assert_awaited_once()
+        self.assertIn("توليد الصور متوقف", interaction.response.send_message.await_args.args[0])
+        self.assertIn("عدم احتساب أي تكلفة", interaction.response.send_message.await_args.args[0])
+        interaction.response.defer.assert_not_awaited()
+        interaction.followup.send.assert_not_awaited()
+        gemini_generate.assert_not_awaited()
+        pollinations_generate.assert_not_awaited()
 
-
-    async def test_imagine_blocks_when_monthly_image_limit_is_reached(self):
+    async def test_imagine_does_not_contact_any_provider_when_cost_cannot_be_guaranteed(self):
         user = SimpleNamespace(id=9988776655, display_name="PRIME member")
         interaction = SimpleNamespace(
             user=user,
             guild_id=12345,
-            channel_id=56789,
-            response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()),
+            response=SimpleNamespace(
+                defer=AsyncMock(),
+                send_message=AsyncMock(),
+            ),
             followup=SimpleNamespace(send=AsyncMock()),
         )
         cog = AITools(SimpleNamespace(session=FakeProviderSession()))
 
         with patch.dict(os.environ, {
-            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "1",
+            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "",
             "POLLINATIONS_API_KEY": "",
-            "PRIME_AI_IMAGE_MONTHLY_LIMIT": "1",
         }), patch(
             "cogs.ai_tools.prime_ai_control.reserve_image_request",
             new_callable=AsyncMock,
-            return_value={"event_id": None, "used": 1, "limit": 1, "exceeded": True},
-        ), patch(
+        ) as reserve, patch(
             "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
             new_callable=AsyncMock,
-        ) as generate:
+        ) as gemini_generate, patch(
+            "cogs.ai_tools.prime_ai_service.POLLINATIONS_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+        ) as pollinations_generate:
             await AITools.imagine.callback(cog, interaction, "blue moon / city")
 
-        interaction.response.defer.assert_awaited_once()
-        interaction.followup.send.assert_awaited_once()
-        self.assertIn("حد الصور الشهري", interaction.followup.send.await_args.args[0])
-        generate.assert_not_awaited()
+        interaction.response.send_message.assert_awaited_once()
+        interaction.response.defer.assert_not_awaited()
+        reserve.assert_not_awaited()
+        gemini_generate.assert_not_awaited()
+        pollinations_generate.assert_not_awaited()
 
 
 class PrimeAIPromptTests(unittest.TestCase):
@@ -1988,86 +1976,58 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(profile["last_intent"], "CHAT")
         self.assertEqual(profile["last_topic"], "design")
 
-    async def test_primary_timeout_uses_flash_lite_fallback(self):
-        session = FakeProviderSession()
-        tried_models = []
+    async def test_free_provider_503_fails_closed_without_paid_fallback(self):
+        session = FakeProviderSession(status=503)
 
-        async def timeout_primary_then_fallback(
-            _session, payload, *, timeout_seconds, retry_count,
-        ):
-            tried_models.append(payload["model"])
-            if payload["model"] == "gemini-3.8-flash":
-                raise asyncio.TimeoutError()
-            return "PRIME AI fallback answer", 11
-
-        with patch.object(
-            ai, "_complete_with_retries",
-            side_effect=timeout_primary_then_fallback,
-        ):
-            answer = await ai.generate_response(
+        with self.assertRaises(ai.AIProviderUnavailable) as raised:
+            await ai.generate_response(
                 session,
-                100000000000000068,
-                100000000000000069,
-                300000000000000070,
+                100000000000000077,
+                100000000000000078,
+                300000000000000079,
                 "Hello PRIME AI.",
             )
 
-        self.assertEqual(answer, "PRIME AI fallback answer")
-        self.assertEqual(
-            tried_models,
-            ["gemini-3.8-flash", "gemini-3.5-flash-lite"],
-        )
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(session.post_count, 1)
+        self.assertIn("openrouter.ai/api/v1/chat/completions", session.url)
+        self.assertEqual(session.payload["model"], "openrouter/free")
+        self.assertNotIn("generativelanguage.googleapis.com", session.url)
 
-    async def test_transient_provider_503_retries_then_succeeds(self):
-        session = FakeProviderSession(statuses=[503, 200])
+    async def test_free_provider_429_stops_without_retrying_or_paid_switch(self):
+        session = FakeProviderSession(status=429)
 
-        answer = await ai.generate_response(
+        with self.assertRaises(ai.AIProviderUnavailable) as raised:
+            await ai.generate_response(
+                session,
+                100000000000000080,
+                100000000000000081,
+                300000000000000082,
+                "Hello PRIME AI.",
+            )
+
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertEqual(session.post_count, 1)
+        self.assertIn("openrouter.ai/api/v1/chat/completions", session.url)
+        self.assertNotIn("generativelanguage.googleapis.com", session.url)
+
+    async def test_action_planning_uses_free_text_route_only(self):
+        session = FakeProviderSession()
+        await ai.generate_response(
             session,
-            100000000000000071,
-            100000000000000072,
-            300000000000000073,
-            "Hello PRIME AI.",
+            100000000000000088,
+            100000000000000089,
+            300000000000000090,
+            "Plan a safe action",
+            mode="ACTION",
+            internal=True,
+            include_memories=False,
         )
 
-        self.assertEqual(answer, "PRIME AI answer")
-        self.assertEqual(session.post_count, 2)
-
-    async def test_persistent_503_falls_back_to_tested_gemini_flash_lite(self):
-        session = FakeProviderSession(statuses=[503, 503, 200])
-
-        answer = await ai.generate_response(
-            session,
-            100000000000000077,
-            100000000000000078,
-            300000000000000079,
-            "Hello PRIME AI.",
-        )
-
-        self.assertEqual(answer, "PRIME AI answer")
-        self.assertEqual(session.post_count, 3)
-        self.assertTrue(session.url.endswith(
-            "/gemini-3.5-flash-lite:generateContent"
-        ))
-        audit = await ai.list_audit(100000000000000077)
-        self.assertIn("model=gemini-3.5-flash-lite", audit[0]["detail"])
-
-    async def test_quota_429_switches_to_fallback_without_retrying_exhausted_model(self):
-        session = FakeProviderSession(statuses=[429, 200])
-
-        answer = await ai.generate_response(
-            session,
-            100000000000000080,
-            100000000000000081,
-            300000000000000082,
-            "Hello PRIME AI.",
-        )
-
-        self.assertEqual(answer, "PRIME AI answer")
-        self.assertEqual(session.post_count, 2)
-        self.assertTrue(session.url.endswith(
-            "/gemini-3.5-flash-lite:generateContent"
-        ))
-
+        self.assertEqual(session.post_count, 1)
+        self.assertIn("openrouter.ai/api/v1/chat/completions", session.url)
+        self.assertEqual(session.payload["model"], "openrouter/free")
+        self.assertNotIn("generativelanguage.googleapis.com", session.url)
     async def test_permanent_provider_error_is_not_retried(self):
         session = FakeProviderSession(status=403)
 
@@ -2107,9 +2067,9 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.method, "POST")
         self.assertEqual(
             session.url,
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            "gemini-3.8-flash:generateContent",
+            "https://openrouter.ai/api/v1/chat/completions",
         )
+        self.assertEqual(session.payload["model"], "openrouter/free")
         self.assertEqual(session.headers["x-goog-api-key"], "prime-ai-test-key")
         self.assertNotIn("prime-ai-test-key", session.url)
         self.assertNotIn("prime-ai-test-key", json.dumps(session.payload))
@@ -3572,6 +3532,10 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.original_db_name = database.DB_NAME
         self.original_bot = ws.bot_ref
+        self.original_openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+        self.original_openrouter_model = os.environ.get("OPENROUTER_FREE_MODEL")
+        os.environ["OPENROUTER_API_KEY"] = "prime-ai-test-key"
+        os.environ["OPENROUTER_FREE_MODEL"] = "openrouter/free"
         database.DB_NAME = "/tmp/test_prime_ai_api.db"
         if os.path.exists(database.DB_NAME):
             os.remove(database.DB_NAME)
@@ -3592,6 +3556,14 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         database.DB_NAME = self.original_db_name
         ws.bot_ref = self.original_bot
+        if self.original_openrouter_api_key is None:
+            os.environ.pop("OPENROUTER_API_KEY", None)
+        else:
+            os.environ["OPENROUTER_API_KEY"] = self.original_openrouter_api_key
+        if self.original_openrouter_model is None:
+            os.environ.pop("OPENROUTER_FREE_MODEL", None)
+        else:
+            os.environ["OPENROUTER_FREE_MODEL"] = self.original_openrouter_model
         ws.SESSIONS.clear()
         ws.RATE_BUCKETS.clear()
         ws.GRANT_CACHE.clear()
