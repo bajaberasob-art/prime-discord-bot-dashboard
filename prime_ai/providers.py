@@ -431,11 +431,11 @@ class GeminiProvider:
 
 
 class OpenRouterFreeProvider:
-    """Optional OpenRouter free-router adapter for text-only chat fallback.
+    """Strict free-only OpenRouter adapter for text requests.
 
-    This is opt-in because prompts are sent to a third-party provider. The
-    OpenRouter free router may choose among eligible free models and is not
-    an availability or quality guarantee.
+    The runtime enables this route only when OPENROUTER_API_KEY is configured.
+    Prompts are sent to a third-party provider; the router may select among
+    eligible free models and does not guarantee availability or response quality.
     """
 
     api_endpoint = "https://openrouter.ai/api/v1/chat/completions"
