@@ -3730,6 +3730,8 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(initial["control"]["config"]["mode"], "CHAT")
+        self.assertEqual(initial["provider_status"], "configured")
+        self.assertEqual(initial["control"]["config"]["provider"]["name"], "OpenRouter Free")
         self.assertFalse(initial["control"]["config"]["modes"]["autonomous"])
         self.assertEqual(initial["control"]["config"]["moderation"]["mode"], "OFF")
         self.assertTrue(initial["control"]["config"]["context"]["include_reply_context"])
