@@ -808,8 +808,8 @@ def normalize_control_settings(
     value["role_overrides"] = clean_roles
     provider = value["provider"]
     if allow_legacy_values:
-        # Existing guild configs could store the old 120-second ceiling.
-        # Migrate it to the current hard cap before validating the new schema.
+        # Migrate persisted provider controls to the actual free-route limits
+        # before validating existing guild settings.
         legacy_timeout = provider.get("timeout_seconds")
         if (
             isinstance(legacy_timeout, int)
@@ -817,6 +817,20 @@ def normalize_control_settings(
             and legacy_timeout > 45
         ):
             provider["timeout_seconds"] = 45
+        legacy_max_tokens = provider.get("max_tokens")
+        if (
+            isinstance(legacy_max_tokens, int)
+            and not isinstance(legacy_max_tokens, bool)
+            and legacy_max_tokens > 1600
+        ):
+            provider["max_tokens"] = 1600
+        legacy_temperature = provider.get("temperature")
+        if (
+            isinstance(legacy_temperature, (int, float))
+            and not isinstance(legacy_temperature, bool)
+            and legacy_temperature > 1.5
+        ):
+            provider["temperature"] = 1.5
     legacy_provider_names = {"Pollinations", LEGACY_PROVIDER_NAME, FREE_PROVIDER_NAME}
     if provider["name"] in {"Pollinations", LEGACY_PROVIDER_NAME}:
         # Migrate previously saved provider choices to the active free route.
@@ -834,10 +848,10 @@ def normalize_control_settings(
         or (model != FREE_PROVIDER_MODEL and not model.endswith(":free"))
     ):
         raise ValueError("openrouter_free_model_required")
-    if isinstance(provider["temperature"], bool) or not isinstance(provider["temperature"], (int, float)) or not 0 <= provider["temperature"] <= 2:
+    if isinstance(provider["temperature"], bool) or not isinstance(provider["temperature"], (int, float)) or not 0 <= provider["temperature"] <= 1.5:
         raise ValueError("invalid_temperature")
     for key, low, high in (
-        ("max_tokens", 64, 8192),
+        ("max_tokens", 64, 1600),
         ("timeout_seconds", 3, 45),
         ("retry_count", 0, 3),
     ):
