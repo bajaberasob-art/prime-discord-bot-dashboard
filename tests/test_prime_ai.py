@@ -3694,7 +3694,7 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 200)
         self.assertGreaterEqual(len(audit["events"]), 3)
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "prime-ai-test-key"})
+    @patch.dict(os.environ, {"OPENROUTER_API_KEY": "prime-ai-test-key"})
     async def test_dashboard_one_off_test_uses_shared_provider_and_reports_outage(self):
         sid = "ai-admin"
         test_prompt = "Temporary dashboard prompt; do not store."
@@ -3741,11 +3741,28 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 429)
         self.assertEqual(failure["error"], "ai_provider_rate_limited")
 
+        ws.bot_ref.session = FakeProviderSession()
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}):
+            status, failure = await call(
+                ws.api_test_prime_ai,
+                request(
+                    "POST",
+                    "/ai/test",
+                    sid,
+                    {"prompt": test_prompt},
+                    self.headers(),
+                ),
+            )
+        self.assertEqual(status, 503)
+        self.assertEqual(failure["error"], "ai_provider_not_configured")
+        self.assertIn("OPENROUTER_API_KEY", failure["message"])
+        self.assertEqual(ws.bot_ref.session.post_count, 0)
+
         events = await ai.list_audit(FakeGuild.id)
         self.assertGreaterEqual(len(events), 2)
         self.assertNotIn(test_prompt, json.dumps(events, ensure_ascii=False))
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "prime-ai-test-key"})
+    @patch.dict(os.environ, {"OPENROUTER_API_KEY": "prime-ai-test-key"})
     async def test_ai_control_center_scoped_memory_skills_and_runtime_contracts(self):
         sid = "ai-admin"
         async def api_call(handler, req):
