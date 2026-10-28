@@ -344,13 +344,19 @@ class EnterpriseBot(commands.Bot):
                 from cogs.subscription_commands import publish_subscription_commands
                 from command_registration import publish_command_groups
 
-                await publish_rank_commands(self, guild=self.sync_guild)
-                await publish_profile_command(self, guild=self.sync_guild)
-                await publish_subscription_commands(self, guild=self.sync_guild)
+                # Each publisher returns False after logging an API or schema
+                # error. Do not silently mark startup complete when any command
+                # family was only partially registered: reconnect retries the
+                # whole idempotent upsert sequence after cleanup.
+                publication_results = {
+                    "rank": await publish_rank_commands(self, guild=self.sync_guild),
+                    "profile": await publish_profile_command(self, guild=self.sync_guild),
+                    "subscription": await publish_subscription_commands(self, guild=self.sync_guild),
+                }
                 # Broad sync is intentionally disabled by default; explicitly upsert
                 # the new game/tournament groups and standalone visual game command
                 # without deleting unrelated commands.
-                await publish_command_groups(
+                publication_results["game/tournament"] = await publish_command_groups(
                     self,
                     (
                         "game", "tournament", "mafia", "musical_chairs",
@@ -359,6 +365,14 @@ class EnterpriseBot(commands.Bot):
                     ),
                     guild=self.sync_guild,
                 )
+                failed_publications = [
+                    name for name, success in publication_results.items() if not success
+                ]
+                if failed_publications:
+                    raise RuntimeError(
+                        "Slash command publication incomplete: "
+                        + ", ".join(failed_publications)
+                    )
             self.rotate_status.start()
             self._is_initialized = True
         except Exception:
