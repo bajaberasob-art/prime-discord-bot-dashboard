@@ -112,7 +112,7 @@ def _settings_from_row(row) -> dict:
         "enabled": bool(row["enabled"]),
         "system_prompt": str(row["system_prompt"] or ""),
         "allowed_channel_ids": [str(item) for item in channels if str(item).isdigit()],
-        "provider": PROVIDER_NAME,
+        "provider": prime_ai_control.FREE_PROVIDER_NAME,
         "revision": int(row["revision"]),
         "updated_by": str(row["updated_by"]) if row["updated_by"] is not None else None,
         "updated_at": row["updated_at"],
