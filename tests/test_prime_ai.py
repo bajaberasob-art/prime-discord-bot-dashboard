@@ -1855,6 +1855,34 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
             0,
         )
 
+    def test_free_provider_settings_reject_paid_models_and_migrate_legacy_limits(self):
+        paid_config = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
+        paid_config["provider"]["model"] = "google/gemini-pro"
+        with self.assertRaisesRegex(ValueError, "openrouter_free_model_required"):
+            prime_ai_control.normalize_control_settings(paid_config)
+
+        legacy = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
+        legacy["provider"].update({
+            "name": "Google Gemini",
+            "model": "gemini-3.8-flash",
+            "timeout_seconds": 120,
+            "max_tokens": 8192,
+            "temperature": 2.0,
+            "retry_count": 3,
+        })
+        migrated = prime_ai_control.normalize_control_settings(
+            legacy,
+            allow_legacy_values=True,
+        )
+        provider = migrated["provider"]
+        self.assertEqual(provider["name"], "OpenRouter Free")
+        self.assertEqual(provider["model"], "openrouter/free")
+        self.assertEqual(provider["timeout_seconds"], 45)
+        self.assertEqual(provider["max_tokens"], 1600)
+        self.assertEqual(provider["temperature"], 1.5)
+        self.assertEqual(provider["retry_count"], 0)
+
+
     async def test_provider_honors_configured_timeout_up_to_120_seconds(self):
         config = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
         config["provider"]["timeout_seconds"] = 120  # legacy value is clamped to the 45s runtime ceiling
