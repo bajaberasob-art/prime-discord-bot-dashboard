@@ -5569,6 +5569,27 @@ async def api_get_prime_ai_control(req):
             {"id": str(item.id), "name": str(item.name)}
             for item in list(getattr(guild, "roles", ()))[:500]
         ]
+        provider_key_configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+        provider_model = (
+            os.getenv("OPENROUTER_FREE_MODEL", "").strip()
+            or str(
+                snapshot["config"].get("provider", {}).get("model", "openrouter/free")
+            ).strip()
+        )
+        provider_model_is_free = (
+            len(provider_model) <= 80
+            and (
+                provider_model == "openrouter/free"
+                or provider_model.endswith(":free")
+            )
+        )
+        provider_status = (
+            "missing"
+            if not provider_key_configured
+            else "configured"
+            if provider_model_is_free
+            else "invalid_model"
+        )
         return web.json_response({
             "control": snapshot,
             "skills": skills,
@@ -5600,33 +5621,7 @@ async def api_get_prime_ai_control(req):
             "channels": channels,
             "roles": roles,
             "is_bot_owner": is_bot_owner,
-            # Dashboard health must reflect the provider used by the live
-            # free-only router, not the retired Gemini adapter.
-            "provider_status": (
-                "missing"
-                if not os.getenv("OPENROUTER_API_KEY", "").strip()
-                else "configured"
-                if (
-                    (
-                        os.getenv("OPENROUTER_FREE_MODEL", "").strip()
-                        or str(snapshot["config"].get("provider", {}).get("model", "openrouter/free"))
-                    )
-                    == "openrouter/free"
-                    or (
-                        (
-                            os.getenv("OPENROUTER_FREE_MODEL", "").strip()
-                            or str(snapshot["config"].get("provider", {}).get("model", "openrouter/free"))
-                        ).endswith(":free")
-                        and len(
-                            (
-                                os.getenv("OPENROUTER_FREE_MODEL", "").strip()
-                                or str(snapshot["config"].get("provider", {}).get("model", "openrouter/free"))
-                            )
-                        ) <= 80
-                    )
-                )
-                else "invalid_model"
-            ),
+            "provider_status": provider_status,,
         })
     except Exception:
         logger.exception("Failed to read PRIME AI control center for guild %s", guild.id)
