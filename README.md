@@ -121,15 +121,27 @@ Uploaded catalog images are validated server-side and accept PNG, JPEG/JPG, WebP
 
 The custom-upload toggle and price are global store settings, but the member-facing custom-upload workflow is not yet wired into the public storefront routes. The shop does have a separate `user_profile_gem_wallets` table and transactional gem debiting in the existing purchase service; do not treat the custom-upload toggle as proof that the member upload purchase flow is implemented.
 
-## PRIME AI provider and budget guardrails
+## PRIME AI: strict zero-cost mode
 
-PRIME AI keeps paid image generation disabled unless an operator explicitly enables it. Optional provider fallbacks are also opt-in; configure secrets in Discloud environment variables, never in source code or Discord messages.
+PRIME AI is configured for a **free-only policy**. The request path must not call paid Gemini, xAI/Grok API, Mistral paid endpoints, or any other paid model. A free tier is quota-limited and can change; PRIME must stop when no verified free route is available rather than silently switch to a paid model.
 
-- `PRIME_AI_ALLOW_OPENROUTER_FALLBACK=1` enables the text-only fallback after Gemini fails.
-- `OPENROUTER_API_KEY` is required for the OpenRouter fallback. `OPENROUTER_FREE_MODEL` optionally overrides the default `openrouter/free` router.
-- `POLLINATIONS_API_KEY` enables image generation through the current Pollinations API for prompts without a reference image. Provider limits and terms apply; this is not guaranteed unlimited or free.
-- `POLLINATIONS_IMAGE_MODEL` optionally selects the image model; default is `flux`.
-- `PRIME_AI_IMAGE_MONTHLY_LIMIT` atomically caps reserved image-generation commands per guild per calendar month; default is `100`, valid range `0`–`10000` (`0` disables image generation). Failed attempts count toward the cap because the provider may already have processed the request.
-- `PRIME_AI_ALLOW_PAID_IMAGE_GENERATION=1` explicitly enables the paid Gemini image path. Keep it unset to avoid accidental Gemini image charges.
+### Text chat
 
-OpenRouter fallback is restricted to text-only chat/assistant requests and is disabled unless both the opt-in flag and API key are present. Do not enable third-party fallbacks if your server policy does not permit sending prompts to that provider. The existing monthly usage dashboard is still an estimate and must not be treated as a provider invoice; image-provider billing requires checking the provider account directly.
+- Set `OPENROUTER_API_KEY` in Discloud environment variables to enable the text provider.
+- By default, PRIME uses `openrouter/free`, which routes to eligible free models.
+- Optional `OPENROUTER_FREE_MODEL` overrides are accepted only when the value is exactly `openrouter/free` or ends with `:free`. Paid model IDs are rejected.
+- The fallback flag `PRIME_AI_ALLOW_OPENROUTER_FALLBACK` is no longer required; free-only routing is automatic when the key exists.
+- If OpenRouter has no eligible free model, quota is exhausted, or the key is missing, PRIME returns an unavailable message. It must not try Gemini or a paid fallback.
+- OpenRouter's free plan has published request limits (currently listed as 50 requests/day); limits and available free models can change. Do not add credits or enable paid models if the policy is zero spend.
+
+### Images
+
+Remote image generation is **disabled** in strict zero-cost mode because the currently wired Gemini and Pollinations endpoints cannot be guaranteed to remain zero-cost for every account and quota state. The command returns an explanatory message without calling either provider. Do not enable `PRIME_AI_ALLOW_PAID_IMAGE_GENERATION` or rely on `POLLINATIONS_API_KEY` to override this policy.
+
+### Provider keys and privacy
+
+Keep all provider keys in Discloud environment variables. Never paste them into source code or Discord. Requests sent to OpenRouter are processed by a third party; do not send confidential content unless permitted by your server policy. No free tier is unlimited or guaranteed to be continuously available.
+
+### Validation status
+
+These changes have not been tested yet, as requested. Run the full tests and provider-call audit only after implementation is complete. A repository change is not proof of a successful deployment; verify the deployed revision separately before claiming it is live.
