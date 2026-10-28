@@ -1749,7 +1749,7 @@ async def generate_response(
                     # with the free router or an explicit :free model ID.
                     allow_fallback=(
                         bool(os.getenv("OPENROUTER_API_KEY", "").strip())
-                        and str(mode or "CHAT").upper() in {"CHAT", "ASSISTANT"}
+                        and str(mode or "CHAT").upper() in {"CHAT", "ASSISTANT", "ACTION"}
                     ),
                 )
             finally:
