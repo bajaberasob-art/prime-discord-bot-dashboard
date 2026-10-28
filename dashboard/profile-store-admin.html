@@ -147,6 +147,27 @@ textarea{line-height:1.7}
 <div id="pane-overview" class="admin-pane" data-admin-pane="overview">
 <div class="stats"><div class="stat"><span class="muted">كل المنتجات</span><strong id="countAll">—</strong></div><div class="stat"><span class="muted">ظاهرة في المتجر</span><strong id="countActive">—</strong></div><div class="stat"><span class="muted">مجانية</span><strong id="countFree">—</strong></div><div class="stat"><span class="muted">مدفوعة</span><strong id="countPaid">—</strong></div><div class="stat"><span class="muted">مخفية</span><strong id="countHidden">—</strong></div><div class="stat"><span class="muted">تحتاج صورة</span><strong id="countMissing">—</strong></div></div>
 <section class="panel"><div class="sectionhead"><div><h2>ملخص المبيعات</h2><div class="muted">الإيرادات محسوبة من سجلات عمليات الشراء لهذا السيرفر، وكل عملة معروضة بشكل مستقل.</div></div><button type="button" id="refreshSales">تحديث التقارير</button></div><div class="sales-stats"><div class="stat"><span class="muted">عمليات الشراء</span><strong id="salesPurchases">—</strong></div><div class="stat"><span class="muted">المشترون</span><strong id="salesBuyers">—</strong></div><div class="stat"><span class="muted">إيرادات عملات PRIME</span><strong id="salesMoon">—</strong></div><div class="stat"><span class="muted">إيرادات البلورات</span><strong id="salesGems">—</strong></div></div></section>
+<section class="panel" id="collaborationPanel">
+<div class="sectionhead"><div><h2>رابط تعاون مؤقت</h2><div class="muted">أنشئ رابطًا قابلًا للمشاركة مع أي شخص. صلاحيات المالك والإعدادات الحساسة تبقى لك فقط. الرابط قابل للإلغاء وينتهي تلقائيًا.</div></div><button type="button" id="refreshCollaboration">تحديث الروابط</button></div>
+<div class="fields">
+<div class="field full"><label>الصلاحيات الممنوحة عبر الرابط</label>
+<div class="checks" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:5px">
+<label><input type="checkbox" id="collabUpload" checked> إضافة ورفع القوالب والخلفيات</label>
+<label><input type="checkbox" id="collabDesign" checked> تعديل التصاميم</label>
+<label><input type="checkbox" id="collabPricing" checked> إدارة الأسعار والعروض</label>
+<label><input type="checkbox" id="collabProducts" checked> إدارة المنتجات والأقسام</label>
+<label><input type="checkbox" id="collabPublish" checked> نشر التعديلات</label>
+</div></div>
+<div class="field"><label for="collabDuration">مدة الصلاحية</label><select id="collabDuration"><option value="7200">ساعتان</option><option value="86400" selected>24 ساعة (افتراضي)</option><option value="604800">7 أيام</option></select></div>
+</div>
+<div class="actions"><button type="button" class="primary" id="createCollaboration">إنشاء رابط التعاون</button></div>
+<div id="collaborationResult" class="hidden" style="margin-top:12px;padding:12px;border:1px solid rgba(120,226,255,.25);border-radius:12px;background:#091321">
+<label for="collaborationLink">انسخ الرابط وأرسله لأي شخص تثق به</label><input id="collaborationLink" readonly dir="ltr" style="margin-top:7px">
+<div class="actions"><button type="button" id="copyCollaborationLink">نسخ الرابط</button><span class="muted" id="collaborationExpiry"></span></div>
+</div>
+<div id="collaborationLinks" style="display:grid;gap:10px;margin-top:14px"><p class="muted">جارٍ تحميل روابط التعاون...</p></div>
+<p class="muted">تنبيه: كل من يملك الرابط يستطيع استخدامه خلال مدة صلاحيته. لا تشاركه علنًا؛ ألغِه فورًا إذا انتشر خارج الأشخاص المقصودين.</p>
+</section>
 </div>
 <div id="notice" class="notice" role="status"></div>
 <div id="pane-settings" class="admin-pane hidden" data-admin-pane="settings">
