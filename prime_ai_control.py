@@ -11,7 +11,10 @@ from typing import Any
 import aiosqlite
 
 import database
-from prime_ai.providers import PROVIDER_NAME, PROVIDER_MODEL
+from prime_ai.providers import PROVIDER_NAME as LEGACY_PROVIDER_NAME, PROVIDER_MODEL as LEGACY_PROVIDER_MODEL
+
+FREE_PROVIDER_NAME = "OpenRouter Free"
+FREE_PROVIDER_MODEL = "openrouter/free"
 
 
 def now_utc() -> datetime:
@@ -301,8 +304,8 @@ DEFAULT_CONTROL_SETTINGS: dict[str, Any] = {
     "channel_personas": {},
     "role_overrides": {},
     "provider": {
-        "name": PROVIDER_NAME,
-        "model": PROVIDER_MODEL,
+        "name": FREE_PROVIDER_NAME,
+        "model": FREE_PROVIDER_MODEL,
         "temperature": 0.7,
         "thinking_level": "medium",
         "max_tokens": 1200,
@@ -382,7 +385,7 @@ PERSONALITIES = {
     "Practical", "Formal", "Friendly", "Romantic", "Sarcastic", "Firm",
     "Mysterious", "Funny", "Smart", "Gaming", "Aggressive", "Custom",
 }
-_SAFE_MODEL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
+_SAFE_MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,80}$")
 
 
 SKILL_CATALOG: tuple[dict[str, Any], ...] = (
@@ -803,16 +806,24 @@ def normalize_control_settings(
             clean_entry["tone"] = entry["tone"]
         clean_roles[str(role_id)] = clean_entry
     value["role_overrides"] = clean_roles
-    if value["provider"]["name"] == "Pollinations":
-        # Existing guild rows use Pollinations-specific model IDs. Convert
-        # those settings in memory so the provider switch does not break them.
-        value["provider"]["name"] = PROVIDER_NAME
-        value["provider"]["model"] = PROVIDER_MODEL
-    if value["provider"]["name"] != PROVIDER_NAME:
-        raise ValueError("unsupported_provider")
-    if not isinstance(value["provider"]["model"], str) or not _SAFE_MODEL_RE.fullmatch(value["provider"]["model"]):
-        raise ValueError("invalid_model")
     provider = value["provider"]
+    legacy_provider_names = {"Pollinations", LEGACY_PROVIDER_NAME, FREE_PROVIDER_NAME}
+    if provider["name"] in {"Pollinations", LEGACY_PROVIDER_NAME}:
+        # Migrate previously saved provider choices to the active free route.
+        # The old Gemini/Pollinations model IDs must never remain selectable
+        # in the Dashboard now that runtime routing is strict free-only.
+        provider["name"] = FREE_PROVIDER_NAME
+        provider["model"] = FREE_PROVIDER_MODEL
+    if provider["name"] not in legacy_provider_names:
+        raise ValueError("unsupported_provider")
+    provider["name"] = FREE_PROVIDER_NAME
+    model = provider.get("model")
+    if (
+        not isinstance(model, str)
+        or not _SAFE_MODEL_RE.fullmatch(model)
+        or (model != FREE_PROVIDER_MODEL and not model.endswith(":free"))
+    ):
+        raise ValueError("openrouter_free_model_required")
     if isinstance(provider["temperature"], bool) or not isinstance(provider["temperature"], (int, float)) or not 0 <= provider["temperature"] <= 2:
         raise ValueError("invalid_temperature")
     for key, low, high in (("max_tokens", 64, 8192), ("timeout_seconds", 3, 120), ("retry_count", 0, 3)):
