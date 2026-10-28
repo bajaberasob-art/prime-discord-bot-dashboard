@@ -129,6 +129,7 @@ PRIME AI keeps paid image generation disabled unless an operator explicitly enab
 - `OPENROUTER_API_KEY` is required for the OpenRouter fallback. `OPENROUTER_FREE_MODEL` optionally overrides the default `openrouter/free` router.
 - `POLLINATIONS_API_KEY` enables image generation through the current Pollinations API for prompts without a reference image. Provider limits and terms apply; this is not guaranteed unlimited or free.
 - `POLLINATIONS_IMAGE_MODEL` optionally selects the image model; default is `flux`.
+- `PRIME_AI_IMAGE_MONTHLY_LIMIT` caps recorded image requests per guild per calendar month; default is `100`, valid range `0`–`10000` (`0` disables image generation).
 - `PRIME_AI_ALLOW_PAID_IMAGE_GENERATION=1` explicitly enables the paid Gemini image path. Keep it unset to avoid accidental Gemini image charges.
 
 OpenRouter fallback is restricted to text-only chat/assistant requests and is disabled unless both the opt-in flag and API key are present. Do not enable third-party fallbacks if your server policy does not permit sending prompts to that provider. The existing monthly usage dashboard is still an estimate and must not be treated as a provider invoice; image-provider billing requires checking the provider account directly.
