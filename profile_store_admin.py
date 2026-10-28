@@ -747,7 +747,7 @@ def register_profile_store_admin_routes(routes, authorize, read_json_body=None) 
                             content_type="application/json",
                         )
                 elif write and request.method.upper() == "PUT" and re.fullmatch(
-                    r"/api/guild/\\d+/profile-store/items/\\d+", request.path
+                    r"/api/guild/\d+/profile-store/items/\d+", request.path
                 ):
                     if not await authorize_item_update_fields(request, link):
                         raise web.HTTPForbidden(
