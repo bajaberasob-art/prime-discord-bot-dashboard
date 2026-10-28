@@ -1736,9 +1736,11 @@ async def generate_response(
                     session, payload, timeout_seconds=timeout_seconds,
                     retry_count=retry_count, complete=_complete_with_retries,
                     logger=LOGGER,
+                    # Free-only routing is the default; paid Gemini is never
+                    # called by this request path. OpenRouter itself is used only
+                    # with the free router or an explicit :free model ID.
                     allow_fallback=(
-                        os.getenv("PRIME_AI_ALLOW_OPENROUTER_FALLBACK", "").strip().lower()
-                        in {"1", "true", "yes", "on"}
+                        bool(os.getenv("OPENROUTER_API_KEY", "").strip())
                         and str(mode or "CHAT").upper() in {"CHAT", "ASSISTANT"}
                     ),
                 )
