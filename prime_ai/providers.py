@@ -43,6 +43,59 @@ class PollinationsProvider:
         )
 
 
+class PollinationsImageProvider:
+    """Opt-in image adapter for the current Pollinations generation API.
+
+    Requires a Pollinations API key. It is not described as unlimited or
+    guaranteed free; the account's current limits and terms apply.
+    """
+
+    image_endpoint = "https://gen.pollinations.ai/image/"
+
+    async def generate(
+        self, session: aiohttp.ClientSession, prompt: str, *,
+        timeout_seconds: int = 90, aspect_ratio: str = "1:1",
+    ) -> tuple[bytes, str]:
+        api_key = os.getenv("POLLINATIONS_API_KEY", "").strip()
+        if not api_key:
+            raise AIProviderUnavailable("pollinations_api_key_missing")
+        value = str(prompt or "").strip()
+        if not value or len(value) > 1800:
+            raise ValueError("invalid_image_prompt")
+        if session is None or getattr(session, "closed", False):
+            raise AIProviderUnavailable("shared_http_session_unavailable")
+        dimensions = {
+            "1:1": (1024, 1024), "3:2": (1024, 682), "2:3": (682, 1024),
+            "4:3": (1024, 768), "3:4": (768, 1024),
+            "16:9": (1024, 576), "9:16": (576, 1024),
+        }
+        if aspect_ratio not in dimensions:
+            raise ValueError("invalid_image_aspect_ratio")
+        width, height = dimensions[aspect_ratio]
+        url = self.image_endpoint + quote(value, safe="")
+        async with session.get(
+            url,
+            params={"width": width, "height": height, "model": os.getenv("POLLINATIONS_IMAGE_MODEL", "flux"), "nologo": "true"},
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "image/*"},
+            timeout=aiohttp.ClientTimeout(
+                total=max(10, min(int(timeout_seconds), 120)), connect=8,
+            ),
+        ) as response:
+            if response.status != 200:
+                raise AIProviderUnavailable(
+                    f"pollinations_image_status_{response.status}",
+                    retryable=response.status in RETRYABLE_PROVIDER_STATUSES,
+                    status_code=response.status,
+                )
+            mime = str(response.headers.get("Content-Type", "")).split(";", 1)[0].lower()
+            if mime not in {"image/png", "image/jpeg", "image/webp"}:
+                raise AIProviderUnavailable("pollinations_image_invalid_content_type")
+            raw = await response.read()
+            if not raw or len(raw) > 8 * 1024 * 1024:
+                raise AIProviderUnavailable("pollinations_image_invalid_size")
+            return raw, mime
+
+
 class GeminiImageProvider:
     """Generate real image bytes with Gemini's native image-generation model."""
 
