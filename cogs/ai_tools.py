@@ -3316,6 +3316,29 @@ class AITools(commands.Cog):
             return await itx.response.send_message(message, ephemeral=True)
 
         limit_guild = int(getattr(itx, "guild_id", 0) or 0)
+        if limit_guild:
+            try:
+                monthly_image_limit = max(
+                    0, min(int(os.getenv("PRIME_AI_IMAGE_MONTHLY_LIMIT", "100")), 10000)
+                )
+            except (TypeError, ValueError):
+                monthly_image_limit = 100
+            try:
+                image_usage = await prime_ai_control.check_image_monthly_limit(
+                    limit_guild, monthly_image_limit
+                )
+            except Exception:
+                LOGGER.exception("[AI] Could not verify monthly image request limit; blocking image generation.")
+                return await itx.response.send_message(
+                    "تعذر التأكد من حصة الصور الشهرية؛ أوقفت التوليد مؤقتاً لحماية الميزانية.",
+                    ephemeral=True,
+                )
+            if image_usage["exceeded"]:
+                return await itx.response.send_message(
+                    "وصل الخادم إلى حد الصور الشهري ({}/{}). يمكن للمشرف تعديل PRIME_AI_IMAGE_MONTHLY_LIMIT في إعدادات البيئة.".format(image_usage["used"], image_usage["limit"]),
+                    ephemeral=True,
+                )
+
         wait = prime_ai_service.allow_request(
             limit_guild,
             int(itx.user.id),
