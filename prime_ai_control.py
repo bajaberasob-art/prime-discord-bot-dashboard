@@ -826,10 +826,17 @@ def normalize_control_settings(
         raise ValueError("openrouter_free_model_required")
     if isinstance(provider["temperature"], bool) or not isinstance(provider["temperature"], (int, float)) or not 0 <= provider["temperature"] <= 2:
         raise ValueError("invalid_temperature")
-    for key, low, high in (("max_tokens", 64, 8192), ("timeout_seconds", 3, 120), ("retry_count", 0, 3)):
+    for key, low, high in (
+        ("max_tokens", 64, 8192),
+        ("timeout_seconds", 3, 45),
+        ("retry_count", 0, 3),
+    ):
         number = provider[key]
         if isinstance(number, bool) or not isinstance(number, int) or not low <= number <= high:
             raise ValueError(f"invalid_provider_{key}")
+    # The free route does not retry or fall through to another provider; a
+    # legacy retry setting must not create extra quota-consuming requests.
+    provider["retry_count"] = 0
 
     response = value["response"]
     if (
