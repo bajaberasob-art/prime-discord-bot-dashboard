@@ -11,7 +11,7 @@ from typing import Any
 import aiosqlite
 
 import database
-from prime_ai.providers import PROVIDER_NAME as LEGACY_PROVIDER_NAME, PROVIDER_MODEL as LEGACY_PROVIDER_MODEL
+from prime_ai.providers import PROVIDER_NAME as LEGACY_PROVIDER_NAME
 
 FREE_PROVIDER_NAME = "OpenRouter Free"
 FREE_PROVIDER_MODEL = "openrouter/free"
@@ -310,7 +310,7 @@ DEFAULT_CONTROL_SETTINGS: dict[str, Any] = {
         "thinking_level": "medium",
         "max_tokens": 1200,
         "timeout_seconds": 30,
-        "retry_count": 1,
+        "retry_count": 0,
     },
     "response": {
         "maximum_length": 3500,
