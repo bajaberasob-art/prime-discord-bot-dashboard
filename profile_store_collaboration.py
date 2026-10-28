@@ -245,6 +245,11 @@ async def authorize_item_update_fields(request, link: dict) -> bool:
         "sort_order": ("sort_order", "manage_products"),
     }
     changed = set()
+    # The legacy editor submits a full item document. Reject sparse PUT bodies:
+    # downstream validators apply defaults to omitted fields, which could otherwise
+    # reset protected prices or product metadata without those fields being authorized.
+    if not set(aliases).issubset(body):
+        return False
     for supplied_key, (db_key, required_permission) in aliases.items():
         if supplied_key not in body:
             continue
@@ -391,6 +396,8 @@ def register_profile_store_collaboration_routes(routes, authorize, read_json_bod
             )
         seconds = max(1, int((datetime.fromisoformat(link["expires_at"].replace("Z", "+00:00")) - _utcnow()).total_seconds()))
         response = web.HTTPFound(location=f"/profile-store-collab/{int(raw_guild)}")
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
         response.set_cookie(
             f"{COOKIE_PREFIX}{int(raw_guild)}", token,
             max_age=seconds, httponly=True, secure=request.scheme == "https",
@@ -418,11 +425,7 @@ def register_profile_store_collaboration_routes(routes, authorize, read_json_bod
         except OSError:
             return _json_error(503, "store_admin_ui_unavailable")
         response = _private_html(html, int(raw_guild), collaborator=True)
-        # UI receives allowed scopes but never the bearer token itself.
-        response.text = response.text.replace(
-            'data-collaborator="true"',
-            'data-collaborator="true" data-collaboration-permissions=' + json.dumps(json.dumps(link["permissions"]), ensure_ascii=True),
-        )
+        # Enforcement lives on every API request; the browser never receives the raw token.
         response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
         return response
 
