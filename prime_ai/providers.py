@@ -510,31 +510,47 @@ async def request_with_openrouter_fallback(
     session, payload: dict, *, timeout_seconds: float, retry_count: int,
     complete, logger, allow_fallback: bool = False,
 ) -> tuple[str, int | None]:
-    """Use OpenRouter's free router only after Gemini fails, when explicitly enabled."""
+    """Use OpenRouter only after Gemini fails, sharing one bounded timeout budget."""
+    total_budget = max(3.0, min(float(timeout_seconds), 120.0))
+    started = asyncio.get_running_loop().time()
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    fallback_enabled = bool(allow_fallback and api_key)
+    # Reserve time for the alternate provider instead of letting Gemini's own
+    # fallback chain consume the entire caller timeout.
+    primary_budget = total_budget
+    if fallback_enabled and total_budget >= 8:
+        primary_budget = max(3.0, total_budget * 0.65)
     try:
         return await request_with_fallback(
-            session, payload, timeout_seconds=timeout_seconds,
+            session, payload, timeout_seconds=primary_budget,
             retry_count=retry_count, complete=complete, logger=logger,
         )
     except (AIProviderUnavailable, aiohttp.ClientError, asyncio.TimeoutError) as primary_error:
-        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if not allow_fallback or not api_key:
+        if not fallback_enabled:
             raise
         if any(
             isinstance(message, dict) and message.get("media_parts")
             for message in payload.get("messages", [])
         ):
             raise primary_error
-        # Reserve a bounded portion of the caller's configured timeout for the
-        # alternate provider. Never retry indefinitely or send multimodal data.
+        remaining = total_budget - (asyncio.get_running_loop().time() - started)
+        if remaining < 3:
+            raise primary_error
         fallback = OpenRouterFreeProvider()
         try:
-            logger.warning("[AI] Gemini unavailable; attempting opt-in OpenRouter free-router fallback.")
-            return await fallback.complete(
-                session, payload, timeout_seconds=max(3, min(int(timeout_seconds), 45)),
+            logger.warning(
+                "[AI] Gemini path failed; attempting opt-in OpenRouter fallback with %.1fs remaining.",
+                remaining,
             )
-        except (AIProviderUnavailable, aiohttp.ClientError, asyncio.TimeoutError):
-            raise primary_error
+            return await fallback.complete(
+                session, payload, timeout_seconds=max(3, min(int(remaining), 45)),
+            )
+        except (AIProviderUnavailable, aiohttp.ClientError, asyncio.TimeoutError) as fallback_error:
+            logger.warning(
+                "[AI] OpenRouter fallback failed (%s).",
+                str(fallback_error)[:100],
+            )
+            raise fallback_error from primary_error
 
 
 async def complete_with_retries(
