@@ -130,7 +130,7 @@ PRIME AI is configured for a **free-only policy**. The request path must not cal
 - Set `OPENROUTER_API_KEY` in Discloud environment variables to enable the text provider.
 - By default, PRIME uses `openrouter/free`, which routes to eligible free models.
 - Optional `OPENROUTER_FREE_MODEL` overrides are accepted only when the value is exactly `openrouter/free` or ends with `:free`. Paid model IDs are rejected.
-- The fallback flag `PRIME_AI_ALLOW_OPENROUTER_FALLBACK` is no longer required; free-only routing is automatic when the key exists.
+- `PRIME_AI_ALLOW_OPENROUTER_FALLBACK` is no longer required. With the key present, free-only text routing is used for CHAT, ASSISTANT, and ACTION planning; action execution still passes server-side permissions, policy validation, and required confirmation.
 - If OpenRouter has no eligible free model, quota is exhausted, or the key is missing, PRIME returns an unavailable message. It must not try Gemini or a paid fallback.
 - OpenRouter's free plan has published request limits (currently listed as 50 requests/day); limits and available free models can change. Do not add credits or enable paid models if the policy is zero spend.
 
