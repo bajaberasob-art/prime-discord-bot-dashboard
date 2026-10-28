@@ -1719,6 +1719,14 @@ async def generate_response(
             raise AIProviderUnavailable("monthly_budget_exceeded", status_code=429)
 
     tokens_used = None
+    # The active text route is free-tier OpenRouter only. Keep diagnostics and
+    # usage events aligned with the model actually sent to the provider rather
+    # than the legacy Gemini defaults still present in old guild settings.
+    active_provider = "OpenRouter Free"
+    active_model = (
+        os.getenv("OPENROUTER_FREE_MODEL", "openrouter/free").strip()
+        or "openrouter/free"
+    )
     try:
         retry_count = int(provider.get("retry_count", 0))
         timeout_seconds = max(
@@ -1752,42 +1760,42 @@ async def generate_response(
     except asyncio.TimeoutError as error:
         elapsed = time.monotonic() - started
         LOGGER.warning(
-            "[AI] Gemini request timed out model=%s primary_timeout=%ss total_elapsed=%.1fs",
-            str(payload.get("model") or PROVIDER_MODEL),
+            "[AI] Free text request timed out provider=%s model=%s timeout=%ss total_elapsed=%.1fs",
+            active_provider, active_model,
             int(provider.get("timeout_seconds", 30)),
             elapsed,
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · reason=timeout",
+            f"provider={active_provider} · model={active_model} · reason=openrouter_timeout",
         )
-        raise AIProviderUnavailable("gemini_timeout", status_code=504) from error
+        raise AIProviderUnavailable("openrouter_timeout", status_code=504) from error
     except aiohttp.ClientError as error:
         elapsed = time.monotonic() - started
         detail = getattr(getattr(error, "os_error", None), "strerror", None)
         LOGGER.warning(
-            "[AI] Gemini transport error type=%s detail=%s model=%s elapsed=%.1fs",
+            "[AI] Free OpenRouter transport error type=%s detail=%s model=%s elapsed=%.1fs",
             type(error).__name__,
             str(detail or "no_os_error_detail")[:120],
-            str(payload.get("model") or PROVIDER_MODEL),
+            active_model,
             elapsed,
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · "
+            f"provider={active_provider} · model={active_model} · "
             f"reason=transport_{type(error).__name__}",
         )
-        raise AIProviderUnavailable("gemini_connection_failed", status_code=503) from error
+        raise AIProviderUnavailable("openrouter_connection_failed", status_code=503) from error
     except AIProviderUnavailable as error:
         LOGGER.warning(
-            "[AI] Gemini provider request failed status=%s reason=%s model=%s",
+            "[AI] Free OpenRouter request failed status=%s reason=%s model=%s",
             error.status_code if error.status_code is not None else "n/a",
             str(error)[:80] or "unknown",
-            str(payload.get("model") or PROVIDER_MODEL)[:80],
+            active_model[:80],
         )
         await record_outcome(
             "failed",
-            f"provider={PROVIDER_NAME} · model={payload.get('model', PROVIDER_MODEL)} · "
+            f"provider={active_provider} · model={active_model} · "
             f"status={error.status_code if error.status_code is not None else 'n/a'} · "
             f"reason={str(error)[:80]}",
         )
@@ -1806,7 +1814,7 @@ async def generate_response(
         )
     await record_outcome(
         "success",
-        f"provider={PROVIDER_NAME} · model={payload['model']} · "
+        f"provider={active_provider} · model={active_model} · "
         f"prompt_chars={len(value)} · answer_chars={len(answer)}",
         tokens_used=tokens_used,
     )
