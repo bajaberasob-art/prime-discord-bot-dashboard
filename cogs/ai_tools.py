@@ -3303,17 +3303,15 @@ class AITools(commands.Cog):
                 ephemeral=True,
             )
 
-        # Prefer the keyed Pollinations API for ordinary image prompts.
-        # Provider-side limits and terms apply; this is not unlimited usage.
-        allow_paid_images = os.getenv("PRIME_AI_ALLOW_PAID_IMAGE_GENERATION", "").strip().lower() in {"1", "true", "yes", "on"}
-        use_pollinations = bool(os.getenv("POLLINATIONS_API_KEY", "").strip()) and not reference_image
-        if not use_pollinations and not allow_paid_images:
-            if reference_image:
-                message = "المزوّد الحالي لا يدعم صورة مرجعية. فعّل Gemini المدفوع صراحةً إذا كنت تقبل تكلفته."
-            else:
-                message = ("توليد الصور متوقف افتراضياً لحماية الميزانية: أضف POLLINATIONS_API_KEY، أو فعّل "
-                           "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION=1 إذا كنت تقبل تكلفة Gemini. راجع حدود المزوّد.")
-            return await itx.response.send_message(message, ephemeral=True)
+        # Strict zero-cost policy: the available image endpoints cannot be
+        # guaranteed free for every account/plan, so do not call any remote
+        # image API until a provider with a verifiable zero-cost quota is added.
+        return await itx.response.send_message(
+            "توليد الصور متوقف مؤقتاً لضمان عدم احتساب أي تكلفة. لن يستخدم PRIME "
+            "Gemini أو Pollinations أو أي مزوّد صور مدفوع/غير مضمون المجانية. "
+            "يمكن إعادة تفعيله بعد إضافة مزوّد مجاني مؤكد مع حد استخدام يمنع الفوترة.",
+            ephemeral=True,
+        )
 
         limit_guild = int(getattr(itx, "guild_id", 0) or 0)
 
