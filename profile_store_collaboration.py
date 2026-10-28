@@ -112,6 +112,26 @@ async def resolve_request_collaborator(request):
     link = await get_valid_link(token, int(raw_guild))
     if not link:
         return None
+    # Same-origin guard for state-changing requests made with the bearer cookie.
+    if request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+        fetch_site = str(request.headers.get("Sec-Fetch-Site", "")).lower()
+        if fetch_site and fetch_site != "same-origin":
+            raise web.HTTPForbidden(
+                text=json.dumps({"error": "collaboration_same_origin_required"}),
+                content_type="application/json",
+            )
+        origin = str(request.headers.get("Origin", "")).strip()
+        if origin:
+            from urllib.parse import urlsplit
+            try:
+                origin_host = (urlsplit(origin).netloc or "").lower()
+            except ValueError:
+                origin_host = ""
+            if not origin_host or origin_host != str(request.host).lower():
+                raise web.HTTPForbidden(
+                    text=json.dumps({"error": "collaboration_same_origin_required"}),
+                    content_type="application/json",
+                )
     perms = set(link["permissions"])
     permission = permission_required_for_request(request, perms)
     if permission is False:
