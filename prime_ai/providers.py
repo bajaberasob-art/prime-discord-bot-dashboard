@@ -445,8 +445,14 @@ class OpenRouterFreeProvider:
         if not api_key:
             raise AIProviderUnavailable("openrouter_api_key_missing")
         model = os.getenv("OPENROUTER_FREE_MODEL", "openrouter/free").strip()
-        if not model or len(model) > 160:
-            raise AIProviderUnavailable("openrouter_model_invalid")
+        # Hard free-only guard: never allow a configurable paid model through
+        # this provider. The OpenRouter free router is accepted, as are explicit
+        # model IDs ending in :free. A plain model ID is not proof of zero cost.
+        if (
+            not model or len(model) > 160
+            or (model != "openrouter/free" and not model.endswith(":free"))
+        ):
+            raise AIProviderUnavailable("openrouter_paid_model_blocked")
         messages = []
         for item in payload.get("messages", []):
             if not isinstance(item, dict) or item.get("role") not in {"system", "user", "assistant"}:
@@ -510,24 +516,31 @@ async def request_with_openrouter_fallback(
     session, payload: dict, *, timeout_seconds: float, retry_count: int,
     complete, logger, allow_fallback: bool = False,
 ) -> tuple[str, int | None]:
-    """Use OpenRouter only after Gemini fails, sharing one bounded timeout budget."""
+    """Route text requests through a verified free model only; never call paid Gemini."""
     total_budget = max(3.0, min(float(timeout_seconds), 120.0))
-    started = asyncio.get_running_loop().time()
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    fallback_enabled = bool(allow_fallback and api_key)
-    # Reserve time for the alternate provider instead of letting Gemini's own
-    # fallback chain consume the entire caller timeout.
-    primary_budget = total_budget
-    if fallback_enabled and total_budget >= 8:
-        primary_budget = max(3.0, total_budget * 0.65)
+    # Free-only is the default and intentionally cannot be disabled by an
+    # environment flag. Gemini API calls can become billable when account
+    # billing/quotas change, so they are not invoked in this route.
+    fallback_enabled = bool(api_key and allow_fallback)
+    if not fallback_enabled:
+        raise AIProviderUnavailable("no_free_text_provider_configured", status_code=503)
+    if any(
+        isinstance(message, dict) and message.get("media_parts")
+        for message in payload.get("messages", [])
+    ):
+        raise AIProviderUnavailable("openrouter_text_only")
+    fallback = OpenRouterFreeProvider()
     try:
-        return await request_with_fallback(
-            session, payload, timeout_seconds=primary_budget,
-            retry_count=retry_count, complete=complete, logger=logger,
+        return await fallback.complete(
+            session, payload, timeout_seconds=max(3, min(int(total_budget), 45)),
         )
     except (AIProviderUnavailable, aiohttp.ClientError, asyncio.TimeoutError) as primary_error:
-        if not fallback_enabled:
-            raise
+        logger.warning(
+            "[AI] Free OpenRouter route unavailable (%s); no paid provider will be attempted.",
+            str(primary_error)[:100],
+        )
+        raise
         if any(
             isinstance(message, dict) and message.get("media_parts")
             for message in payload.get("messages", [])
