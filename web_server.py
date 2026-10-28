@@ -5603,9 +5603,29 @@ async def api_get_prime_ai_control(req):
             # Dashboard health must reflect the provider used by the live
             # free-only router, not the retired Gemini adapter.
             "provider_status": (
-                "configured"
-                if os.getenv("OPENROUTER_API_KEY", "").strip()
-                else "missing"
+                "missing"
+                if not os.getenv("OPENROUTER_API_KEY", "").strip()
+                else "configured"
+                if (
+                    (
+                        os.getenv("OPENROUTER_FREE_MODEL", "").strip()
+                        or str(snapshot["config"].get("provider", {}).get("model", "openrouter/free"))
+                    )
+                    == "openrouter/free"
+                    or (
+                        (
+                            os.getenv("OPENROUTER_FREE_MODEL", "").strip()
+                            or str(snapshot["config"].get("provider", {}).get("model", "openrouter/free"))
+                        ).endswith(":free")
+                        and len(
+                            (
+                                os.getenv("OPENROUTER_FREE_MODEL", "").strip()
+                                or str(snapshot["config"].get("provider", {}).get("model", "openrouter/free"))
+                            )
+                        ) <= 80
+                    )
+                )
+                else "invalid_model"
             ),
         })
     except Exception:
