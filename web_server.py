@@ -5985,14 +5985,54 @@ async def api_prime_ai_sandbox(req):
             config=snapshot["config"],
         )
     except prime_ai_service.AIProviderUnavailable as error:
-        if error.status_code in {429, 503}:
-            error_key = (
-                "ai_provider_rate_limited"
-                if error.status_code == 429
-                else "ai_provider_busy"
+        reason = str(error or "")
+        if reason in {"no_free_text_provider_configured", "openrouter_api_key_missing"}:
+            return json_error(
+                503,
+                "ai_provider_not_configured",
+                message=(
+                    "لم يُضبط مفتاح OpenRouter المجاني. أضف OPENROUTER_API_KEY "
+                    "في متغيرات بيئة Discloud، ثم أعد الاختبار. لم يُرسل طلب إلى نموذج مدفوع."
+                ),
             )
-            return json_error(error.status_code, error_key)
-        return json_error(502, "ai_provider_unavailable")
+        if reason == "openrouter_paid_model_blocked":
+            return json_error(
+                503,
+                "ai_provider_misconfigured",
+                message=(
+                    "إعداد النموذج ليس ضمن النماذج المجانية المسموحة. استخدم "
+                    "openrouter/free أو معرّفاً ينتهي بـ :free."
+                ),
+            )
+        if reason == "openrouter_text_only":
+            return json_error(
+                400,
+                "ai_text_only",
+                message="المزوّد المجاني الحالي يدعم النص فقط ولا يعالج المرفقات.",
+            )
+        if error.status_code == 429:
+            return json_error(
+                429,
+                "ai_provider_rate_limited",
+                message="انتهت الحصة المجانية أو بلغ المزوّد حد الطلبات. لم يُستخدم نموذج مدفوع.",
+            )
+        if error.status_code == 504 or reason == "openrouter_timeout":
+            return json_error(
+                504,
+                "ai_provider_timeout",
+                message="انتهت مهلة المزوّد المجاني. حاول لاحقاً؛ لم يتم التحويل إلى نموذج مدفوع.",
+            )
+        if error.status_code == 503:
+            return json_error(
+                503,
+                "ai_provider_busy",
+                message="المزوّد المجاني غير متاح مؤقتاً. لم يتم التحويل إلى نموذج مدفوع.",
+            )
+        return json_error(
+            502,
+            "ai_provider_unavailable",
+            message="تعذر إكمال الطلب عبر المزوّد المجاني. لم يتم استخدام نموذج مدفوع.",
+        )
     except prime_ai_runtime.InvalidToolPlan:
         return json_error(502, "ai_plan_unavailable")
     except Exception:
