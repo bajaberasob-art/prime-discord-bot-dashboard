@@ -168,6 +168,7 @@ class EnterpriseBot(commands.Bot):
         for module in reversed(loaded_modules or []):
             with contextlib.suppress(Exception):
                 await self.unload_extension(module)
+        tasks_to_stop = []
         for attribute in (
             "_gateway_watchdog_task",
             "_diagnostics_task",
@@ -175,21 +176,31 @@ class EnterpriseBot(commands.Bot):
             "_analytics_writer_task",
         ):
             task = getattr(self, attribute, None)
+            setattr(self, attribute, None)
             if task is not None:
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-                setattr(self, attribute, None)
+                tasks_to_stop.append(task)
+        if tasks_to_stop:
+            # gather(return_exceptions=True) observes already-failed tasks too;
+            # one task error must never prevent remaining resources from closing.
+            await asyncio.gather(*tasks_to_stop, return_exceptions=True)
+
         if self.dashboard_runner:
-            with contextlib.suppress(Exception):
-                await self.dashboard_runner.cleanup()
-            self.dashboard_runner = None
-        if self.session and not self.session.closed:
-            with contextlib.suppress(Exception):
-                await self.session.close()
-        self.session = None
-        with contextlib.suppress(Exception):
+            runner, self.dashboard_runner = self.dashboard_runner, None
+            try:
+                await runner.cleanup()
+            except Exception:
+                logger.exception("[STARTUP-ROLLBACK] Dashboard cleanup failed.")
+        session, self.session = self.session, None
+        if session is not None and not session.closed:
+            try:
+                await session.close()
+            except Exception:
+                logger.exception("[STARTUP-ROLLBACK] Shared HTTP session cleanup failed.")
+        try:
             await prime_ai_persistence.close_durable_store()
+        except Exception:
+            logger.exception("[STARTUP-ROLLBACK] Durable AI storage cleanup failed.")
 
     async def _reset_http_session_for_retry(self) -> None:
         """Release both HTTP clients before retrying without re-running setup."""
