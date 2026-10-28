@@ -33,67 +33,66 @@ LOGGER = logging.getLogger("AITools")
 
 
 def _provider_failure_message(error: Exception) -> str:
-    """Translate safe provider error codes into actionable user-facing guidance."""
-    reason = str(error or "")[:120].lower()
+    """Map provider failure codes to truthful, actionable Arabic messages."""
+    reason = str(error or "")[:160].lower()
     status = getattr(error, "status_code", None)
 
+    if "no_free_text_provider_configured" in reason:
+        return (
+            "الذكاء النصي غير متاح حالياً: لم يُضبط مزوّد مجاني. أضف "
+            "OPENROUTER_API_KEY في متغيرات بيئة Discloud، أو انتظر عودة مسار مجاني؛ "
+            "لن ينتقل PRIME إلى نموذج مدفوع."
+        )
     if "openrouter_api_key_missing" in reason:
         return (
-            "تعذر استخدام البديل النصي لأن OPENROUTER_API_KEY غير مضبوط. "
-            "أضف المفتاح من إعدادات البيئة فقط إذا أردت تفعيل المزوّد البديل."
+            "مفتاح OpenRouter غير مضبوط. أضف OPENROUTER_API_KEY إلى متغيرات بيئة "
+            "Discloud فقط، ثم أعد المحاولة. لا ترسل المفتاح في Discord."
         )
-    if "pollinations_api_key_missing" in reason:
+    if "openrouter_paid_model_blocked" in reason:
         return (
-            "مفتاح Pollinations غير مضبوط. أضف POLLINATIONS_API_KEY في إعدادات البيئة "
-            "وتحقق من حدود حساب المزوّد."
+            "تم إيقاف الطلب لأن النموذج المضبوط لا يحمل علامة مجانية مؤكدة. "
+            "استخدم openrouter/free أو معرّف نموذج ينتهي بـ :free."
         )
-    if "openrouter_status_429" in reason or "pollinations_image_status_429" in reason:
-        return "وصل المزوّد إلى حد الطلبات المتاح حالياً. انتظر قليلاً أو راجع حصتك لدى المزوّد."
+    if "openrouter_text_only" in reason:
+        return (
+            "مسار الذكاء المجاني الحالي يدعم النص فقط؛ لم تُرسل المرفقات إلى نموذج "
+            "آخر ولم يُدّعِ PRIME تحليلها. أعد الطلب كنص أو انتظر دعم مسار وسائط مجاني."
+        )
+    if "openrouter_status_429" in reason or status == 429:
+        return (
+            "وصل OpenRouter إلى حد الطلبات المجاني أو الحصة الحالية. انتظر تجدد الحصة "
+            "أو راجع لوحة المزوّد؛ لن يتحول PRIME إلى نموذج مدفوع."
+        )
+    if "openrouter_connection_failed" in reason:
+        return "تعذر الاتصال بمسار OpenRouter المجاني من الخادم. تحقق من اتصال Discloud ثم أعد المحاولة."
+    if "openrouter_timeout" in reason or status == 504:
+        return "انتهت مهلة مسار OpenRouter المجاني قبل اكتمال الإجابة. أعد المحاولة لاحقاً."
+    if status in {401, 403} and ("openrouter" in reason or not reason.startswith("gemini_")):
+        return (
+            "رفض OpenRouter المفتاح أو صلاحيات الوصول. تحقق من OPENROUTER_API_KEY "
+            "وحالة حساب المزوّد؛ لم يستخدم PRIME بديلاً مدفوعاً."
+        )
     if "gemini_api_key_missing" in reason:
         return (
-            "مفتاح Gemini غير مضبوط على الخادم. أضف GEMINI_API_KEY في متغيرات "
-            "بيئة Discloud ثم أعد تشغيل التطبيق؛ لا ترسل المفتاح في المحادثة."
+            "مفتاح Gemini غير مضبوط. هذا المسار ليس مفعلاً في وضع المجانية الصارمة؛ "
+            "اضبط OpenRouter المجاني بدلاً من تفعيل Gemini المدفوع."
         )
-    if "gemini_connection_failed" in reason:
-        return (
-            "تعذر إنشاء اتصال بخدمة Google Gemini من الخادم. تحقق من اتصال "
-            "Discloud ثم جرّب اختبار المزوّد من لوحة التحكم."
-        )
-    if "gemini_timeout" in reason or status == 504:
-        return (
-            "انتهت مهلة رد Gemini قبل اكتمال الإجابة. أعد المحاولة، أو خفّض "
-            "مستوى التفكير أو طول الإجابة من لوحة التحكم."
-        )
-    if status == 429 or "gemini_status_429" in reason:
-        return (
-            "وصل Gemini إلى حد الطلبات أو الحصة المتاحة حالياً. انتظر قليلاً "
-            "ثم أعد المحاولة، أو راجع الحصة والفوترة في إعدادات Google."
-        )
-    if status in {401, 403}:
-        return (
-            "رفضت Google مفتاح Gemini أو صلاحيات الوصول. تحقق من GEMINI_API_KEY "
-            "وتفعيل Gemini API للمشروع في Google AI Studio."
-        )
-    if status == 404 or "gemini_status_404" in reason:
-        return (
-            "اسم نموذج Gemini المحدد غير متاح لهذا الطلب. راجع اسم النموذج في "
-            "لوحة التحكم واختر نموذجاً مدعوماً."
-        )
+    if "gemini_connection_failed" in reason or "gemini_timeout" in reason:
+        return "تعذر إكمال طلب مزوّد قديم غير مستخدم في مسار النص المجاني الحالي."
+    if status == 404 or "openrouter_status_404" in reason:
+        return "النموذج المجاني المطلوب غير متاح حالياً. تحقق من معرّف النموذج المجاني أو جرّب لاحقاً."
     if status == 400 or "invalid_argument" in reason:
-        return (
-            "رفض Gemini الطلب أو أحد إعداداته. راجع اسم النموذج وإعداداته، ثم "
-            "افحص سجل المزوّد لمعرفة رمز الرفض."
-        )
-    if status == 503 and "gemini_status_503" in reason:
-        return (
-            "خدمة Gemini مشغولة مؤقتاً. لم ينفّذ PRIME أي إجراء إداري؛ انتظر قليلاً "
-            "ثم أعد المحاولة."
-        )
+        return "رفض المزوّد الطلب أو أحد إعداداته. اختصر الطلب ثم أعد المحاولة."
+    if "pollinations_api_key_missing" in reason:
+        return "مفتاح Pollinations غير مضبوط، لكن توليد الصور متوقف حالياً في وضع عدم التكلفة."
+    if "pollinations_image_status_429" in reason:
+        return "وصل مزوّد الصور إلى حد الطلبات؛ توليد الصور متوقف حالياً في وضع عدم التكلفة."
+    if status == 503:
+        return "المزوّد المجاني غير متاح مؤقتاً. لم ينتقل PRIME إلى مزوّد مدفوع؛ حاول لاحقاً."
     return (
-        "تعذر إكمال طلب PRIME AI. لم يتم تأكيد أي إجراء؛ أعد المحاولة أو شغّل "
-        "اختبار المزوّد من لوحة التحكم."
+        "تعذر إكمال طلب PRIME AI. لم يتم تأكيد أي إجراء؛ أعد المحاولة لاحقاً، "
+        "ولن يستخدم PRIME نموذجاً مدفوعاً كبديل."
     )
-
 
 def _split_discord_answer(answer: str, limit: int = 1900) -> list[str]:
     """Split a reply at readable boundaries without dropping any source text."""
