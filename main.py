@@ -397,6 +397,9 @@ class EnterpriseBot(commands.Bot):
         """Shut down each owned resource even if an earlier cleanup step fails."""
         logger.info("🛑 جاري إنهاء الجلسات وإيقاف البوت بأمان...")
         self.rotate_status.cancel()
+        status_task = self.rotate_status.get_task()
+        if status_task is not None and status_task is not asyncio.current_task():
+            await asyncio.gather(status_task, return_exceptions=True)
 
         # Cancel and await owned long-running tasks so shutdown does not leave
         # orphaned tasks or unobserved exceptions behind.
@@ -738,9 +741,15 @@ async def on_app_command_error(
             "وليس في الرسائل الخاصة."
         )
     else:
-        command_name = itx.command.name if itx.command else "مجهول"
+        command_name = (
+            getattr(itx.command, "qualified_name", None)
+            if itx.command else "مجهول"
+        )
         logger.error(
-            f"خطأ غير معالج في الأمر [{command_name}]: {error}"
+            "خطأ غير معالج في الأمر [%s]: %s",
+            command_name,
+            error,
+            exc_info=(type(error), error, error.__traceback__),
         )
         message = (
             "⚠️ حدث خطأ تقني غير متوقع أثناء معالجة الطلب، "
