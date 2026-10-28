@@ -1839,7 +1839,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ["OPENROUTER_FREE_MODEL"] = self.original_openrouter_model
 
-    def test_legacy_pollinations_settings_migrate_to_gemini_defaults(self):
+    def test_legacy_pollinations_settings_migrate_to_openrouter_free_defaults(self):
         legacy = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
         legacy["provider"]["name"] = "Pollinations"
         legacy["provider"]["model"] = "openai"
