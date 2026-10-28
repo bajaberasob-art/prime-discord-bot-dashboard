@@ -3006,10 +3006,10 @@
       state.testResult = null;
       render();
       try {
-        const response = ensureOk(await request("POST", `${guildPath}/test`, { prompt }));
+        const response = await request("POST", `${guildPath}/test`, { prompt });
         const result = await responseJson(response);
         if (state.disposed) return;
-        if (result.ok) {
+        if (response && response.ok && result.ok) {
           state.testResult = {
             ok: true,
             text: typeof result.answer === "string" && result.answer
@@ -3018,11 +3018,20 @@
           };
           loadAudit();
         } else {
+          const messages = {
+            ai_provider_not_configured: "لم يُضبط OPENROUTER_API_KEY في بيئة Discloud. لا حاجة لإضافة رصيد أو تشغيل نموذج مدفوع.",
+            ai_provider_misconfigured: "معرّف النموذج غير مجاني أو غير صالح. استخدم openrouter/free أو معرّفاً ينتهي بـ :free.",
+            ai_provider_rate_limited: "انتهت الحصة المجانية أو بلغ المزوّد حد الطلبات. انتظر تجدد الحصة.",
+            ai_provider_timeout: "انتهت مهلة المزوّد المجاني. حاول لاحقاً.",
+            ai_provider_busy: "المزوّد المجاني غير متاح مؤقتاً. لم يتم التحويل إلى نموذج مدفوع.",
+            ai_provider_unavailable: "تعذر إكمال الطلب عبر المزوّد المجاني. لم يتم استخدام نموذج مدفوع.",
+            ai_text_only: "المزوّد المجاني الحالي يدعم النص فقط ولا يعالج المرفقات.",
+          };
           state.testResult = {
             ok: false,
-            text: typeof result.error === "string" && result.error
-              ? result.error
-              : "تعذر إكمال الاختبار.",
+            text: typeof result.message === "string" && result.message
+              ? result.message
+              : messages[result.error] || "تعذر إكمال الاختبار. تحقق من سجل الخدمة.",
           };
         }
       } catch (_) {
