@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ from prime_ai.providers import (
     GeminiImageProvider, GeminiProvider, PollinationsProvider, PROVIDER_NAME, PROVIDER_MODEL,
     FALLBACK_PROVIDER_MODEL, RETRYABLE_PROVIDER_STATUSES,
     FALLBACK_PROVIDER_STATUSES, complete_with_retries, request_with_fallback,
+    request_with_openrouter_fallback,
 )
 from prime_ai.limits import SlidingWindowLimiter
 import runtime_diagnostics
@@ -1729,10 +1731,15 @@ async def generate_response(
             )
             provider_started = time.perf_counter()
             try:
-                answer, tokens_used = await request_with_fallback(
+                answer, tokens_used = await request_with_openrouter_fallback(
                     session, payload, timeout_seconds=timeout_seconds,
                     retry_count=retry_count, complete=_complete_with_retries,
                     logger=LOGGER,
+                    allow_fallback=(
+                        os.getenv("PRIME_AI_ALLOW_OPENROUTER_FALLBACK", "").strip().lower()
+                        in {"1", "true", "yes", "on"}
+                        and str(mode or "CHAT").upper() in {"CHAT", "ASSISTANT"}
+                    ),
                 )
             finally:
                 runtime_diagnostics.record_timing(
