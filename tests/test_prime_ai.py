@@ -32,9 +32,10 @@ from tests.test_settings_api import call, request
 
 
 class FakeProviderResponse:
-    def __init__(self, status=200, answer="PRIME AI answer"):
+    def __init__(self, status=200, answer="PRIME AI answer", *, openrouter=False):
         self.status = status
         self.answer = answer
+        self.openrouter = openrouter
         candidate_event = {
             "candidates": [{
                 "content": {"parts": [{"text": answer}]},
@@ -56,6 +57,11 @@ class FakeProviderResponse:
         return self.answer
 
     async def json(self, **_kwargs):
+        if self.openrouter:
+            return {
+                "choices": [{"message": {"content": self.answer}}],
+                "usage": {"total_tokens": 17},
+            }
         return {
             "candidates": [{
                 "content": {"parts": [{"text": self.answer}]},
@@ -92,15 +98,35 @@ class FakeProviderSession:
         self.method = "POST"
         self.headers = _kwargs.get("headers")
         self.params = _kwargs.get("params")
+        openrouter = "openrouter.ai/api/v1/chat/completions" in str(url)
         status = self.status
         if self.statuses:
             status = self.statuses[min(self.post_count, len(self.statuses) - 1)]
         self.post_count += 1
-        return FakeProviderResponse(status, self.answer)
+        return FakeProviderResponse(status, self.answer, openrouter=openrouter)
 
 
 def provider_messages(payload):
-    """Expose Gemini wire contents in the role/content form used by prompt tests."""
+    """Normalize supported provider payloads for prompt-focused unit tests."""
+    if isinstance(payload.get("messages"), list):
+        normalized = []
+        for item in payload["messages"]:
+            if not isinstance(item, dict):
+                continue
+            value = item.get("content", "")
+            if isinstance(value, str):
+                text_value = value
+            elif isinstance(value, list):
+                text_value = "\\n".join(
+                    str(part.get("text", ""))
+                    for part in value
+                    if isinstance(part, dict) and isinstance(part.get("text"), str)
+                )
+            else:
+                text_value = ""
+            normalized.append({"role": item.get("role"), "content": text_value})
+        return normalized
+
     messages = []
     system_parts = payload.get("systemInstruction", {}).get("parts", [])
     system_text = "\n".join(
@@ -806,7 +832,7 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_awaited_once()
         self.assertIn(
-            "متوقف افتراضياً",
+            "متوقف مؤقتاً",
             interaction.response.send_message.await_args.args[0],
         )
         interaction.response.defer.assert_not_awaited()
@@ -1797,7 +1823,11 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.original_db_name = database.DB_NAME
         self.original_gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        os.environ["GEMINI_API_KEY"] = "prime-ai-test-key"
+        self.original_openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+        self.original_openrouter_model = os.environ.get("OPENROUTER_FREE_MODEL")
+        os.environ["GEMINI_API_KEY"] = "legacy-adapter-test-key"
+        os.environ["OPENROUTER_API_KEY"] = "prime-ai-test-key"
+        os.environ["OPENROUTER_FREE_MODEL"] = "openrouter/free"
         database.DB_NAME = "/tmp/test_prime_ai_service.db"
         # Reset schema memoization when recreating the test database file.
         prime_ai_intelligence._SCHEMA_READY_DB = None
@@ -1812,6 +1842,14 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop("GEMINI_API_KEY", None)
         else:
             os.environ["GEMINI_API_KEY"] = self.original_gemini_api_key
+        if self.original_openrouter_api_key is None:
+            os.environ.pop("OPENROUTER_API_KEY", None)
+        else:
+            os.environ["OPENROUTER_API_KEY"] = self.original_openrouter_api_key
+        if self.original_openrouter_model is None:
+            os.environ.pop("OPENROUTER_FREE_MODEL", None)
+        else:
+            os.environ["OPENROUTER_FREE_MODEL"] = self.original_openrouter_model
 
     def test_legacy_pollinations_settings_migrate_to_gemini_defaults(self):
         legacy = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
@@ -1841,7 +1879,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value={"config": config}),
             ),
             patch.object(ai, "list_context_memories", new=AsyncMock(return_value=[])),
-            patch.object(ai, "request_with_fallback", request),
+            patch.object(ai, "request_with_openrouter_fallback", request),
             patch.object(ai, "record_audit", new=AsyncMock()),
             patch.object(prime_ai_control, "record_request", new=AsyncMock()),
         ):
