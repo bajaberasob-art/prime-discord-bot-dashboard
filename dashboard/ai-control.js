@@ -1240,32 +1240,26 @@
       const provider = cfg.provider || {};
       const providerSection = controlDisclosure(
         "المزوّد",
-        "يستخدم PRIME AI Google Gemini؛ لا تُحفظ مفاتيح المزوّد في اللوحة.",
+        "يعتمد PRIME AI على مسار OpenRouter Free للنص فقط؛ لا تُحفظ مفاتيح المزوّد في اللوحة.",
         false,
       );
       providerSection.content.append(el(
         "p",
         "prime-ai-help",
-        `المزوّد ثابت على Google Gemini؛ الحالة: ${
+        `المزوّد الفعلي: OpenRouter Free؛ الحالة: ${
           state.providerStatus === "configured" ? "مهيّأ" : "غير مهيّأ"
-        }. لا يتم تبديله تلقائياً ولا تحفظ اللوحة أي مفاتيح مزوّد.`,
+        }. أضف OPENROUTER_API_KEY في متغيرات بيئة Discloud. لا يرسل PRIME الطلب إلى نموذج مدفوع إذا تعطّل المسار المجاني.`,
       ));
       providerSection.content.append(el(
         "p",
         "prime-ai-help",
-        "طلبات Gemini 3.x لا تستخدم معامل درجة الإبداع القديم؛ اضبط مستوى التفكير بدلًا منه لتوازن السرعة وجودة التحليل.",
+        "استخدم openrouter/free أو معرّف نموذج ينتهي بـ :free فقط. لا يدعم المسار الحالي تحليل الصور أو المرفقات، كما أن إعادة المحاولة التلقائية معطّلة لتقليل استهلاك الحصة.",
       ));
       const providerGrid = el("div", "prime-ai-control-grid");
       providerGrid.append(
-        controlInput("provider.model", "اسم النموذج", provider.model, { maxLength: 80 }),
-        controlSelect("provider.thinking_level", "مستوى التفكير", provider.thinking_level, [
-          { value: "low", label: "منخفض — أسرع" },
-          { value: "medium", label: "متوازن — موصى به" },
-          { value: "high", label: "مرتفع — تحليل أعمق" },
-        ]),
+        controlInput("provider.model", "معرّف النموذج المجاني", provider.model, { maxLength: 80 }),
         controlInput("provider.max_tokens", "حد الرموز", provider.max_tokens, { type: "number", min: 64, max: 8192, step: 1 }),
-        controlInput("provider.timeout_seconds", "مهلة المزوّد بالثواني", provider.timeout_seconds, { type: "number", min: 3, max: 120, step: 1 }),
-        controlInput("provider.retry_count", "عدد إعادات المحاولة", provider.retry_count, { type: "number", min: 0, max: 3, step: 1 }),
+        controlInput("provider.timeout_seconds", "المهلة القصوى للطلب (ثانية)", provider.timeout_seconds, { type: "number", min: 3, max: 45, step: 1 }),
       );
       providerSection.content.append(providerGrid);
       addControlSection("providers", providerSection);
@@ -2152,7 +2146,7 @@
           id: "engine",
           label: "محرك الذكاء الاصطناعي",
           destinations: [
-            { id: "providers", label: "المزوّد", description: "إعدادات مزوّد Gemini الحالية." },
+            { id: "providers", label: "المزوّد", description: "حالة OpenRouter Free وإعدادات المسار النصي." },
             { id: "limits", label: "الحدود والاحتفاظ", description: "حدود الاستخدام ومدد الاحتفاظ." },
           ],
         },
@@ -2225,7 +2219,7 @@
       notice.append(el(
         "p",
         "",
-        `يعمل المساعد بجانب أنظمة PRIME الأخرى. تُرسل الرسائل الموجّهة إلى PRIME والسياق المحدود المسموح به إلى Google Gemini. ${retentionCopy} لا يجمع PRIME سجل القناة بالكامل، والذاكرة المنفصلة تخضع لإعداداتها الخاصة.`,
+        `يعمل المساعد بجانب أنظمة PRIME الأخرى. تُرسل الرسائل الموجّهة إلى PRIME والسياق المحدود المسموح به إلى OpenRouter عبر مسار نص مجاني. لا تُرسل بيانات سرية ما لم تسمح سياسة الخادم بذلك. ${retentionCopy} لا يجمع PRIME سجل القناة بالكامل، والذاكرة المنفصلة تخضع لإعداداتها الخاصة.`,
       ));
 
       const workspace = el(
