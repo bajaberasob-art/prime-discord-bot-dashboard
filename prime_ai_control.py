@@ -2241,11 +2241,14 @@ async def check_usage_budget(guild_id: int) -> dict:
     }
 
 
-async def check_image_monthly_limit(guild_id: int, limit: int = 100) -> dict:
-    """Return monthly image request usage and whether another request is allowed."""
+async def reserve_image_request(
+    guild_id: int, user_id: int | None, channel_id: int | None, limit: int = 100,
+) -> dict:
+    """Atomically reserve one monthly image slot before contacting a provider."""
     safe_limit = max(0, min(int(limit), 10000))
     async with database.connect(aiosqlite.Row) as db:
         await _ensure_usage_schema(db)
+        await db.execute("BEGIN IMMEDIATE")
         now = now_utc()
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
         async with db.execute(
@@ -2254,7 +2257,45 @@ async def check_image_monthly_limit(guild_id: int, limit: int = 100) -> dict:
             (int(guild_id), "imagine", "IMAGE", month_start),
         ) as cur:
             used = int((await cur.fetchone())[0] or 0)
-    return {"used": used, "limit": safe_limit, "exceeded": safe_limit == 0 or used >= safe_limit}
+        if safe_limit == 0 or used >= safe_limit:
+            await db.rollback()
+            return {"event_id": None, "used": used, "limit": safe_limit, "exceeded": True}
+        cur = await db.execute(
+            "INSERT INTO prime_ai_request_events "
+            "(guild_id,user_id,channel_id,skill,mode,result,latency_ms,tokens_used,error_reason,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (int(guild_id), int(user_id) if user_id is not None else None,
+             int(channel_id) if channel_id is not None else None, "imagine", "IMAGE",
+             "pending", 0, 0, "image_generation_pending", timestamp()),
+        )
+        event_id = int(cur.lastrowid)
+        await db.commit()
+    return {"event_id": event_id, "used": used + 1, "limit": safe_limit, "exceeded": False}
+
+
+async def finish_image_request(
+    event_id: int, *, result: str, latency_ms: int, error_reason: str = "",
+) -> None:
+    """Finalize a previously reserved image request without adding a duplicate event."""
+    async with database.connect(aiosqlite.Row) as db:
+        await _ensure_usage_schema(db)
+        async with db.execute(
+            "SELECT guild_id FROM prime_ai_request_events WHERE event_id=? AND skill=? AND mode=?",
+            (int(event_id), "imagine", "IMAGE"),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return
+        guild_id = int(row["guild_id"])
+        await db.execute(
+            "UPDATE prime_ai_request_events SET result=?,latency_ms=?,tokens_used=0,error_reason=? "
+            "WHERE event_id=? AND skill=? AND mode=?",
+            (str(result)[:30], max(0, min(int(latency_ms), 3600000)),
+             str(error_reason or "")[:120], int(event_id), "imagine", "IMAGE"),
+        )
+        settings = await _usage_settings(db, guild_id)
+        await _evaluate_usage_alerts(db, guild_id, settings)
+        await db.commit()
 
 async def record_request(
     guild_id: int,
