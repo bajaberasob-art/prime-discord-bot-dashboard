@@ -3,6 +3,7 @@ import json
 import math
 import logging
 import asyncio
+import os
 import re
 from pathlib import PurePosixPath
 from datetime import datetime, timezone
@@ -3287,6 +3288,19 @@ class AITools(commands.Cog):
         ):
             return await itx.response.send_message(
                 "الصورة المرجعية يجب أن تكون PNG أو JPEG أو WEBP.",
+                ephemeral=True,
+            )
+
+        # Gemini native image generation is a paid path. Require an explicit
+        # operator opt-in until image usage is metered and a free provider is verified.
+        allow_paid_images = os.getenv(
+            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if not allow_paid_images:
+            return await itx.response.send_message(
+                "توليد الصور المدفوع متوقف افتراضياً لحماية الميزانية. "
+                "فعّل PRIME_AI_ALLOW_PAID_IMAGE_GENERATION=1 في إعدادات البيئة "
+                "فقط إذا كنت تقبل تكلفة Gemini، أو انتظر تفعيل مزوّد الصور المجاني.",
                 ephemeral=True,
             )
 
