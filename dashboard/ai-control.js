@@ -1247,7 +1247,11 @@
         "p",
         "prime-ai-help",
         `المزوّد الفعلي: OpenRouter Free؛ الحالة: ${
-          state.providerStatus === "configured" ? "مهيّأ" : "غير مهيّأ"
+          state.providerStatus === "configured"
+            ? "مهيّأ"
+            : state.providerStatus === "invalid_model"
+              ? "معرّف النموذج غير مجاني أو غير صالح"
+              : "غير مهيّأ"
         }. أضف OPENROUTER_API_KEY في متغيرات بيئة Discloud. إذا ضُبط OPENROUTER_FREE_MODEL فله الأولوية على اختيار اللوحة، ولن يرسل PRIME الطلب إلى نموذج مدفوع عند تعطل المسار المجاني.`,
       ));
       providerSection.content.append(el(
