@@ -2124,7 +2124,7 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
         )
     async with db.execute(
         "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
-        "AND result!='success' AND (error_reason LIKE '%timeout%' "
+        "AND result NOT IN ('success','pending') AND (error_reason LIKE '%timeout%' "
         "OR error_reason LIKE '%transport_%' OR error_reason LIKE '%gemini_%' "
         "OR error_reason LIKE '%provider_%') "
         "AND julianday(created_at) >= julianday('now', ?)",
