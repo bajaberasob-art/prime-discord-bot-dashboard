@@ -782,6 +782,33 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("نقطتين رئيسيتين", embed.description)
         self.assertIn("20", embed.fields[0].value)
 
+    async def test_imagine_blocks_paid_generation_without_explicit_opt_in(self):
+        user = SimpleNamespace(id=9988776655, display_name="PRIME member")
+        interaction = SimpleNamespace(
+            user=user,
+            guild_id=12345,
+            response=SimpleNamespace(
+                defer=AsyncMock(),
+                send_message=AsyncMock(),
+            ),
+            followup=SimpleNamespace(send=AsyncMock()),
+        )
+        cog = AITools(SimpleNamespace(session=FakeProviderSession()))
+
+        with patch.dict(os.environ, {"PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": ""}), patch(
+            "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+        ) as generate:
+            await AITools.imagine.callback(cog, interaction, "blue moon / city")
+
+        interaction.response.send_message.assert_awaited_once()
+        self.assertIn(
+            "متوقف افتراضياً",
+            interaction.response.send_message.await_args.args[0],
+        )
+        interaction.response.defer.assert_not_awaited()
+        generate.assert_not_awaited()
+
     async def test_imagine_uses_gemini_native_image_generator(self):
         user = SimpleNamespace(id=9988776655, display_name="PRIME member")
         interaction = SimpleNamespace(
@@ -792,7 +819,7 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
         )
         cog = AITools(SimpleNamespace(session=FakeProviderSession()))
 
-        with patch(
+        with patch.dict(os.environ, {"PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "1"}), patch(
             "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
             new_callable=AsyncMock,
             return_value=(b"generated-png-bytes", "image/png"),
