@@ -92,7 +92,7 @@ def _default_settings() -> dict:
         "enabled": True,
         "system_prompt": "",
         "allowed_channel_ids": [],
-        "provider": PROVIDER_NAME,
+        "provider": prime_ai_control.FREE_PROVIDER_NAME,
         "revision": 0,
         "updated_by": None,
         "updated_at": None,
@@ -1662,7 +1662,7 @@ async def generate_response(
         user_message["media_parts"] = safe_media_parts
     messages.append(user_message)
     payload = {
-        "model": provider.get("model", PROVIDER_MODEL),
+        "model": provider.get("model", prime_ai_control.FREE_PROVIDER_MODEL),
         "messages": messages,
         "temperature": provider.get("temperature", 0.7),
         "max_tokens": provider.get("max_tokens", 1200),
@@ -1722,15 +1722,17 @@ async def generate_response(
     # The active text route is free-tier OpenRouter only. Keep diagnostics and
     # usage events aligned with the model actually sent to the provider rather
     # than the legacy Gemini defaults still present in old guild settings.
-    active_provider = "OpenRouter Free"
+    active_provider = prime_ai_control.FREE_PROVIDER_NAME
     active_model = (
-        os.getenv("OPENROUTER_FREE_MODEL", "openrouter/free").strip()
-        or "openrouter/free"
+        os.getenv("OPENROUTER_FREE_MODEL", "").strip()
+        or str(provider.get("model") or prime_ai_control.FREE_PROVIDER_MODEL).strip()
     )
     try:
         retry_count = int(provider.get("retry_count", 0))
+        # OpenRouter's single free request is intentionally bounded to
+        # 45 seconds; the Dashboard and logs must use the same hard ceiling.
         timeout_seconds = max(
-            3, min(int(provider.get("timeout_seconds", 30)), 120)
+            3, min(int(provider.get("timeout_seconds", 30)), 45)
         )
         gate_wait_started = time.perf_counter()
         async with _PROVIDER_GATE.slot():
