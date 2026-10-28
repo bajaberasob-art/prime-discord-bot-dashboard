@@ -1248,7 +1248,7 @@
         "prime-ai-help",
         `المزوّد الفعلي: OpenRouter Free؛ الحالة: ${
           state.providerStatus === "configured" ? "مهيّأ" : "غير مهيّأ"
-        }. أضف OPENROUTER_API_KEY في متغيرات بيئة Discloud. لا يرسل PRIME الطلب إلى نموذج مدفوع إذا تعطّل المسار المجاني.`,
+        }. أضف OPENROUTER_API_KEY في متغيرات بيئة Discloud. إذا ضُبط OPENROUTER_FREE_MODEL فله الأولوية على اختيار اللوحة، ولن يرسل PRIME الطلب إلى نموذج مدفوع عند تعطل المسار المجاني.`,
       ));
       providerSection.content.append(el(
         "p",
@@ -1258,7 +1258,7 @@
       const providerGrid = el("div", "prime-ai-control-grid");
       providerGrid.append(
         controlInput("provider.model", "معرّف النموذج المجاني", provider.model, { maxLength: 80 }),
-        controlInput("provider.max_tokens", "حد الرموز", provider.max_tokens, { type: "number", min: 64, max: 8192, step: 1 }),
+        controlInput("provider.max_tokens", "حد الرموز", provider.max_tokens, { type: "number", min: 64, max: 1600, step: 1 }),
         controlInput("provider.timeout_seconds", "المهلة القصوى للطلب (ثانية)", provider.timeout_seconds, { type: "number", min: 3, max: 45, step: 1 }),
       );
       providerSection.content.append(providerGrid);
