@@ -308,19 +308,18 @@ class EnterpriseBot(commands.Bot):
                 await self._cleanup_failed_setup(loaded_modules)
                 raise RuntimeError(f"فشل تحميل الوحدة {module}; أوقف الإقلاع.") from error
 
-        # Register the restart-safe DM rating callbacks from the central bot
-        # lifecycle after the Community extension is loaded.
-        from cogs.community import PersistentDMRatingView
+        try:
+            # Register restart-safe controls only after their owning extensions loaded.
+            from cogs.community import PersistentDMRatingView
 
-        self.add_view(PersistentDMRatingView())
-        self.install_interaction_guards()
-        if os.getenv("SYNC_COMMANDS", "false").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }:
-            try:
+            self.add_view(PersistentDMRatingView())
+            self.install_interaction_guards()
+            if os.getenv("SYNC_COMMANDS", "false").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }:
                 if self.sync_guild is not None:
                     self.tree.copy_global_to(guild=self.sync_guild)
                     synced = await self.tree.sync(guild=self.sync_guild)
@@ -332,69 +331,105 @@ class EnterpriseBot(commands.Bot):
                 else:
                     synced = await self.tree.sync()
                     logger.info("✨ تمت مزامنة %d أمر Slash عالمياً بنجاح.", len(synced))
-            except discord.HTTPException as error:
-                logger.error("⚠️ فشل مزامنة أوامر Slash: %s", error)
-        else:
-            logger.info("⏭️ تم تخطي مزامنة أوامر Slash؛ فعّل SYNC_COMMANDS=true عند الحاجة.")
-            from cogs.rank_commands import publish_rank_commands
-            from cogs.profile import publish_profile_command
-            from cogs.subscription_commands import publish_subscription_commands
-            from command_registration import publish_command_groups
+            else:
+                logger.info("⏭️ تم تخطي مزامنة أوامر Slash؛ فعّل SYNC_COMMANDS=true عند الحاجة.")
+                from cogs.rank_commands import publish_rank_commands
+                from cogs.profile import publish_profile_command
+                from cogs.subscription_commands import publish_subscription_commands
+                from command_registration import publish_command_groups
 
-            await publish_rank_commands(self, guild=self.sync_guild)
-            await publish_profile_command(self, guild=self.sync_guild)
-            await publish_subscription_commands(self, guild=self.sync_guild)
-            # Broad sync is intentionally disabled by default; explicitly upsert
-            # the new game/tournament groups and the standalone visual game command
-            # so unrelated Discord commands stay untouched.
-            await publish_command_groups(
-                self,
-                ("game", "tournament", "mafia", "musical_chairs", "roulette_royale", "uno_visual", "buckshot", "bank_heist", "blind_vaults", "connect4_power"),
-                guild=self.sync_guild,
-            )
-
-        self.rotate_status.start()
-        self._is_initialized = True
+                await publish_rank_commands(self, guild=self.sync_guild)
+                await publish_profile_command(self, guild=self.sync_guild)
+                await publish_subscription_commands(self, guild=self.sync_guild)
+                # Broad sync is intentionally disabled by default; explicitly upsert
+                # the new game/tournament groups and standalone visual game command
+                # without deleting unrelated commands.
+                await publish_command_groups(
+                    self,
+                    (
+                        "game", "tournament", "mafia", "musical_chairs",
+                        "roulette_royale", "uno_visual", "buckshot", "bank_heist",
+                        "blind_vaults", "connect4_power",
+                    ),
+                    guild=self.sync_guild,
+                )
+            self.rotate_status.start()
+            self._is_initialized = True
+        except Exception:
+            # Command publication is part of startup, not a best-effort side
+            # operation. Roll back cogs, views' owning extensions and resources
+            # before the outer reconnect loop retries setup_hook().
+            await self._cleanup_failed_setup(loaded_modules)
+            raise
 
     async def close(self):
+        """Shut down each owned resource even if an earlier cleanup step fails."""
         logger.info("🛑 جاري إنهاء الجلسات وإيقاف البوت بأمان...")
         self.rotate_status.cancel()
-        if self._gateway_watchdog_task:
-            self._gateway_watchdog_task.cancel()
-            self._gateway_watchdog_task = None
-        if self._diagnostics_task:
-            self._diagnostics_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._diagnostics_task
-            self._diagnostics_task = None
-        if self._wal_checkpoint_task:
-            self._wal_checkpoint_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._wal_checkpoint_task
-            self._wal_checkpoint_task = None
+
+        # Cancel and await owned long-running tasks so shutdown does not leave
+        # orphaned tasks or unobserved exceptions behind.
+        for attribute in (
+            "_gateway_watchdog_task",
+            "_diagnostics_task",
+            "_wal_checkpoint_task",
+        ):
+            task = getattr(self, attribute, None)
+            setattr(self, attribute, None)
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
         for guild_id, user_id in list(self._voice_sessions):
-            with contextlib.suppress(Exception):
+            try:
                 await self._close_voice_session(guild_id, user_id, time.time())
-        if self._analytics_writer_task:
+            except Exception:
+                logger.exception(
+                    "[SHUTDOWN] Failed to flush voice session guild=%s user=%s.",
+                    guild_id, user_id,
+                )
+
+        writer = self._analytics_writer_task
+        self._analytics_writer_task = None
+        if writer is not None:
             try:
                 await asyncio.wait_for(self._analytics_queue.join(), timeout=5)
             except asyncio.TimeoutError:
                 logger.warning(
                     "[ANALYTICS] writer drain timed out; closing with queued events remaining."
                 )
-            self._analytics_writer_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._analytics_writer_task
-            self._analytics_writer_task = None
-        with contextlib.suppress(Exception):
+            except Exception:
+                logger.exception("[ANALYTICS] failed while draining the queue.")
+            writer.cancel()
+            await asyncio.gather(writer, return_exceptions=True)
+
+        try:
             await checkpoint_wal()
+        except Exception:
+            logger.exception("[SHUTDOWN] Final database checkpoint failed.")
+
         if self.dashboard_runner:
-            await self.dashboard_runner.cleanup()
-            self.dashboard_runner = None
-        if self.session and not self.session.closed:
-            await self.session.close()
-        await prime_ai_persistence.close_durable_store()
-        await super().close()
+            runner, self.dashboard_runner = self.dashboard_runner, None
+            try:
+                await runner.cleanup()
+            except Exception:
+                logger.exception("[SHUTDOWN] Dashboard cleanup failed.")
+
+        session, self.session = self.session, None
+        if session is not None and not session.closed:
+            try:
+                await session.close()
+            except Exception:
+                logger.exception("[SHUTDOWN] Shared HTTP session cleanup failed.")
+
+        try:
+            await prime_ai_persistence.close_durable_store()
+        except Exception:
+            logger.exception("[SHUTDOWN] Durable AI storage cleanup failed.")
+        finally:
+            # Always close discord.py's own HTTP client even when application
+            # resource cleanup above encounters an error.
+            await super().close()
 
     async def _gateway_startup_watchdog(self):
         await asyncio.sleep(10)
