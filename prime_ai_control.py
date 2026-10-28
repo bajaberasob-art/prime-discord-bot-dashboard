@@ -2241,6 +2241,21 @@ async def check_usage_budget(guild_id: int) -> dict:
     }
 
 
+async def check_image_monthly_limit(guild_id: int, limit: int = 100) -> dict:
+    """Return monthly image request usage and whether another request is allowed."""
+    safe_limit = max(0, min(int(limit), 10000))
+    async with database.connect(aiosqlite.Row) as db:
+        await _ensure_usage_schema(db)
+        now = now_utc()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        async with db.execute(
+            "SELECT COUNT(*) FROM prime_ai_request_events "
+            "WHERE guild_id=? AND skill=? AND mode=? AND created_at >= ?",
+            (int(guild_id), "imagine", "IMAGE", month_start),
+        ) as cur:
+            used = int((await cur.fetchone())[0] or 0)
+    return {"used": used, "limit": safe_limit, "exceeded": safe_limit == 0 or used >= safe_limit}
+
 async def record_request(
     guild_id: int,
     user_id: int | None,
