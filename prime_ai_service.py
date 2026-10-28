@@ -27,7 +27,7 @@ from prime_ai.errors import (
 )
 from prime_ai.text import sanitize_discord_text
 from prime_ai.providers import (
-    GeminiImageProvider, GeminiProvider, PollinationsProvider, PROVIDER_NAME, PROVIDER_MODEL,
+    GeminiImageProvider, GeminiProvider, PollinationsProvider, PollinationsImageProvider, PROVIDER_NAME, PROVIDER_MODEL,
     FALLBACK_PROVIDER_MODEL, RETRYABLE_PROVIDER_STATUSES,
     FALLBACK_PROVIDER_STATUSES, complete_with_retries, request_with_fallback,
     request_with_openrouter_fallback,
@@ -61,6 +61,7 @@ _PROVIDER_GATE = _BoundedProviderGate()
 POLLINATIONS_PROVIDER = PollinationsProvider()
 GEMINI_PROVIDER = GeminiProvider()
 GEMINI_IMAGE_PROVIDER = GeminiImageProvider()
+POLLINATIONS_IMAGE_PROVIDER = PollinationsImageProvider()
 
 
 async def _complete_with_retries(
