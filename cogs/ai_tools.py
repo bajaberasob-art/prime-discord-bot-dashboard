@@ -3,7 +3,6 @@ import json
 import math
 import logging
 import asyncio
-import os
 import re
 from pathlib import PurePosixPath
 from datetime import datetime, timezone
@@ -3262,7 +3261,7 @@ class AITools(commands.Cog):
 
     @app_commands.command(
         name="imagine",
-        description="توليد صور فعلية باستخدام نموذج Gemini",
+        description="توليد الصور متوقف حتى توفير مسار مجاني مؤكد",
     )
     @app_commands.describe(
         prompt="وصف الصورة أو التعديل المطلوب",
@@ -3311,175 +3310,6 @@ class AITools(commands.Cog):
             "يمكن إعادة تفعيله بعد إضافة مزوّد مجاني مؤكد مع حد استخدام يمنع الفوترة.",
             ephemeral=True,
         )
-
-        limit_guild = int(getattr(itx, "guild_id", 0) or 0)
-
-        wait = prime_ai_service.allow_request(
-            limit_guild,
-            int(itx.user.id),
-            action="imagine",
-            limit=2,
-            window_seconds=600,
-        )
-        if wait:
-            return await itx.response.send_message(
-                f"بلغت حد توليد الصور مؤقتاً؛ أعد المحاولة بعد {max(1, int(wait) + 1)} ثانية.",
-                ephemeral=True,
-            )
-
-        await itx.response.defer(thinking=True)
-        image_started = time.monotonic()
-        session = self._current_http_session()
-        reference_data = None
-        image_event_id = None
-        image_result = "failed"
-        image_error_reason = "image_generation_failed"
-        try:
-            if reference_image:
-                prepared = await prime_ai_multimodal.prepare_inputs(
-                    attachments=[reference_image],
-                    session=session,
-                )
-                reference_data = next(
-                    (
-                        item for item in prepared.parts
-                        if item.get("type") == "image" and item.get("mime_type") in {
-                            "image/png", "image/jpeg", "image/webp"
-                        }
-                    ),
-                    None,
-                )
-                if not reference_data:
-                    return await itx.followup.send(
-                        "تعذّر قراءة الصورة المرجعية. أرسل صورة PNG أو JPEG أو WEBP أصغر من 6 ميغابايت.",
-                        ephemeral=True,
-                    )
-
-            try:
-                monthly_image_limit = max(
-                    0, min(int(os.getenv("PRIME_AI_IMAGE_MONTHLY_LIMIT", "100")), 10000)
-                )
-            except (TypeError, ValueError):
-                monthly_image_limit = 100
-            try:
-                reservation = await prime_ai_control.reserve_image_request(
-                    limit_guild, int(itx.user.id), getattr(itx, "channel_id", None),
-                    monthly_image_limit,
-                )
-            except Exception:
-                LOGGER.exception("[AI] Could not reserve monthly image usage; blocking image generation.")
-                return await itx.followup.send(
-                    "تعذر التأكد من حصة الصور الشهرية؛ أوقفت التوليد مؤقتاً لحماية الميزانية.",
-                    ephemeral=True,
-                )
-            if reservation["exceeded"]:
-                return await itx.followup.send(
-                    "وصل الخادم إلى حد الصور الشهري ({}/{}). يمكن للمشرف تعديل PRIME_AI_IMAGE_MONTHLY_LIMIT في إعدادات البيئة.".format(reservation["used"], reservation["limit"]),
-                    ephemeral=True,
-                )
-            image_event_id = reservation["event_id"]
-
-            provider_label = "Pollinations" if use_pollinations else "Gemini"
-            files = []
-            embeds = []
-            failures = []
-            for index in range(int(count)):
-                if index:
-                    wait = prime_ai_service.allow_request(
-                        limit_guild,
-                        int(itx.user.id),
-                        action="imagine",
-                        limit=2,
-                        window_seconds=600,
-                    )
-                    if wait:
-                        failures.append("وصلت إلى حد الاستخدام؛ أنشأت بعض النتائج فقط.")
-                        break
-                try:
-                    if use_pollinations:
-                        image_bytes, mime_type = await prime_ai_service.POLLINATIONS_IMAGE_PROVIDER.generate(
-                            session, prompt, timeout_seconds=90, aspect_ratio=aspect_ratio,
-                        )
-                    else:
-                        image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
-                            session, prompt, reference_image=reference_data,
-                            timeout_seconds=120, aspect_ratio=aspect_ratio,
-                        )
-                except prime_ai_service.AIProviderUnavailable as error:
-                    image_error_reason = str(error)[:120] or "image_provider_unavailable"
-                    LOGGER.warning("[AI] Image provider generation failed (%s).", str(error)[:100])
-                    failures.append(_provider_failure_message(error))
-                    break
-                except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
-                    image_error_reason = "image_request_" + type(error).__name__
-                    LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
-                    failures.append("تعذر توليد إحدى الصور. تحقق من مفتاح المزوّد وحدود الاستخدام ثم حاول مرة أخرى.")
-                    break
-
-                extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
-                filename = f"prime-imagine-{index + 1}.{extension}"
-                files.append(discord.File(io.BytesIO(image_bytes), filename=filename))
-                embed = discord.Embed(
-                    title=f"🎨 PRIME AI · النتيجة {index + 1}",
-                    description=prompt[:900],
-                    color=0x9B59B6,
-                )
-                embed.set_image(url=f"attachment://{filename}")
-                embed.set_footer(
-                    text=f"توليد {provider_label} · طلب بواسطة {itx.user.display_name}",
-                )
-                embeds.append(embed)
-
-
-            if not files:
-                return await itx.followup.send(
-                    failures[0] if failures else "لم يعُد نموذج الصور ملفاً صالحاً.",
-                    allowed_mentions=discord.AllowedMentions.none(),
-                    ephemeral=True,
-                )
-            note = (
-                f"تم توليد الصورة عبر {provider_label}، وليست صورة خارجية معروضة من رابط بحث."
-                if len(files) == 1
-                else f"تم توليد {len(files)} نتائج عبر {provider_label}."
-            )
-            if failures:
-                note += "\n\n" + failures[0]
-            await itx.followup.send(
-                content=note,
-                embeds=embeds,
-                files=files,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-            image_result = "success"
-            image_error_reason = ""
-        except discord.HTTPException:
-            image_error_reason = "discord_delivery_failed"
-            LOGGER.exception("[AI] Discord could not deliver generated image.")
-            if not itx.is_expired():
-                await itx.followup.send(
-                    "تمت محاولة التوليد، لكن Discord لم يقبل الملف الناتج.",
-                    ephemeral=True,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-        except Exception:
-            image_error_reason = "unexpected_image_generation_failure"
-            LOGGER.exception("[AI] Unexpected image generation failure.")
-            await itx.followup.send(
-                "تعذر إكمال توليد الصورة. لم يتم إرسال رابط وهمي؛ تحقق من السجلات وإعدادات مزوّد الصور.",
-                ephemeral=True,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-        finally:
-            if image_event_id is not None:
-                try:
-                    await prime_ai_control.finish_image_request(
-                        image_event_id,
-                        result=image_result,
-                        latency_ms=int((time.monotonic() - image_started) * 1000),
-                        error_reason=image_error_reason,
-                    )
-                except Exception:
-                    LOGGER.exception("[AI] Could not finalize reserved image usage event.")
 
     @app_commands.command(
         name="summarize",
