@@ -472,7 +472,7 @@ class OpenRouterFreeProvider:
             # Keep adjacent same-role messages readable and compatible across
             # the previous Gemini adapter and OpenRouter's chat-completions API.
             if messages and messages[-1]["role"] == item["role"]:
-                messages[-1]["content"] += "\\n" + content
+                messages[-1]["content"] += "\n" + content
             else:
                 messages.append({"role": item["role"], "content": content})
         if not messages:
