@@ -795,7 +795,10 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
         )
         cog = AITools(SimpleNamespace(session=FakeProviderSession()))
 
-        with patch.dict(os.environ, {"PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": ""}), patch(
+        with patch.dict(os.environ, {
+            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "",
+            "POLLINATIONS_API_KEY": "",
+        }), patch(
             "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
             new_callable=AsyncMock,
         ) as generate:
@@ -819,7 +822,18 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
         )
         cog = AITools(SimpleNamespace(session=FakeProviderSession()))
 
-        with patch.dict(os.environ, {"PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "1"}), patch(
+        with patch.dict(os.environ, {
+            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "1",
+            "POLLINATIONS_API_KEY": "",
+            "PRIME_AI_IMAGE_MONTHLY_LIMIT": "100",
+        }), patch(
+            "cogs.ai_tools.prime_ai_control.reserve_image_request",
+            new_callable=AsyncMock,
+            return_value={"event_id": 42, "used": 1, "limit": 100, "exceeded": False},
+        ), patch(
+            "cogs.ai_tools.prime_ai_control.finish_image_request",
+            new_callable=AsyncMock,
+        ) as finish, patch(
             "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
             new_callable=AsyncMock,
             return_value=(b"generated-png-bytes", "image/png"),
@@ -844,6 +858,39 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
             "attachment://prime-imagine-1.png",
         )
         self.assertNotIn("embed", kwargs)
+        finish.assert_awaited_once()
+        self.assertEqual(finish.await_args.kwargs["result"], "success")
+
+
+    async def test_imagine_blocks_when_monthly_image_limit_is_reached(self):
+        user = SimpleNamespace(id=9988776655, display_name="PRIME member")
+        interaction = SimpleNamespace(
+            user=user,
+            guild_id=12345,
+            channel_id=56789,
+            response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
+        )
+        cog = AITools(SimpleNamespace(session=FakeProviderSession()))
+
+        with patch.dict(os.environ, {
+            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "1",
+            "POLLINATIONS_API_KEY": "",
+            "PRIME_AI_IMAGE_MONTHLY_LIMIT": "1",
+        }), patch(
+            "cogs.ai_tools.prime_ai_control.reserve_image_request",
+            new_callable=AsyncMock,
+            return_value={"event_id": None, "used": 1, "limit": 1, "exceeded": True},
+        ), patch(
+            "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+        ) as generate:
+            await AITools.imagine.callback(cog, interaction, "blue moon / city")
+
+        interaction.response.defer.assert_awaited_once()
+        interaction.followup.send.assert_awaited_once()
+        self.assertIn("حد الصور الشهري", interaction.followup.send.await_args.args[0])
+        generate.assert_not_awaited()
 
 
 class PrimeAIPromptTests(unittest.TestCase):
