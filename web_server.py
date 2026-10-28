@@ -6010,6 +6010,24 @@ async def api_prime_ai_sandbox(req):
                 "ai_text_only",
                 message="المزوّد المجاني الحالي يدعم النص فقط ولا يعالج المرفقات.",
             )
+        if error.status_code in {401, 403}:
+            return json_error(
+                503,
+                "ai_provider_auth_failed",
+                message=(
+                    "رفض OpenRouter المفتاح أو صلاحياته. تحقق من OPENROUTER_API_KEY "
+                    "وحالة المفتاح في لوحة المزوّد، ولا تضف نموذجاً مدفوعاً كبديل."
+                ),
+            )
+        if error.status_code == 404 or reason == "openrouter_status_404":
+            return json_error(
+                503,
+                "ai_provider_model_unavailable",
+                message=(
+                    "النموذج المجاني المحدد غير متاح الآن أو لم يعد صالحاً. استخدم "
+                    "openrouter/free أو تحقّق من معرّف النموذج الذي ينتهي بـ :free."
+                ),
+            )
         if error.status_code == 429:
             return json_error(
                 429,
