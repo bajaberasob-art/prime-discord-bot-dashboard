@@ -1661,13 +1661,16 @@ async def generate_response(
     if safe_media_parts:
         user_message["media_parts"] = safe_media_parts
     messages.append(user_message)
-    # Legacy guild settings may still contain a paid Gemini model name.
-    # Never pass that value to the free-only router: use only an explicit
-    # deployment override (validated by OpenRouterFreeProvider) or its free
-    # router default. This keeps old settings from silently disabling chat.
+    # Old guild settings may contain paid model IDs. Honor a Dashboard model
+    # only when it is explicitly marked free; otherwise fall back to the free
+    # router. OpenRouterFreeProvider applies the same guard again at the API edge.
+    configured_model = str(provider.get("model") or "").strip()
+    if configured_model != prime_ai_control.FREE_PROVIDER_MODEL and not configured_model.endswith(":free"):
+        configured_model = prime_ai_control.FREE_PROVIDER_MODEL
     free_model_override = os.getenv("OPENROUTER_FREE_MODEL", "").strip()
+    active_free_model = free_model_override or configured_model
     payload = {
-        "model": free_model_override or prime_ai_control.FREE_PROVIDER_MODEL,
+        "model": active_free_model,
         "messages": messages,
         "temperature": provider.get("temperature", 0.7),
         "max_tokens": provider.get("max_tokens", 1200),
@@ -1728,10 +1731,7 @@ async def generate_response(
     # usage events aligned with the model actually sent to the provider rather
     # than the legacy Gemini defaults still present in old guild settings.
     active_provider = prime_ai_control.FREE_PROVIDER_NAME
-    active_model = (
-        os.getenv("OPENROUTER_FREE_MODEL", "").strip()
-        or prime_ai_control.FREE_PROVIDER_MODEL
-    )
+    active_model = active_free_model
     try:
         retry_count = int(provider.get("retry_count", 0))
         # OpenRouter's single free request is intentionally bounded to
