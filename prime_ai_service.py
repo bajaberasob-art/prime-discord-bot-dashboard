@@ -1730,7 +1730,7 @@ async def generate_response(
     active_provider = prime_ai_control.FREE_PROVIDER_NAME
     active_model = (
         os.getenv("OPENROUTER_FREE_MODEL", "").strip()
-        or str(provider.get("model") or prime_ai_control.FREE_PROVIDER_MODEL).strip()
+        or prime_ai_control.FREE_PROVIDER_MODEL
     )
     try:
         retry_count = int(provider.get("retry_count", 0))
