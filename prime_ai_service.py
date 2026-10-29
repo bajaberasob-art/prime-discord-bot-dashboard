@@ -1661,8 +1661,13 @@ async def generate_response(
     if safe_media_parts:
         user_message["media_parts"] = safe_media_parts
     messages.append(user_message)
+    # Legacy guild settings may still contain a paid Gemini model name.
+    # Never pass that value to the free-only router: use only an explicit
+    # deployment override (validated by OpenRouterFreeProvider) or its free
+    # router default. This keeps old settings from silently disabling chat.
+    free_model_override = os.getenv("OPENROUTER_FREE_MODEL", "").strip()
     payload = {
-        "model": provider.get("model", prime_ai_control.FREE_PROVIDER_MODEL),
+        "model": free_model_override or prime_ai_control.FREE_PROVIDER_MODEL,
         "messages": messages,
         "temperature": provider.get("temperature", 0.7),
         "max_tokens": provider.get("max_tokens", 1200),
