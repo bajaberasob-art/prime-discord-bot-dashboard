@@ -156,6 +156,10 @@ class EnterpriseBot(commands.Bot):
             command_name,
             getattr(interaction, "guild_id", None),
         )
+        # Overriding Bot.on_interaction replaces discord.py's default dispatch.
+        # Without this call, the gateway logs slash commands but never routes
+        # them to CommandTree, making application commands appear unresponsive.
+        await super().on_interaction(interaction)
 
     def install_interaction_guards(self) -> int:
         wrapped = 0
