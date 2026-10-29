@@ -11,7 +11,10 @@ from typing import Any
 import aiosqlite
 
 import database
-from prime_ai.providers import PROVIDER_NAME, PROVIDER_MODEL
+from prime_ai.providers import PROVIDER_NAME as LEGACY_PROVIDER_NAME
+
+FREE_PROVIDER_NAME = "OpenRouter Free"
+FREE_PROVIDER_MODEL = "openrouter/free"
 
 
 def now_utc() -> datetime:
@@ -301,13 +304,13 @@ DEFAULT_CONTROL_SETTINGS: dict[str, Any] = {
     "channel_personas": {},
     "role_overrides": {},
     "provider": {
-        "name": PROVIDER_NAME,
-        "model": PROVIDER_MODEL,
+        "name": FREE_PROVIDER_NAME,
+        "model": FREE_PROVIDER_MODEL,
         "temperature": 0.7,
         "thinking_level": "medium",
         "max_tokens": 1200,
         "timeout_seconds": 30,
-        "retry_count": 1,
+        "retry_count": 0,
     },
     "response": {
         "maximum_length": 3500,
@@ -382,7 +385,7 @@ PERSONALITIES = {
     "Practical", "Formal", "Friendly", "Romantic", "Sarcastic", "Firm",
     "Mysterious", "Funny", "Smart", "Gaming", "Aggressive", "Custom",
 }
-_SAFE_MODEL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
+_SAFE_MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,80}$")
 
 
 SKILL_CATALOG: tuple[dict[str, Any], ...] = (
@@ -803,22 +806,61 @@ def normalize_control_settings(
             clean_entry["tone"] = entry["tone"]
         clean_roles[str(role_id)] = clean_entry
     value["role_overrides"] = clean_roles
-    if value["provider"]["name"] == "Pollinations":
-        # Existing guild rows use Pollinations-specific model IDs. Convert
-        # those settings in memory so the provider switch does not break them.
-        value["provider"]["name"] = PROVIDER_NAME
-        value["provider"]["model"] = PROVIDER_MODEL
-    if value["provider"]["name"] != PROVIDER_NAME:
-        raise ValueError("unsupported_provider")
-    if not isinstance(value["provider"]["model"], str) or not _SAFE_MODEL_RE.fullmatch(value["provider"]["model"]):
-        raise ValueError("invalid_model")
     provider = value["provider"]
-    if isinstance(provider["temperature"], bool) or not isinstance(provider["temperature"], (int, float)) or not 0 <= provider["temperature"] <= 2:
+    if allow_legacy_values:
+        # Migrate persisted provider controls to the actual free-route limits
+        # before validating existing guild settings.
+        legacy_timeout = provider.get("timeout_seconds")
+        if (
+            isinstance(legacy_timeout, int)
+            and not isinstance(legacy_timeout, bool)
+            and legacy_timeout > 45
+        ):
+            provider["timeout_seconds"] = 45
+        legacy_max_tokens = provider.get("max_tokens")
+        if (
+            isinstance(legacy_max_tokens, int)
+            and not isinstance(legacy_max_tokens, bool)
+            and legacy_max_tokens > 1600
+        ):
+            provider["max_tokens"] = 1600
+        legacy_temperature = provider.get("temperature")
+        if (
+            isinstance(legacy_temperature, (int, float))
+            and not isinstance(legacy_temperature, bool)
+            and legacy_temperature > 1.5
+        ):
+            provider["temperature"] = 1.5
+    legacy_provider_names = {"Pollinations", LEGACY_PROVIDER_NAME, FREE_PROVIDER_NAME}
+    if provider["name"] in {"Pollinations", LEGACY_PROVIDER_NAME}:
+        # Migrate previously saved provider choices to the active free route.
+        # The old Gemini/Pollinations model IDs must never remain selectable
+        # in the Dashboard now that runtime routing is strict free-only.
+        provider["name"] = FREE_PROVIDER_NAME
+        provider["model"] = FREE_PROVIDER_MODEL
+    if provider["name"] not in legacy_provider_names:
+        raise ValueError("unsupported_provider")
+    provider["name"] = FREE_PROVIDER_NAME
+    model = provider.get("model")
+    if (
+        not isinstance(model, str)
+        or not _SAFE_MODEL_RE.fullmatch(model)
+        or (model != FREE_PROVIDER_MODEL and not model.endswith(":free"))
+    ):
+        raise ValueError("openrouter_free_model_required")
+    if isinstance(provider["temperature"], bool) or not isinstance(provider["temperature"], (int, float)) or not 0 <= provider["temperature"] <= 1.5:
         raise ValueError("invalid_temperature")
-    for key, low, high in (("max_tokens", 64, 8192), ("timeout_seconds", 3, 120), ("retry_count", 0, 3)):
+    for key, low, high in (
+        ("max_tokens", 64, 1600),
+        ("timeout_seconds", 3, 45),
+        ("retry_count", 0, 3),
+    ):
         number = provider[key]
         if isinstance(number, bool) or not isinstance(number, int) or not low <= number <= high:
             raise ValueError(f"invalid_provider_{key}")
+    # The free route does not retry or fall through to another provider; a
+    # legacy retry setting must not create extra quota-consuming requests.
+    provider["retry_count"] = 0
 
     response = value["response"]
     if (
@@ -2124,9 +2166,10 @@ async def _evaluate_usage_alerts(db, guild_id: int, settings: dict) -> None:
         )
     async with db.execute(
         "SELECT COUNT(*) FROM prime_ai_request_events WHERE guild_id=? "
-        "AND result!='success' AND (error_reason LIKE '%timeout%' "
+        "AND result NOT IN ('success','pending') AND (error_reason LIKE '%timeout%' "
         "OR error_reason LIKE '%transport_%' OR error_reason LIKE '%gemini_%' "
-        "OR error_reason LIKE '%provider_%') "
+        "OR error_reason LIKE '%provider_%' OR error_reason LIKE '%openrouter_%' "
+        "OR error_reason LIKE '%pollinations_%' OR error_reason LIKE '%image_%') "
         "AND julianday(created_at) >= julianday('now', ?)",
         (int(guild_id), f"-{fail_window} minutes"),
     ) as cur:
@@ -2240,6 +2283,62 @@ async def check_usage_budget(guild_id: int) -> dict:
         "remaining_usd": round(max(0.0, float(settings["monthly_limit_usd"]) - cost), 6),
     }
 
+
+async def reserve_image_request(
+    guild_id: int, user_id: int | None, channel_id: int | None, limit: int = 100,
+) -> dict:
+    """Atomically reserve one monthly image slot before contacting a provider."""
+    safe_limit = max(0, min(int(limit), 10000))
+    async with database.connect(aiosqlite.Row) as db:
+        await _ensure_usage_schema(db)
+        await db.execute("BEGIN IMMEDIATE")
+        now = now_utc()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        async with db.execute(
+            "SELECT COUNT(*) FROM prime_ai_request_events "
+            "WHERE guild_id=? AND skill=? AND mode=? AND created_at >= ?",
+            (int(guild_id), "imagine", "IMAGE", month_start),
+        ) as cur:
+            used = int((await cur.fetchone())[0] or 0)
+        if safe_limit == 0 or used >= safe_limit:
+            await db.rollback()
+            return {"event_id": None, "used": used, "limit": safe_limit, "exceeded": True}
+        cur = await db.execute(
+            "INSERT INTO prime_ai_request_events "
+            "(guild_id,user_id,channel_id,skill,mode,result,latency_ms,tokens_used,error_reason,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (int(guild_id), int(user_id) if user_id is not None else None,
+             int(channel_id) if channel_id is not None else None, "imagine", "IMAGE",
+             "pending", 0, 0, "image_generation_pending", timestamp()),
+        )
+        event_id = int(cur.lastrowid)
+        await db.commit()
+    return {"event_id": event_id, "used": used + 1, "limit": safe_limit, "exceeded": False}
+
+
+async def finish_image_request(
+    event_id: int, *, result: str, latency_ms: int, error_reason: str = "",
+) -> None:
+    """Finalize a previously reserved image request without adding a duplicate event."""
+    async with database.connect(aiosqlite.Row) as db:
+        await _ensure_usage_schema(db)
+        async with db.execute(
+            "SELECT guild_id FROM prime_ai_request_events WHERE event_id=? AND skill=? AND mode=?",
+            (int(event_id), "imagine", "IMAGE"),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return
+        guild_id = int(row["guild_id"])
+        await db.execute(
+            "UPDATE prime_ai_request_events SET result=?,latency_ms=?,tokens_used=0,error_reason=? "
+            "WHERE event_id=? AND skill=? AND mode=?",
+            (str(result)[:30], max(0, min(int(latency_ms), 3600000)),
+             str(error_reason or "")[:120], int(event_id), "imagine", "IMAGE"),
+        )
+        settings = await _usage_settings(db, guild_id)
+        await _evaluate_usage_alerts(db, guild_id, settings)
+        await db.commit()
 
 async def record_request(
     guild_id: int,

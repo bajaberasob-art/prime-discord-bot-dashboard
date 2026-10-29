@@ -32,9 +32,10 @@ from tests.test_settings_api import call, request
 
 
 class FakeProviderResponse:
-    def __init__(self, status=200, answer="PRIME AI answer"):
+    def __init__(self, status=200, answer="PRIME AI answer", *, openrouter=False):
         self.status = status
         self.answer = answer
+        self.openrouter = openrouter
         candidate_event = {
             "candidates": [{
                 "content": {"parts": [{"text": answer}]},
@@ -56,6 +57,11 @@ class FakeProviderResponse:
         return self.answer
 
     async def json(self, **_kwargs):
+        if self.openrouter:
+            return {
+                "choices": [{"message": {"content": self.answer}}],
+                "usage": {"total_tokens": 17},
+            }
         return {
             "candidates": [{
                 "content": {"parts": [{"text": self.answer}]},
@@ -92,15 +98,35 @@ class FakeProviderSession:
         self.method = "POST"
         self.headers = _kwargs.get("headers")
         self.params = _kwargs.get("params")
+        openrouter = "openrouter.ai/api/v1/chat/completions" in str(url)
         status = self.status
         if self.statuses:
             status = self.statuses[min(self.post_count, len(self.statuses) - 1)]
         self.post_count += 1
-        return FakeProviderResponse(status, self.answer)
+        return FakeProviderResponse(status, self.answer, openrouter=openrouter)
 
 
 def provider_messages(payload):
-    """Expose Gemini wire contents in the role/content form used by prompt tests."""
+    """Normalize supported provider payloads for prompt-focused unit tests."""
+    if isinstance(payload.get("messages"), list):
+        normalized = []
+        for item in payload["messages"]:
+            if not isinstance(item, dict):
+                continue
+            value = item.get("content", "")
+            if isinstance(value, str):
+                text_value = value
+            elif isinstance(value, list):
+                text_value = "\n".join(
+                    str(part.get("text", ""))
+                    for part in value
+                    if isinstance(part, dict) and isinstance(part.get("text"), str)
+                )
+            else:
+                text_value = ""
+            normalized.append({"role": item.get("role"), "content": text_value})
+        return normalized
+
     messages = []
     system_parts = payload.get("systemInstruction", {}).get("parts", [])
     system_text = "\n".join(
@@ -782,41 +808,103 @@ class PrimeAIUtilityCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("نقطتين رئيسيتين", embed.description)
         self.assertIn("20", embed.fields[0].value)
 
-    async def test_imagine_uses_gemini_native_image_generator(self):
+    async def test_imagine_blocks_paid_generation_without_explicit_opt_in(self):
         user = SimpleNamespace(id=9988776655, display_name="PRIME member")
         interaction = SimpleNamespace(
             user=user,
             guild_id=12345,
-            response=SimpleNamespace(defer=AsyncMock()),
+            response=SimpleNamespace(
+                defer=AsyncMock(),
+                send_message=AsyncMock(),
+            ),
             followup=SimpleNamespace(send=AsyncMock()),
         )
         cog = AITools(SimpleNamespace(session=FakeProviderSession()))
 
-        with patch(
+        with patch.dict(os.environ, {
+            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "",
+            "POLLINATIONS_API_KEY": "",
+        }), patch(
             "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
             new_callable=AsyncMock,
-            return_value=(b"generated-png-bytes", "image/png"),
         ) as generate:
             await AITools.imagine.callback(cog, interaction, "blue moon / city")
 
-        interaction.response.defer.assert_awaited_once()
-        generate.assert_awaited_once_with(
-            cog._current_http_session(),
-            "blue moon / city",
-            reference_image=None,
-            timeout_seconds=120,
-            aspect_ratio="1:1",
+        interaction.response.send_message.assert_awaited_once()
+        self.assertIn(
+            "متوقف مؤقتاً",
+            interaction.response.send_message.await_args.args[0],
         )
-        kwargs = interaction.followup.send.await_args.kwargs
-        self.assertIn("Gemini", kwargs["content"])
-        self.assertEqual(len(kwargs["embeds"]), 1)
-        self.assertEqual(len(kwargs["files"]), 1)
-        self.assertEqual(kwargs["files"][0].filename, "prime-imagine-1.png")
-        self.assertEqual(
-            kwargs["embeds"][0].image.url,
-            "attachment://prime-imagine-1.png",
+        interaction.response.defer.assert_not_awaited()
+        generate.assert_not_awaited()
+
+    async def test_imagine_stays_disabled_even_with_legacy_paid_opt_in(self):
+        user = SimpleNamespace(id=9988776655, display_name="PRIME member")
+        interaction = SimpleNamespace(
+            user=user,
+            guild_id=12345,
+            response=SimpleNamespace(
+                defer=AsyncMock(),
+                send_message=AsyncMock(),
+            ),
+            followup=SimpleNamespace(send=AsyncMock()),
         )
-        self.assertNotIn("embed", kwargs)
+        cog = AITools(SimpleNamespace(session=FakeProviderSession()))
+
+        with patch.dict(os.environ, {
+            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "1",
+            "POLLINATIONS_API_KEY": "legacy-test-key",
+            "PRIME_AI_IMAGE_MONTHLY_LIMIT": "100",
+        }), patch(
+            "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+        ) as gemini_generate, patch(
+            "cogs.ai_tools.prime_ai_service.POLLINATIONS_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+        ) as pollinations_generate:
+            await AITools.imagine.callback(cog, interaction, "blue moon / city")
+
+        interaction.response.send_message.assert_awaited_once()
+        self.assertIn("توليد الصور متوقف", interaction.response.send_message.await_args.args[0])
+        self.assertIn("عدم احتساب أي تكلفة", interaction.response.send_message.await_args.args[0])
+        interaction.response.defer.assert_not_awaited()
+        interaction.followup.send.assert_not_awaited()
+        gemini_generate.assert_not_awaited()
+        pollinations_generate.assert_not_awaited()
+
+    async def test_imagine_does_not_contact_any_provider_when_cost_cannot_be_guaranteed(self):
+        user = SimpleNamespace(id=9988776655, display_name="PRIME member")
+        interaction = SimpleNamespace(
+            user=user,
+            guild_id=12345,
+            response=SimpleNamespace(
+                defer=AsyncMock(),
+                send_message=AsyncMock(),
+            ),
+            followup=SimpleNamespace(send=AsyncMock()),
+        )
+        cog = AITools(SimpleNamespace(session=FakeProviderSession()))
+
+        with patch.dict(os.environ, {
+            "PRIME_AI_ALLOW_PAID_IMAGE_GENERATION": "",
+            "POLLINATIONS_API_KEY": "",
+        }), patch(
+            "cogs.ai_tools.prime_ai_control.reserve_image_request",
+            new_callable=AsyncMock,
+        ) as reserve, patch(
+            "cogs.ai_tools.prime_ai_service.GEMINI_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+        ) as gemini_generate, patch(
+            "cogs.ai_tools.prime_ai_service.POLLINATIONS_IMAGE_PROVIDER.generate",
+            new_callable=AsyncMock,
+        ) as pollinations_generate:
+            await AITools.imagine.callback(cog, interaction, "blue moon / city")
+
+        interaction.response.send_message.assert_awaited_once()
+        interaction.response.defer.assert_not_awaited()
+        reserve.assert_not_awaited()
+        gemini_generate.assert_not_awaited()
+        pollinations_generate.assert_not_awaited()
 
 
 class PrimeAIPromptTests(unittest.TestCase):
@@ -1723,7 +1811,11 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.original_db_name = database.DB_NAME
         self.original_gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        os.environ["GEMINI_API_KEY"] = "prime-ai-test-key"
+        self.original_openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+        self.original_openrouter_model = os.environ.get("OPENROUTER_FREE_MODEL")
+        os.environ["GEMINI_API_KEY"] = "legacy-adapter-test-key"
+        os.environ["OPENROUTER_API_KEY"] = "prime-ai-test-key"
+        os.environ["OPENROUTER_FREE_MODEL"] = "openrouter/free"
         database.DB_NAME = "/tmp/test_prime_ai_service.db"
         # Reset schema memoization when recreating the test database file.
         prime_ai_intelligence._SCHEMA_READY_DB = None
@@ -1738,26 +1830,62 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop("GEMINI_API_KEY", None)
         else:
             os.environ["GEMINI_API_KEY"] = self.original_gemini_api_key
+        if self.original_openrouter_api_key is None:
+            os.environ.pop("OPENROUTER_API_KEY", None)
+        else:
+            os.environ["OPENROUTER_API_KEY"] = self.original_openrouter_api_key
+        if self.original_openrouter_model is None:
+            os.environ.pop("OPENROUTER_FREE_MODEL", None)
+        else:
+            os.environ["OPENROUTER_FREE_MODEL"] = self.original_openrouter_model
 
-    def test_legacy_pollinations_settings_migrate_to_gemini_defaults(self):
+    def test_legacy_pollinations_settings_migrate_to_openrouter_free_defaults(self):
         legacy = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
         legacy["provider"]["name"] = "Pollinations"
         legacy["provider"]["model"] = "openai"
 
         normalized = prime_ai_control.normalize_control_settings(legacy)
 
-        self.assertEqual(normalized["provider"]["name"], "Google Gemini")
-        self.assertEqual(normalized["provider"]["model"], "gemini-3.8-flash")
+        self.assertEqual(normalized["provider"]["name"], "OpenRouter Free")
+        self.assertEqual(normalized["provider"]["model"], "openrouter/free")
 
     def test_provider_default_retry_budget_is_bounded(self):
         self.assertEqual(
             prime_ai_control.DEFAULT_CONTROL_SETTINGS["provider"]["retry_count"],
-            1,
+            0,
         )
+
+    def test_free_provider_settings_reject_paid_models_and_migrate_legacy_limits(self):
+        paid_config = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
+        paid_config["provider"]["model"] = "google/gemini-pro"
+        with self.assertRaisesRegex(ValueError, "openrouter_free_model_required"):
+            prime_ai_control.normalize_control_settings(paid_config)
+
+        legacy = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
+        legacy["provider"].update({
+            "name": "Google Gemini",
+            "model": "gemini-3.8-flash",
+            "timeout_seconds": 120,
+            "max_tokens": 8192,
+            "temperature": 2.0,
+            "retry_count": 3,
+        })
+        migrated = prime_ai_control.normalize_control_settings(
+            legacy,
+            allow_legacy_values=True,
+        )
+        provider = migrated["provider"]
+        self.assertEqual(provider["name"], "OpenRouter Free")
+        self.assertEqual(provider["model"], "openrouter/free")
+        self.assertEqual(provider["timeout_seconds"], 45)
+        self.assertEqual(provider["max_tokens"], 1600)
+        self.assertEqual(provider["temperature"], 1.5)
+        self.assertEqual(provider["retry_count"], 0)
+
 
     async def test_provider_honors_configured_timeout_up_to_120_seconds(self):
         config = deepcopy(prime_ai_control.DEFAULT_CONTROL_SETTINGS)
-        config["provider"]["timeout_seconds"] = 120
+        config["provider"]["timeout_seconds"] = 120  # legacy value is clamped to the 45s runtime ceiling
         request = AsyncMock(return_value=("answer", 3))
 
         with (
@@ -1767,7 +1895,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value={"config": config}),
             ),
             patch.object(ai, "list_context_memories", new=AsyncMock(return_value=[])),
-            patch.object(ai, "request_with_fallback", request),
+            patch.object(ai, "request_with_openrouter_fallback", request),
             patch.object(ai, "record_audit", new=AsyncMock()),
             patch.object(prime_ai_control, "record_request", new=AsyncMock()),
         ):
@@ -1780,7 +1908,7 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(answer, "answer")
-        self.assertEqual(request.await_args.kwargs["timeout_seconds"], 120)
+        self.assertEqual(request.await_args.kwargs["timeout_seconds"], 45)
 
     async def test_provider_gate_bounds_running_and_waiting_requests(self):
         gate = ai._BoundedProviderGate(
@@ -1819,6 +1947,32 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
                 3600,
             )
         self.assertEqual(len(ai._RATE_BUCKETS), 1)
+
+    async def test_extracted_text_attachment_uses_free_text_route(self):
+        session = FakeProviderSession()
+        extracted_text = "عنوان الملف: سياسة السيرفر\\nالاحتفاظ بالسجلات لمدة 30 يوماً."
+
+        answer = await ai.generate_response(
+            session,
+            100000000000000091,
+            100000000000000092,
+            300000000000000093,
+            "لخص الملف المرفق",
+            media_parts=[{"type": "text", "text": extracted_text}],
+        )
+
+        self.assertEqual(answer, "PRIME AI answer")
+        self.assertEqual(session.post_count, 1)
+        self.assertEqual(session.payload["model"], "openrouter/free")
+        user_message = next(
+            item for item in session.payload["messages"] if item["role"] == "user"
+        )
+        self.assertIn(extracted_text, user_message["content"])
+        self.assertNotIn("media_parts", user_message)
+        system_message = next(
+            item for item in session.payload["messages"] if item["role"] == "system"
+        )
+        self.assertIn("بيانات غير موثوقة", system_message["content"])
 
     async def test_current_turn_preferences_apply_when_profile_is_preloaded(self):
         session = FakeProviderSession()
@@ -1876,86 +2030,58 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(profile["last_intent"], "CHAT")
         self.assertEqual(profile["last_topic"], "design")
 
-    async def test_primary_timeout_uses_flash_lite_fallback(self):
-        session = FakeProviderSession()
-        tried_models = []
+    async def test_free_provider_503_fails_closed_without_paid_fallback(self):
+        session = FakeProviderSession(status=503)
 
-        async def timeout_primary_then_fallback(
-            _session, payload, *, timeout_seconds, retry_count,
-        ):
-            tried_models.append(payload["model"])
-            if payload["model"] == "gemini-3.8-flash":
-                raise asyncio.TimeoutError()
-            return "PRIME AI fallback answer", 11
-
-        with patch.object(
-            ai, "_complete_with_retries",
-            side_effect=timeout_primary_then_fallback,
-        ):
-            answer = await ai.generate_response(
+        with self.assertRaises(ai.AIProviderUnavailable) as raised:
+            await ai.generate_response(
                 session,
-                100000000000000068,
-                100000000000000069,
-                300000000000000070,
+                100000000000000077,
+                100000000000000078,
+                300000000000000079,
                 "Hello PRIME AI.",
             )
 
-        self.assertEqual(answer, "PRIME AI fallback answer")
-        self.assertEqual(
-            tried_models,
-            ["gemini-3.8-flash", "gemini-3.5-flash-lite"],
-        )
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(session.post_count, 1)
+        self.assertIn("openrouter.ai/api/v1/chat/completions", session.url)
+        self.assertEqual(session.payload["model"], "openrouter/free")
+        self.assertNotIn("generativelanguage.googleapis.com", session.url)
 
-    async def test_transient_provider_503_retries_then_succeeds(self):
-        session = FakeProviderSession(statuses=[503, 200])
+    async def test_free_provider_429_stops_without_retrying_or_paid_switch(self):
+        session = FakeProviderSession(status=429)
 
-        answer = await ai.generate_response(
+        with self.assertRaises(ai.AIProviderUnavailable) as raised:
+            await ai.generate_response(
+                session,
+                100000000000000080,
+                100000000000000081,
+                300000000000000082,
+                "Hello PRIME AI.",
+            )
+
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertEqual(session.post_count, 1)
+        self.assertIn("openrouter.ai/api/v1/chat/completions", session.url)
+        self.assertNotIn("generativelanguage.googleapis.com", session.url)
+
+    async def test_action_planning_uses_free_text_route_only(self):
+        session = FakeProviderSession()
+        await ai.generate_response(
             session,
-            100000000000000071,
-            100000000000000072,
-            300000000000000073,
-            "Hello PRIME AI.",
+            100000000000000088,
+            100000000000000089,
+            300000000000000090,
+            "Plan a safe action",
+            mode="ACTION",
+            internal=True,
+            include_memories=False,
         )
 
-        self.assertEqual(answer, "PRIME AI answer")
-        self.assertEqual(session.post_count, 2)
-
-    async def test_persistent_503_falls_back_to_tested_gemini_flash_lite(self):
-        session = FakeProviderSession(statuses=[503, 503, 200])
-
-        answer = await ai.generate_response(
-            session,
-            100000000000000077,
-            100000000000000078,
-            300000000000000079,
-            "Hello PRIME AI.",
-        )
-
-        self.assertEqual(answer, "PRIME AI answer")
-        self.assertEqual(session.post_count, 3)
-        self.assertTrue(session.url.endswith(
-            "/gemini-3.5-flash-lite:generateContent"
-        ))
-        audit = await ai.list_audit(100000000000000077)
-        self.assertIn("model=gemini-3.5-flash-lite", audit[0]["detail"])
-
-    async def test_quota_429_switches_to_fallback_without_retrying_exhausted_model(self):
-        session = FakeProviderSession(statuses=[429, 200])
-
-        answer = await ai.generate_response(
-            session,
-            100000000000000080,
-            100000000000000081,
-            300000000000000082,
-            "Hello PRIME AI.",
-        )
-
-        self.assertEqual(answer, "PRIME AI answer")
-        self.assertEqual(session.post_count, 2)
-        self.assertTrue(session.url.endswith(
-            "/gemini-3.5-flash-lite:generateContent"
-        ))
-
+        self.assertEqual(session.post_count, 1)
+        self.assertIn("openrouter.ai/api/v1/chat/completions", session.url)
+        self.assertEqual(session.payload["model"], "openrouter/free")
+        self.assertNotIn("generativelanguage.googleapis.com", session.url)
     async def test_permanent_provider_error_is_not_retried(self):
         session = FakeProviderSession(status=403)
 
@@ -2758,9 +2884,9 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.method, "POST")
         self.assertEqual(
             session.url,
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            "gemini-3.8-flash:generateContent",
+            "https://openrouter.ai/api/v1/chat/completions",
         )
+        self.assertEqual(session.payload["model"], "openrouter/free")
         system_message, user_message = provider_messages(session.payload)
         self.assertEqual(system_message["role"], "system")
         self.assertEqual(
@@ -3460,6 +3586,10 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.original_db_name = database.DB_NAME
         self.original_bot = ws.bot_ref
+        self.original_openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+        self.original_openrouter_model = os.environ.get("OPENROUTER_FREE_MODEL")
+        os.environ["OPENROUTER_API_KEY"] = "prime-ai-test-key"
+        os.environ["OPENROUTER_FREE_MODEL"] = "openrouter/free"
         database.DB_NAME = "/tmp/test_prime_ai_api.db"
         if os.path.exists(database.DB_NAME):
             os.remove(database.DB_NAME)
@@ -3480,6 +3610,14 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         database.DB_NAME = self.original_db_name
         ws.bot_ref = self.original_bot
+        if self.original_openrouter_api_key is None:
+            os.environ.pop("OPENROUTER_API_KEY", None)
+        else:
+            os.environ["OPENROUTER_API_KEY"] = self.original_openrouter_api_key
+        if self.original_openrouter_model is None:
+            os.environ.pop("OPENROUTER_FREE_MODEL", None)
+        else:
+            os.environ["OPENROUTER_FREE_MODEL"] = self.original_openrouter_model
         ws.SESSIONS.clear()
         ws.RATE_BUCKETS.clear()
         ws.GRANT_CACHE.clear()
@@ -3582,7 +3720,7 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 200)
         self.assertGreaterEqual(len(audit["events"]), 3)
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "prime-ai-test-key"})
+    @patch.dict(os.environ, {"OPENROUTER_API_KEY": "prime-ai-test-key"})
     async def test_dashboard_one_off_test_uses_shared_provider_and_reports_outage(self):
         sid = "ai-admin"
         test_prompt = "Temporary dashboard prompt; do not store."
@@ -3629,11 +3767,28 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 429)
         self.assertEqual(failure["error"], "ai_provider_rate_limited")
 
+        ws.bot_ref.session = FakeProviderSession()
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}):
+            status, failure = await call(
+                ws.api_test_prime_ai,
+                request(
+                    "POST",
+                    "/ai/test",
+                    sid,
+                    {"prompt": test_prompt},
+                    self.headers(),
+                ),
+            )
+        self.assertEqual(status, 503)
+        self.assertEqual(failure["error"], "ai_provider_not_configured")
+        self.assertIn("OPENROUTER_API_KEY", failure["message"])
+        self.assertEqual(ws.bot_ref.session.post_count, 0)
+
         events = await ai.list_audit(FakeGuild.id)
         self.assertGreaterEqual(len(events), 2)
         self.assertNotIn(test_prompt, json.dumps(events, ensure_ascii=False))
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "prime-ai-test-key"})
+    @patch.dict(os.environ, {"OPENROUTER_API_KEY": "prime-ai-test-key"})
     async def test_ai_control_center_scoped_memory_skills_and_runtime_contracts(self):
         sid = "ai-admin"
         async def api_call(handler, req):
@@ -3646,6 +3801,8 @@ class PrimeAIApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(initial["control"]["config"]["mode"], "CHAT")
+        self.assertEqual(initial["provider_status"], "configured")
+        self.assertEqual(initial["control"]["config"]["provider"]["name"], "OpenRouter Free")
         self.assertFalse(initial["control"]["config"]["modes"]["autonomous"])
         self.assertEqual(initial["control"]["config"]["moderation"]["mode"], "OFF")
         self.assertTrue(initial["control"]["config"]["context"]["include_reply_context"])

@@ -32,55 +32,74 @@ LOGGER = logging.getLogger("AITools")
 
 
 def _provider_failure_message(error: Exception) -> str:
-    """Translate safe provider error codes into actionable user-facing guidance."""
-    reason = str(error or "")[:120].lower()
+    """Map provider failure codes to truthful, actionable Arabic messages."""
+    reason = str(error or "")[:160].lower()
     status = getattr(error, "status_code", None)
 
-    if "gemini_api_key_missing" in reason:
+    if "no_free_text_provider_configured" in reason:
         return (
-            "مفتاح Gemini غير مضبوط على الخادم. أضف GEMINI_API_KEY في متغيرات "
-            "بيئة Discloud ثم أعد تشغيل التطبيق؛ لا ترسل المفتاح في المحادثة."
+            "الذكاء النصي غير متاح حالياً: لم يُضبط مزوّد مجاني. أضف "
+            "OPENROUTER_API_KEY في متغيرات بيئة Discloud، أو انتظر عودة مسار مجاني؛ "
+            "لن ينتقل PRIME إلى نموذج مدفوع."
         )
-    if "gemini_connection_failed" in reason:
+    if "openrouter_api_key_missing" in reason:
         return (
-            "تعذر إنشاء اتصال بخدمة Google Gemini من الخادم. تحقق من اتصال "
-            "Discloud ثم جرّب اختبار المزوّد من لوحة التحكم."
+            "مفتاح OpenRouter غير مضبوط. أضف OPENROUTER_API_KEY إلى متغيرات بيئة "
+            "Discloud فقط، ثم أعد المحاولة. لا ترسل المفتاح في Discord."
         )
-    if "gemini_timeout" in reason or status == 504:
+    if "openrouter_paid_model_blocked" in reason:
         return (
-            "انتهت مهلة رد Gemini قبل اكتمال الإجابة. أعد المحاولة، أو خفّض "
-            "مستوى التفكير أو طول الإجابة من لوحة التحكم."
+            "تم إيقاف الطلب لأن النموذج المضبوط لا يحمل علامة مجانية مؤكدة. "
+            "استخدم openrouter/free أو معرّف نموذج ينتهي بـ :free."
         )
-    if status == 429 or "gemini_status_429" in reason:
+    if "openrouter_text_only" in reason:
         return (
-            "وصل Gemini إلى حد الطلبات أو الحصة المتاحة حالياً. انتظر قليلاً "
-            "ثم أعد المحاولة، أو راجع الحصة والفوترة في إعدادات Google."
+            "مسار الذكاء المجاني الحالي يدعم النص فقط؛ لم تُرسل المرفقات إلى نموذج "
+            "آخر ولم يُدّعِ PRIME تحليلها. أعد الطلب كنص أو انتظر دعم مسار وسائط مجاني."
         )
-    if status in {401, 403}:
+    if "openrouter_status_429" in reason or status == 429:
+        return (
+            "وصل OpenRouter إلى حد الطلبات المجاني أو الحصة الحالية. انتظر تجدد الحصة "
+            "أو راجع لوحة المزوّد؛ لن يتحول PRIME إلى نموذج مدفوع."
+        )
+    if "openrouter_connection_failed" in reason:
+        return "تعذر الاتصال بمسار OpenRouter المجاني من الخادم. تحقق من اتصال Discloud ثم أعد المحاولة."
+    if "openrouter_timeout" in reason or status == 504:
+        return "انتهت مهلة مسار OpenRouter المجاني قبل اكتمال الإجابة. أعد المحاولة لاحقاً."
+    # Keep clear diagnostics for legacy provider adapters that are tested in
+    # isolation; the live request path below still never selects Gemini.
+    if reason.startswith("gemini_") and status in {401, 403}:
         return (
             "رفضت Google مفتاح Gemini أو صلاحيات الوصول. تحقق من GEMINI_API_KEY "
             "وتفعيل Gemini API للمشروع في Google AI Studio."
         )
-    if status == 404 or "gemini_status_404" in reason:
+    if reason.startswith("gemini_") and status == 400:
+        return "رفض Gemini الطلب أو أحد إعداداته. راجع اسم النموذج وإعداداته، ثم افحص سجل المزوّد."
+    if reason.startswith("gemini_") and status == 503:
+        return "خدمة Gemini مشغولة مؤقتاً. لم ينفّذ PRIME أي إجراء إداري؛ انتظر قليلاً ثم أعد المحاولة."
+    if "gemini_api_key_missing" in reason:
         return (
-            "اسم نموذج Gemini المحدد غير متاح لهذا الطلب. راجع اسم النموذج في "
-            "لوحة التحكم واختر نموذجاً مدعوماً."
+            "مفتاح Gemini غير مضبوط. هذا المسار ليس مفعلاً في وضع المجانية الصارمة؛ "
+            "اضبط OpenRouter المجاني بدلاً من تفعيل Gemini المدفوع."
         )
+    if "gemini_connection_failed" in reason:
+        return "تعذر إنشاء اتصال بخدمة Google Gemini من الخادم."
+    if "gemini_timeout" in reason:
+        return "انتهت مهلة رد Gemini قبل اكتمال الإجابة."
+    if status == 404 or "openrouter_status_404" in reason:
+        return "النموذج المجاني المطلوب غير متاح حالياً. تحقق من معرّف النموذج المجاني أو جرّب لاحقاً."
     if status == 400 or "invalid_argument" in reason:
-        return (
-            "رفض Gemini الطلب أو أحد إعداداته. راجع اسم النموذج وإعداداته، ثم "
-            "افحص سجل المزوّد لمعرفة رمز الرفض."
-        )
-    if status == 503 and "gemini_status_503" in reason:
-        return (
-            "خدمة Gemini مشغولة مؤقتاً. لم ينفّذ PRIME أي إجراء إداري؛ انتظر قليلاً "
-            "ثم أعد المحاولة."
-        )
+        return "رفض المزوّد الطلب أو أحد إعداداته. اختصر الطلب ثم أعد المحاولة."
+    if "pollinations_api_key_missing" in reason:
+        return "مفتاح Pollinations غير مضبوط، لكن توليد الصور متوقف حالياً في وضع عدم التكلفة."
+    if "pollinations_image_status_429" in reason:
+        return "وصل مزوّد الصور إلى حد الطلبات؛ توليد الصور متوقف حالياً في وضع عدم التكلفة."
+    if status == 503:
+        return "المزوّد المجاني غير متاح مؤقتاً. لم ينتقل PRIME إلى مزوّد مدفوع؛ حاول لاحقاً."
     return (
-        "تعذر إكمال طلب PRIME AI. لم يتم تأكيد أي إجراء؛ أعد المحاولة أو شغّل "
-        "اختبار المزوّد من لوحة التحكم."
+        "تعذر إكمال طلب PRIME AI. لم يتم تأكيد أي إجراء؛ أعد المحاولة لاحقاً، "
+        "ولن يستخدم PRIME نموذجاً مدفوعاً كبديل."
     )
-
 
 def _split_discord_answer(answer: str, limit: int = 1900) -> list[str]:
     """Split a reply at readable boundaries without dropping any source text."""
@@ -3250,7 +3269,7 @@ class AITools(commands.Cog):
 
     @app_commands.command(
         name="imagine",
-        description="توليد صور فعلية باستخدام نموذج Gemini",
+        description="توليد الصور متوقف حتى توفير مسار مجاني مؤكد",
     )
     @app_commands.describe(
         prompt="وصف الصورة أو التعديل المطلوب",
@@ -3290,124 +3309,15 @@ class AITools(commands.Cog):
                 ephemeral=True,
             )
 
-        limit_guild = int(getattr(itx, "guild_id", 0) or 0)
-        wait = prime_ai_service.allow_request(
-            limit_guild,
-            int(itx.user.id),
-            action="imagine",
-            limit=2,
-            window_seconds=600,
+        # Strict zero-cost policy: the available image endpoints cannot be
+        # guaranteed free for every account/plan, so do not call any remote
+        # image API until a provider with a verifiable zero-cost quota is added.
+        return await itx.response.send_message(
+            "توليد الصور متوقف مؤقتاً لضمان عدم احتساب أي تكلفة. لن يستخدم PRIME "
+            "Gemini أو Pollinations أو أي مزوّد صور مدفوع/غير مضمون المجانية. "
+            "يمكن إعادة تفعيله بعد إضافة مزوّد مجاني مؤكد مع حد استخدام يمنع الفوترة.",
+            ephemeral=True,
         )
-        if wait:
-            return await itx.response.send_message(
-                f"بلغت حد توليد الصور مؤقتاً؛ أعد المحاولة بعد {max(1, int(wait) + 1)} ثانية.",
-                ephemeral=True,
-            )
-
-        await itx.response.defer(thinking=True)
-        session = self._current_http_session()
-        reference_data = None
-        try:
-            if reference_image:
-                prepared = await prime_ai_multimodal.prepare_inputs(
-                    attachments=[reference_image],
-                    session=session,
-                )
-                reference_data = next(
-                    (
-                        item for item in prepared.parts
-                        if item.get("type") == "image" and item.get("mime_type") in {
-                            "image/png", "image/jpeg", "image/webp"
-                        }
-                    ),
-                    None,
-                )
-                if not reference_data:
-                    return await itx.followup.send(
-                        "تعذّر قراءة الصورة المرجعية. أرسل صورة PNG أو JPEG أو WEBP أصغر من 6 ميغابايت.",
-                        ephemeral=True,
-                    )
-
-            files = []
-            embeds = []
-            failures = []
-            for index in range(int(count)):
-                if index:
-                    wait = prime_ai_service.allow_request(
-                        limit_guild,
-                        int(itx.user.id),
-                        action="imagine",
-                        limit=2,
-                        window_seconds=600,
-                    )
-                    if wait:
-                        failures.append("وصلت إلى حد الاستخدام؛ أنشأت بعض النتائج فقط.")
-                        break
-                try:
-                    image_bytes, mime_type = await prime_ai_service.GEMINI_IMAGE_PROVIDER.generate(
-                        session,
-                        prompt,
-                        reference_image=reference_data,
-                        timeout_seconds=120,
-                        aspect_ratio=aspect_ratio,
-                    )
-                except prime_ai_service.AIProviderUnavailable as error:
-                    LOGGER.warning("[AI] Gemini image generation failed (%s).", str(error)[:100])
-                    failures.append(_provider_failure_message(error))
-                    break
-                except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as error:
-                    LOGGER.warning("[AI] Image generation request failed (%s).", type(error).__name__)
-                    failures.append("تعذر توليد إحدى الصور. تحقق من توفر Gemini وحاول مرة أخرى.")
-                    break
-
-                extension = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime_type, "png")
-                filename = f"prime-imagine-{index + 1}.{extension}"
-                files.append(discord.File(io.BytesIO(image_bytes), filename=filename))
-                embed = discord.Embed(
-                    title=f"🎨 PRIME AI · النتيجة {index + 1}",
-                    description=prompt[:900],
-                    color=0x9B59B6,
-                )
-                embed.set_image(url=f"attachment://{filename}")
-                embed.set_footer(
-                    text=f"توليد Gemini الفعلي · طلب بواسطة {itx.user.display_name}",
-                )
-                embeds.append(embed)
-
-            if not files:
-                return await itx.followup.send(
-                    failures[0] if failures else "لم يعُد نموذج الصور ملفاً صالحاً.",
-                    allowed_mentions=discord.AllowedMentions.none(),
-                    ephemeral=True,
-                )
-            note = (
-                "تم توليد الصورة عبر Gemini، وليست صورة خارجية معروضة من رابط بحث."
-                if len(files) == 1
-                else f"تم توليد {len(files)} نتائج فعلية عبر Gemini."
-            )
-            if failures:
-                note += "\n\n" + failures[0]
-            await itx.followup.send(
-                content=note,
-                embeds=embeds,
-                files=files,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-        except discord.HTTPException:
-            LOGGER.exception("[AI] Discord could not deliver generated image.")
-            if not itx.is_expired():
-                await itx.followup.send(
-                    "تمت محاولة التوليد، لكن Discord لم يقبل الملف الناتج.",
-                    ephemeral=True,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-        except Exception:
-            LOGGER.exception("[AI] Unexpected image generation failure.")
-            await itx.followup.send(
-                "تعذر إكمال توليد الصورة. لم يتم إرسال رابط وهمي؛ تحقق من السجلات وإعداد Gemini.",
-                ephemeral=True,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
 
     @app_commands.command(
         name="summarize",

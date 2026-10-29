@@ -43,6 +43,59 @@ class PollinationsProvider:
         )
 
 
+class PollinationsImageProvider:
+    """Opt-in image adapter for the current Pollinations generation API.
+
+    Requires a Pollinations API key. It is not described as unlimited or
+    guaranteed free; the account's current limits and terms apply.
+    """
+
+    image_endpoint = "https://gen.pollinations.ai/image/"
+
+    async def generate(
+        self, session: aiohttp.ClientSession, prompt: str, *,
+        timeout_seconds: int = 90, aspect_ratio: str = "1:1",
+    ) -> tuple[bytes, str]:
+        api_key = os.getenv("POLLINATIONS_API_KEY", "").strip()
+        if not api_key:
+            raise AIProviderUnavailable("pollinations_api_key_missing")
+        value = str(prompt or "").strip()
+        if not value or len(value) > 1800:
+            raise ValueError("invalid_image_prompt")
+        if session is None or getattr(session, "closed", False):
+            raise AIProviderUnavailable("shared_http_session_unavailable")
+        dimensions = {
+            "1:1": (1024, 1024), "3:2": (1024, 682), "2:3": (682, 1024),
+            "4:3": (1024, 768), "3:4": (768, 1024),
+            "16:9": (1024, 576), "9:16": (576, 1024),
+        }
+        if aspect_ratio not in dimensions:
+            raise ValueError("invalid_image_aspect_ratio")
+        width, height = dimensions[aspect_ratio]
+        url = self.image_endpoint + quote(value, safe="")
+        async with session.get(
+            url,
+            params={"width": width, "height": height, "model": os.getenv("POLLINATIONS_IMAGE_MODEL", "flux"), "nologo": "true"},
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "image/*"},
+            timeout=aiohttp.ClientTimeout(
+                total=max(10, min(int(timeout_seconds), 120)), connect=8,
+            ),
+        ) as response:
+            if response.status != 200:
+                raise AIProviderUnavailable(
+                    f"pollinations_image_status_{response.status}",
+                    retryable=response.status in RETRYABLE_PROVIDER_STATUSES,
+                    status_code=response.status,
+                )
+            mime = str(response.headers.get("Content-Type", "")).split(";", 1)[0].lower()
+            if mime not in {"image/png", "image/jpeg", "image/webp"}:
+                raise AIProviderUnavailable("pollinations_image_invalid_content_type")
+            raw = await response.read()
+            if not raw or len(raw) > 8 * 1024 * 1024:
+                raise AIProviderUnavailable("pollinations_image_invalid_size")
+            return raw, mime
+
+
 class GeminiImageProvider:
     """Generate real image bytes with Gemini's native image-generation model."""
 
@@ -375,6 +428,129 @@ class GeminiProvider:
             except (ValueError, TypeError, KeyError, IndexError, AttributeError) as error:
                 raise AIProviderUnavailable("gemini_invalid_response") from error
         return answer.strip(), tokens_used
+
+
+class OpenRouterFreeProvider:
+    """Strict free-only OpenRouter adapter for text requests.
+
+    The runtime enables this route only when OPENROUTER_API_KEY is configured.
+    Prompts are sent to a third-party provider; the router may select among
+    eligible free models and does not guarantee availability or response quality.
+    """
+
+    api_endpoint = "https://openrouter.ai/api/v1/chat/completions"
+
+    async def complete(self, session, payload: dict, *, timeout_seconds: int):
+        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise AIProviderUnavailable("openrouter_api_key_missing")
+        # An explicit deployment override wins; otherwise use the validated
+        # free-only model selected in the Dashboard settings.
+        model = (
+            os.getenv("OPENROUTER_FREE_MODEL", "").strip()
+            or str(payload.get("model") or "openrouter/free").strip()
+        )
+        # Hard free-only guard: never allow a configurable paid model through
+        # this provider. The OpenRouter free router is accepted, as are explicit
+        # model IDs ending in :free. A plain model ID is not proof of zero cost.
+        if (
+            not model or len(model) > 80
+            or (model != "openrouter/free" and not model.endswith(":free"))
+        ):
+            raise AIProviderUnavailable("openrouter_paid_model_blocked")
+        messages = []
+        for item in payload.get("messages", []):
+            if not isinstance(item, dict) or item.get("role") not in {"system", "user", "assistant"}:
+                continue
+            # Do not silently discard multimodal inputs and then answer as if
+            # they had been analyzed. This adapter is text-only by design.
+            if item.get("media_parts"):
+                raise AIProviderUnavailable("openrouter_text_only")
+            content = item.get("content", "")
+            if not isinstance(content, str):
+                raise AIProviderUnavailable("openrouter_invalid_message")
+            # Keep adjacent same-role messages readable and compatible across
+            # the previous Gemini adapter and OpenRouter's chat-completions API.
+            if messages and messages[-1]["role"] == item["role"]:
+                messages[-1]["content"] += "\n" + content
+            else:
+                messages.append({"role": item["role"], "content": content})
+        if not messages:
+            raise AIProviderUnavailable("openrouter_empty_messages")
+        body = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max(1, min(int(payload.get("max_tokens", 1200)), 1600)),
+            "temperature": max(0.0, min(float(payload.get("temperature", 0.7)), 1.5)),
+            "stream": False,
+        }
+        async with session.post(
+            self.api_endpoint,
+            json=body,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "https://prime-panel.discloud.app"),
+                "X-Title": "PRIME Discord Bot",
+            },
+            timeout=aiohttp.ClientTimeout(
+                total=max(3, min(int(timeout_seconds), 45)), connect=8,
+            ),
+        ) as response:
+            if response.status != 200:
+                raise AIProviderUnavailable(
+                    f"openrouter_status_{response.status}",
+                    retryable=response.status in FALLBACK_PROVIDER_STATUSES,
+                    status_code=response.status,
+                )
+            try:
+                data = await response.json(content_type=None)
+            except (aiohttp.ClientError, ValueError, TypeError) as error:
+                raise AIProviderUnavailable("openrouter_invalid_response") from error
+        try:
+            choices = data.get("choices", []) if isinstance(data, dict) else []
+            message = choices[0].get("message", {}) if choices else {}
+            answer = message.get("content", "") if isinstance(message, dict) else ""
+            usage = data.get("usage", {}) if isinstance(data, dict) else {}
+            tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
+            if not isinstance(answer, str) or not answer.strip():
+                raise AIProviderUnavailable("openrouter_no_text_candidate")
+            if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
+                tokens = None
+            return answer.strip(), tokens
+        except (IndexError, KeyError, TypeError, AttributeError) as error:
+            raise AIProviderUnavailable("openrouter_invalid_response") from error
+
+
+async def request_with_openrouter_fallback(
+    session, payload: dict, *, timeout_seconds: float, retry_count: int,
+    logger, allow_fallback: bool = False,
+) -> tuple[str, int | None]:
+    """Route text requests through a verified free model only; never call paid Gemini."""
+    total_budget = max(3.0, min(float(timeout_seconds), 120.0))
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    # Free-only is the default and intentionally cannot be disabled by an
+    # environment flag. Gemini API calls can become billable when account
+    # billing/quotas change, so they are not invoked in this route.
+    fallback_enabled = bool(api_key and allow_fallback)
+    if not fallback_enabled:
+        raise AIProviderUnavailable("no_free_text_provider_configured", status_code=503)
+    if any(
+        isinstance(message, dict) and message.get("media_parts")
+        for message in payload.get("messages", [])
+    ):
+        raise AIProviderUnavailable("openrouter_text_only")
+    fallback = OpenRouterFreeProvider()
+    try:
+        return await fallback.complete(
+            session, payload, timeout_seconds=max(3, min(int(total_budget), 45)),
+        )
+    except (AIProviderUnavailable, aiohttp.ClientError, asyncio.TimeoutError) as error:
+        logger.warning(
+            "[AI] Free OpenRouter route unavailable (%s); no paid provider will be attempted.",
+            str(error)[:100],
+        )
+        raise
 
 
 async def complete_with_retries(

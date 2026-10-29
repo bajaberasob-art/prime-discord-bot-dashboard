@@ -1240,32 +1240,30 @@
       const provider = cfg.provider || {};
       const providerSection = controlDisclosure(
         "المزوّد",
-        "يستخدم PRIME AI Google Gemini؛ لا تُحفظ مفاتيح المزوّد في اللوحة.",
+        "يعتمد PRIME AI على مسار OpenRouter Free للنص فقط؛ لا تُحفظ مفاتيح المزوّد في اللوحة.",
         false,
       );
       providerSection.content.append(el(
         "p",
         "prime-ai-help",
-        `المزوّد ثابت على Google Gemini؛ الحالة: ${
-          state.providerStatus === "configured" ? "مهيّأ" : "غير مهيّأ"
-        }. لا يتم تبديله تلقائياً ولا تحفظ اللوحة أي مفاتيح مزوّد.`,
+        `المزوّد الفعلي: OpenRouter Free؛ الحالة: ${
+          state.providerStatus === "configured"
+            ? "مهيّأ"
+            : state.providerStatus === "invalid_model"
+              ? "معرّف النموذج غير مجاني أو غير صالح"
+              : "غير مهيّأ"
+        }. أضف OPENROUTER_API_KEY في متغيرات بيئة Discloud. إذا ضُبط OPENROUTER_FREE_MODEL فله الأولوية على اختيار اللوحة، ولن يرسل PRIME الطلب إلى نموذج مدفوع عند تعطل المسار المجاني.`,
       ));
       providerSection.content.append(el(
         "p",
         "prime-ai-help",
-        "طلبات Gemini 3.x لا تستخدم معامل درجة الإبداع القديم؛ اضبط مستوى التفكير بدلًا منه لتوازن السرعة وجودة التحليل.",
+        "استخدم openrouter/free أو معرّف نموذج ينتهي بـ :free فقط. لا يدعم المسار الحالي تحليل الصور أو المرفقات، كما أن إعادة المحاولة التلقائية معطّلة لتقليل استهلاك الحصة.",
       ));
       const providerGrid = el("div", "prime-ai-control-grid");
       providerGrid.append(
-        controlInput("provider.model", "اسم النموذج", provider.model, { maxLength: 80 }),
-        controlSelect("provider.thinking_level", "مستوى التفكير", provider.thinking_level, [
-          { value: "low", label: "منخفض — أسرع" },
-          { value: "medium", label: "متوازن — موصى به" },
-          { value: "high", label: "مرتفع — تحليل أعمق" },
-        ]),
-        controlInput("provider.max_tokens", "حد الرموز", provider.max_tokens, { type: "number", min: 64, max: 8192, step: 1 }),
-        controlInput("provider.timeout_seconds", "مهلة المزوّد بالثواني", provider.timeout_seconds, { type: "number", min: 3, max: 120, step: 1 }),
-        controlInput("provider.retry_count", "عدد إعادات المحاولة", provider.retry_count, { type: "number", min: 0, max: 3, step: 1 }),
+        controlInput("provider.model", "معرّف النموذج المجاني", provider.model, { maxLength: 80 }),
+        controlInput("provider.max_tokens", "حد الرموز", provider.max_tokens, { type: "number", min: 64, max: 1600, step: 1 }),
+        controlInput("provider.timeout_seconds", "المهلة القصوى للطلب (ثانية)", provider.timeout_seconds, { type: "number", min: 3, max: 45, step: 1 }),
       );
       providerSection.content.append(providerGrid);
       addControlSection("providers", providerSection);
@@ -1584,7 +1582,7 @@
       const budgetCard = el("section", "prime-ai-budget-panel");
       budgetCard.append(
         el("h3", "", "حصة الاستخدام والميزانية الشهرية"),
-        el("p", "prime-ai-budget-note", "الإعدادات مستقلة لهذا السيرفر. التكلفة تقديرية حسب معدل الرموز الذي تضبطه وليست فاتورة المزوّد الفعلية."),
+        el("p", "prime-ai-budget-note", "المسار الفعلي OpenRouter Free: رسوم المزوّد على النماذج المجانية المؤهلة $0. رقم USD هنا تقدير افتراضي حسب السعر الذي تضبطه للمقارنة وحد الميزانية داخل PRIME، وليس فاتورة أو خصماً من OpenRouter. عند انتهاء الحصة المجانية يتوقف الطلب ولا يتحول إلى نموذج مدفوع."),
       );
       const budgetNumbers = el("div", "prime-ai-budget-summary");
       [
@@ -2152,7 +2150,7 @@
           id: "engine",
           label: "محرك الذكاء الاصطناعي",
           destinations: [
-            { id: "providers", label: "المزوّد", description: "إعدادات مزوّد Gemini الحالية." },
+            { id: "providers", label: "المزوّد", description: "حالة OpenRouter Free وإعدادات المسار النصي." },
             { id: "limits", label: "الحدود والاحتفاظ", description: "حدود الاستخدام ومدد الاحتفاظ." },
           ],
         },
@@ -2225,7 +2223,7 @@
       notice.append(el(
         "p",
         "",
-        `يعمل المساعد بجانب أنظمة PRIME الأخرى. تُرسل الرسائل الموجّهة إلى PRIME والسياق المحدود المسموح به إلى Google Gemini. ${retentionCopy} لا يجمع PRIME سجل القناة بالكامل، والذاكرة المنفصلة تخضع لإعداداتها الخاصة.`,
+        `يعمل المساعد بجانب أنظمة PRIME الأخرى. تُرسل الرسائل الموجّهة إلى PRIME والسياق المحدود المسموح به إلى OpenRouter عبر مسار نص مجاني. لا تُرسل بيانات سرية ما لم تسمح سياسة الخادم بذلك. ${retentionCopy} لا يجمع PRIME سجل القناة بالكامل، والذاكرة المنفصلة تخضع لإعداداتها الخاصة.`,
       ));
 
       const workspace = el(
@@ -3008,10 +3006,10 @@
       state.testResult = null;
       render();
       try {
-        const response = ensureOk(await request("POST", `${guildPath}/test`, { prompt }));
+        const response = await request("POST", `${guildPath}/test`, { prompt });
         const result = await responseJson(response);
         if (state.disposed) return;
-        if (result.ok) {
+        if (response && response.ok && result.ok) {
           state.testResult = {
             ok: true,
             text: typeof result.answer === "string" && result.answer
@@ -3020,11 +3018,22 @@
           };
           loadAudit();
         } else {
+          const messages = {
+            ai_provider_not_configured: "لم يُضبط OPENROUTER_API_KEY في بيئة Discloud. لا حاجة لإضافة رصيد أو تشغيل نموذج مدفوع.",
+            ai_provider_misconfigured: "معرّف النموذج غير مجاني أو غير صالح. استخدم openrouter/free أو معرّفاً ينتهي بـ :free.",
+            ai_provider_auth_failed: "رفض OpenRouter المفتاح أو صلاحياته. تحقق من OPENROUTER_API_KEY في Discloud ولوحة OpenRouter.",
+            ai_provider_model_unavailable: "النموذج المجاني المحدد غير متاح الآن. استخدم openrouter/free أو معرّفاً مجانياً صالحاً.",
+            ai_provider_rate_limited: "انتهت الحصة المجانية أو بلغ المزوّد حد الطلبات. انتظر تجدد الحصة.",
+            ai_provider_timeout: "انتهت مهلة المزوّد المجاني. حاول لاحقاً.",
+            ai_provider_busy: "المزوّد المجاني غير متاح مؤقتاً. لم يتم التحويل إلى نموذج مدفوع.",
+            ai_provider_unavailable: "تعذر إكمال الطلب عبر المزوّد المجاني. لم يتم استخدام نموذج مدفوع.",
+            ai_text_only: "المزوّد المجاني الحالي يدعم النص فقط ولا يعالج المرفقات.",
+          };
           state.testResult = {
             ok: false,
-            text: typeof result.error === "string" && result.error
-              ? result.error
-              : "تعذر إكمال الاختبار.",
+            text: typeof result.message === "string" && result.message
+              ? result.message
+              : messages[result.error] || "تعذر إكمال الاختبار. تحقق من سجل الخدمة.",
           };
         }
       } catch (_) {

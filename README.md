@@ -120,3 +120,28 @@ The profile-store API is served by the existing authenticated dashboard backend.
 Uploaded catalog images are validated server-side and accept PNG, JPEG/JPG, WebP, and bounded animated GIFs. GIF uploads preserve animation with a maximum of 60 frames, 32 million aggregate frame pixels, and a 5MB sanitized output limit; APNG and animated WebP remain rejected. Static files are re-encoded to strip source metadata and stored outside the public dashboard directory beside the configured database volume, under `profile_store_assets/catalog/`. Set `PROFILE_STORE_ASSET_DIR` to an alternate private persistent directory if needed; paths inside `dashboard/` are rejected. The profile-card output remains a static PNG and uses the first GIF frame.
 
 The custom-upload toggle and price are global store settings, but the member-facing custom-upload workflow is not yet wired into the public storefront routes. The shop does have a separate `user_profile_gem_wallets` table and transactional gem debiting in the existing purchase service; do not treat the custom-upload toggle as proof that the member upload purchase flow is implemented.
+
+## PRIME AI: strict zero-cost mode
+
+PRIME AI is configured for a **free-only policy**. The request path must not call paid Gemini, xAI/Grok API, Mistral paid endpoints, or any other paid model. A free tier is quota-limited and can change; PRIME must stop when no verified free route is available rather than silently switch to a paid model.
+
+### Text chat
+
+- Set `OPENROUTER_API_KEY` in Discloud environment variables to enable the text provider.
+- By default, PRIME uses `openrouter/free`, which routes to eligible free models.
+- The Dashboard provider settings now identify the active route as `OpenRouter Free`; the default model is `openrouter/free`. A Dashboard model ID may be `openrouter/free` or end with `:free`; paid model IDs are rejected. `OPENROUTER_FREE_MODEL`, when set, overrides the Dashboard model and is subject to the same strict free-only check.
+- `PRIME_AI_ALLOW_OPENROUTER_FALLBACK` is no longer required. With the key present, free-only text routing is used for CHAT, ASSISTANT, and ACTION planning; action execution still passes server-side permissions, policy validation, and required confirmation.
+- If OpenRouter has no eligible free model, quota is exhausted, or the key is missing, PRIME returns an unavailable message. It must not try Gemini or a paid fallback.
+- OpenRouter's free plan has external request limits and the available free models can change. PRIME does not automatically retry or switch providers after a failed free request, avoiding extra quota consumption and preventing paid fallback.
+
+### Images
+
+Remote image generation is **disabled** in strict zero-cost mode because the currently wired Gemini and Pollinations endpoints cannot be guaranteed to remain zero-cost for every account and quota state. The command returns an explanatory message without calling either provider. Do not enable `PRIME_AI_ALLOW_PAID_IMAGE_GENERATION` or rely on `POLLINATIONS_API_KEY` to override this policy.
+
+### Provider keys and privacy
+
+Keep all provider keys in Discloud environment variables. Never paste them into source code or Discord. Requests sent to OpenRouter are processed by a third party; do not send confidential content unless permitted by your server policy. No free tier is unlimited or guaranteed to be continuously available.
+
+### Validation status
+
+These changes have not been tested yet, as requested. Run the full tests and provider-call audit only after implementation is complete. A repository change is not proof of a successful deployment; verify the deployed revision separately before claiming it is live.

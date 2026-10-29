@@ -109,6 +109,9 @@ class EnterpriseBot(commands.Bot):
         self._retry_delay = 5
         self.started_at = time.monotonic()
         self._active_cog_name: str | None = None
+        # Persistent client-level views survive setup retries; never register
+        # the same global view twice if a later startup step rolls back.
+        self._core_views_registered = False
 
     async def add_cog(self, cog, /, *, override=False, guild=None, guilds=None):
         options = {"override": override}
@@ -153,6 +156,10 @@ class EnterpriseBot(commands.Bot):
             command_name,
             getattr(interaction, "guild_id", None),
         )
+        # Overriding Bot.on_interaction replaces discord.py's default dispatch.
+        # Without this call, the gateway logs slash commands but never routes
+        # them to CommandTree, making application commands appear unresponsive.
+        await super().on_interaction(interaction)
 
     def install_interaction_guards(self) -> int:
         wrapped = 0
@@ -168,6 +175,7 @@ class EnterpriseBot(commands.Bot):
         for module in reversed(loaded_modules or []):
             with contextlib.suppress(Exception):
                 await self.unload_extension(module)
+        tasks_to_stop = []
         for attribute in (
             "_gateway_watchdog_task",
             "_diagnostics_task",
@@ -175,21 +183,31 @@ class EnterpriseBot(commands.Bot):
             "_analytics_writer_task",
         ):
             task = getattr(self, attribute, None)
+            setattr(self, attribute, None)
             if task is not None:
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-                setattr(self, attribute, None)
+                tasks_to_stop.append(task)
+        if tasks_to_stop:
+            # gather(return_exceptions=True) observes already-failed tasks too;
+            # one task error must never prevent remaining resources from closing.
+            await asyncio.gather(*tasks_to_stop, return_exceptions=True)
+
         if self.dashboard_runner:
-            with contextlib.suppress(Exception):
-                await self.dashboard_runner.cleanup()
-            self.dashboard_runner = None
-        if self.session and not self.session.closed:
-            with contextlib.suppress(Exception):
-                await self.session.close()
-        self.session = None
-        with contextlib.suppress(Exception):
+            runner, self.dashboard_runner = self.dashboard_runner, None
+            try:
+                await runner.cleanup()
+            except Exception:
+                logger.exception("[STARTUP-ROLLBACK] Dashboard cleanup failed.")
+        session, self.session = self.session, None
+        if session is not None and not session.closed:
+            try:
+                await session.close()
+            except Exception:
+                logger.exception("[STARTUP-ROLLBACK] Shared HTTP session cleanup failed.")
+        try:
             await prime_ai_persistence.close_durable_store()
+        except Exception:
+            logger.exception("[STARTUP-ROLLBACK] Durable AI storage cleanup failed.")
 
     async def _reset_http_session_for_retry(self) -> None:
         """Release both HTTP clients before retrying without re-running setup."""
@@ -296,105 +314,187 @@ class EnterpriseBot(commands.Bot):
             "cogs.ai_tools",
         ]
 
+        # A Cog with a stalled setup() must not freeze startup forever.
+        # Keep the timeout configurable but bounded to avoid accidental zero or
+        # excessively large values in deployment configuration.
+        try:
+            cog_load_timeout = max(
+                10, min(int(os.getenv("PRIME_COG_LOAD_TIMEOUT_SECONDS", "60")), 180)
+            )
+        except (TypeError, ValueError):
+            cog_load_timeout = 60
+
         loaded_modules: list[str] = []
         for module in modules:
             try:
-                await self.load_extension(module)
+                await asyncio.wait_for(
+                    self.load_extension(module),
+                    timeout=cog_load_timeout,
+                )
                 loaded_modules.append(module)
-                logger.info(f"✅ تم تحميل الوحدة بنجاح: {module}")
+                logger.info("✅ تم تحميل الوحدة بنجاح: %s", module)
             except commands.ExtensionAlreadyLoaded:
                 logger.debug("الوحدة محملة مسبقاً: %s", module)
             except Exception as error:
+                # Extension setup may have partially registered commands or
+                # listeners before failing. Attempt to unload the active module
+                # first, then roll back every extension loaded in this attempt.
+                with contextlib.suppress(Exception):
+                    await self.unload_extension(module)
                 await self._cleanup_failed_setup(loaded_modules)
+                if isinstance(error, asyncio.TimeoutError):
+                    raise RuntimeError(
+                        f"انتهت مهلة تحميل الوحدة {module} بعد {cog_load_timeout} ثانية."
+                    ) from error
                 raise RuntimeError(f"فشل تحميل الوحدة {module}; أوقف الإقلاع.") from error
 
-        # Register the restart-safe DM rating callbacks from the central bot
-        # lifecycle after the Community extension is loaded.
-        from cogs.community import PersistentDMRatingView
+        try:
+            # Register restart-safe controls only after their owning extensions loaded.
+            from cogs.community import PersistentDMRatingView
 
-        self.add_view(PersistentDMRatingView())
-        self.install_interaction_guards()
-        if os.getenv("SYNC_COMMANDS", "false").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }:
-            try:
-                if self.sync_guild is not None:
-                    self.tree.copy_global_to(guild=self.sync_guild)
-                    synced = await self.tree.sync(guild=self.sync_guild)
-                    logger.info(
-                        "✨ تمت مزامنة %d أمر Slash مع سيرفر التطوير %s.",
-                        len(synced),
-                        self.sync_guild.id,
+            if not self._core_views_registered:
+                self.add_view(PersistentDMRatingView())
+                self._core_views_registered = True
+            self.install_interaction_guards()
+            if os.getenv("SYNC_COMMANDS", "false").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }:
+                try:
+                    if self.sync_guild is not None:
+                        self.tree.copy_global_to(guild=self.sync_guild)
+                        synced = await self.tree.sync(guild=self.sync_guild)
+                        logger.info(
+                            "✨ تمت مزامنة %d أمر Slash مع سيرفر التطوير %s.",
+                            len(synced),
+                            self.sync_guild.id,
+                        )
+                    else:
+                        synced = await self.tree.sync()
+                        logger.info("✨ تمت مزامنة %d أمر Slash عالمياً بنجاح.", len(synced))
+                except discord.HTTPException as error:
+                    # A transient Discord sync outage should not prevent the bot
+                    # from serving already-published commands. Log it clearly;
+                    # errors in the explicit upsert path below still roll back.
+                    logger.error("⚠️ فشل مزامنة أوامر Slash: %s", error)
+            else:
+                logger.info("⏭️ تم تخطي مزامنة أوامر Slash؛ فعّل SYNC_COMMANDS=true عند الحاجة.")
+                from cogs.rank_commands import publish_rank_commands
+                from cogs.profile import publish_profile_command
+                from cogs.subscription_commands import publish_subscription_commands
+                from command_registration import publish_command_groups
+
+                # Each publisher returns False after logging an API or schema
+                # error. Do not silently mark startup complete when any command
+                # family was only partially registered: reconnect retries the
+                # whole idempotent upsert sequence after cleanup.
+                publication_results = {
+                    "rank": await publish_rank_commands(self, guild=self.sync_guild),
+                    "profile": await publish_profile_command(self, guild=self.sync_guild),
+                    "subscription": await publish_subscription_commands(self, guild=self.sync_guild),
+                }
+                # Broad sync is intentionally disabled by default; explicitly upsert
+                # the new game/tournament groups and standalone visual game command
+                # without deleting unrelated commands.
+                publication_results["game/tournament"] = await publish_command_groups(
+                    self,
+                    (
+                        "game", "tournament", "mafia", "musical_chairs",
+                        "roulette_royale", "uno_visual", "buckshot", "bank_heist",
+                        "blind_vaults", "connect4_power",
+                    ),
+                    guild=self.sync_guild,
+                )
+                failed_publications = [
+                    name for name, success in publication_results.items() if not success
+                ]
+                if failed_publications:
+                    raise RuntimeError(
+                        "Slash command publication incomplete: "
+                        + ", ".join(failed_publications)
                     )
-                else:
-                    synced = await self.tree.sync()
-                    logger.info("✨ تمت مزامنة %d أمر Slash عالمياً بنجاح.", len(synced))
-            except discord.HTTPException as error:
-                logger.error("⚠️ فشل مزامنة أوامر Slash: %s", error)
-        else:
-            logger.info("⏭️ تم تخطي مزامنة أوامر Slash؛ فعّل SYNC_COMMANDS=true عند الحاجة.")
-            from cogs.rank_commands import publish_rank_commands
-            from cogs.profile import publish_profile_command
-            from cogs.subscription_commands import publish_subscription_commands
-            from command_registration import publish_command_groups
-
-            await publish_rank_commands(self, guild=self.sync_guild)
-            await publish_profile_command(self, guild=self.sync_guild)
-            await publish_subscription_commands(self, guild=self.sync_guild)
-            # Broad sync is intentionally disabled by default; explicitly upsert
-            # the new game/tournament groups and the standalone visual game command
-            # so unrelated Discord commands stay untouched.
-            await publish_command_groups(
-                self,
-                ("game", "tournament", "mafia", "musical_chairs", "roulette_royale", "uno_visual", "buckshot", "bank_heist", "blind_vaults", "connect4_power"),
-                guild=self.sync_guild,
-            )
-
-        self.rotate_status.start()
-        self._is_initialized = True
+            self.rotate_status.start()
+            self._is_initialized = True
+        except Exception:
+            # Command publication is part of startup, not a best-effort side
+            # operation. Roll back cogs, views' owning extensions and resources
+            # before the outer reconnect loop retries setup_hook().
+            await self._cleanup_failed_setup(loaded_modules)
+            raise
 
     async def close(self):
+        """Shut down each owned resource even if an earlier cleanup step fails."""
         logger.info("🛑 جاري إنهاء الجلسات وإيقاف البوت بأمان...")
         self.rotate_status.cancel()
-        if self._gateway_watchdog_task:
-            self._gateway_watchdog_task.cancel()
-            self._gateway_watchdog_task = None
-        if self._diagnostics_task:
-            self._diagnostics_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._diagnostics_task
-            self._diagnostics_task = None
-        if self._wal_checkpoint_task:
-            self._wal_checkpoint_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._wal_checkpoint_task
-            self._wal_checkpoint_task = None
+        status_task = self.rotate_status.get_task()
+        if status_task is not None and status_task is not asyncio.current_task():
+            await asyncio.gather(status_task, return_exceptions=True)
+
+        # Cancel and await owned long-running tasks so shutdown does not leave
+        # orphaned tasks or unobserved exceptions behind.
+        for attribute in (
+            "_gateway_watchdog_task",
+            "_diagnostics_task",
+            "_wal_checkpoint_task",
+        ):
+            task = getattr(self, attribute, None)
+            setattr(self, attribute, None)
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
         for guild_id, user_id in list(self._voice_sessions):
-            with contextlib.suppress(Exception):
+            try:
                 await self._close_voice_session(guild_id, user_id, time.time())
-        if self._analytics_writer_task:
+            except Exception:
+                logger.exception(
+                    "[SHUTDOWN] Failed to flush voice session guild=%s user=%s.",
+                    guild_id, user_id,
+                )
+
+        writer = self._analytics_writer_task
+        self._analytics_writer_task = None
+        if writer is not None:
             try:
                 await asyncio.wait_for(self._analytics_queue.join(), timeout=5)
             except asyncio.TimeoutError:
                 logger.warning(
                     "[ANALYTICS] writer drain timed out; closing with queued events remaining."
                 )
-            self._analytics_writer_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._analytics_writer_task
-            self._analytics_writer_task = None
-        with contextlib.suppress(Exception):
+            except Exception:
+                logger.exception("[ANALYTICS] failed while draining the queue.")
+            writer.cancel()
+            await asyncio.gather(writer, return_exceptions=True)
+
+        try:
             await checkpoint_wal()
+        except Exception:
+            logger.exception("[SHUTDOWN] Final database checkpoint failed.")
+
         if self.dashboard_runner:
-            await self.dashboard_runner.cleanup()
-            self.dashboard_runner = None
-        if self.session and not self.session.closed:
-            await self.session.close()
-        await prime_ai_persistence.close_durable_store()
-        await super().close()
+            runner, self.dashboard_runner = self.dashboard_runner, None
+            try:
+                await runner.cleanup()
+            except Exception:
+                logger.exception("[SHUTDOWN] Dashboard cleanup failed.")
+
+        session, self.session = self.session, None
+        if session is not None and not session.closed:
+            try:
+                await session.close()
+            except Exception:
+                logger.exception("[SHUTDOWN] Shared HTTP session cleanup failed.")
+
+        try:
+            await prime_ai_persistence.close_durable_store()
+        except Exception:
+            logger.exception("[SHUTDOWN] Durable AI storage cleanup failed.")
+        finally:
+            # Always close discord.py's own HTTP client even when application
+            # resource cleanup above encounters an error.
+            await super().close()
 
     async def _gateway_startup_watchdog(self):
         await asyncio.sleep(10)
@@ -672,9 +772,15 @@ async def on_app_command_error(
             "وليس في الرسائل الخاصة."
         )
     else:
-        command_name = itx.command.name if itx.command else "مجهول"
+        command_name = (
+            getattr(itx.command, "qualified_name", None)
+            if itx.command else "مجهول"
+        )
         logger.error(
-            f"خطأ غير معالج في الأمر [{command_name}]: {error}"
+            "خطأ غير معالج في الأمر [%s]: %s",
+            command_name,
+            error,
+            exc_info=(type(error), error, error.__traceback__),
         )
         message = (
             "⚠️ حدث خطأ تقني غير متوقع أثناء معالجة الطلب، "
