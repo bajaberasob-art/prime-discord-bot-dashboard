@@ -524,7 +524,7 @@ class OpenRouterFreeProvider:
 
 async def request_with_openrouter_fallback(
     session, payload: dict, *, timeout_seconds: float, retry_count: int,
-    complete, logger, allow_fallback: bool = False,
+    logger, allow_fallback: bool = False,
 ) -> tuple[str, int | None]:
     """Route text requests through a verified free model only; never call paid Gemini."""
     total_budget = max(3.0, min(float(timeout_seconds), 120.0))
