@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +17,8 @@ import aiosqlite
 from aiohttp import web
 
 import database
+
+logger = logging.getLogger("ProfileStoreCollaboration")
 
 PERMISSIONS = {
     "upload_templates": "إضافة ورفع القوالب والخلفيات",
@@ -80,17 +83,37 @@ async def get_valid_link(token: str, guild_id: int):
     if not isinstance(token, str) or len(token) < 32 or len(token) > 128:
         return None
     now = _iso(_utcnow())
+    token_hash = _hash_token(token)
     async with database.connect(aiosqlite.Row) as db:
         await _ensure_schema(db)
         async with db.execute(
             """SELECT link_id, guild_id, token_hash, permissions_json, created_by,
                       created_at, expires_at, revoked_at
                FROM profile_store_collaboration_links
-               WHERE token_hash = ? AND guild_id = ? AND revoked_at IS NULL AND expires_at > ?""",
-            (_hash_token(token), int(guild_id), now),
+               WHERE token_hash = ? AND guild_id = ?""",
+            (token_hash, int(guild_id)),
         ) as cursor:
             row = await cursor.fetchone()
     if not row:
+        # Never log the bearer token or its full digest. This distinguishes a
+        # missing row/database mismatch from expiry or revocation without
+        # exposing a credential in production logs.
+        logger.warning(
+            "Collaboration token lookup miss: guild_id=%s token_fingerprint=%s db_path=%s",
+            int(guild_id), token_hash[:12], database.DB_NAME,
+        )
+        return None
+    if row["revoked_at"] is not None:
+        logger.warning(
+            "Collaboration link revoked: link_id=%s guild_id=%s db_path=%s",
+            row["link_id"], int(guild_id), database.DB_NAME,
+        )
+        return None
+    if row["expires_at"] <= now:
+        logger.warning(
+            "Collaboration link expired: link_id=%s guild_id=%s expires_at=%s now=%s db_path=%s",
+            row["link_id"], int(guild_id), row["expires_at"], now, database.DB_NAME,
+        )
         return None
     result = dict(row)
     try:
