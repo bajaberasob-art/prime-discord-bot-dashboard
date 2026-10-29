@@ -13,16 +13,24 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-# Koyeb can mount a persistent volume anywhere through DB_PATH. Keep the
-# legacy filename as a local-development fallback when it already exists so
-# an upgrade never silently starts with an empty database.
-DB_PATH = (os.environ.get("DB_PATH") or "").strip() or "data/bot.db"
+# Resolve the database path once, relative to this module rather than the
+# process working directory. Web handlers and bot startup must always open the
+# same SQLite file even when the hosting process changes its cwd.
+_MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+_CONFIGURED_DB_PATH = (os.environ.get("DB_PATH") or "").strip() or "data/bot.db"
+DB_PATH = (
+    os.path.abspath(_CONFIGURED_DB_PATH)
+    if os.path.isabs(_CONFIGURED_DB_PATH)
+    else os.path.abspath(os.path.join(_MODULE_DIR, _CONFIGURED_DB_PATH))
+)
+_LEGACY_DB_PATH = os.path.join(_MODULE_DIR, "bot_database.db")
+_DEFAULT_DB_PATH = os.path.join(_MODULE_DIR, "data", "bot.db")
 DB_NAME = (
-    "bot_database.db"
+    _LEGACY_DB_PATH
     if "DB_PATH" not in os.environ
-    and DB_PATH == "data/bot.db"
-    and os.path.exists("bot_database.db")
-    and not os.path.exists(DB_PATH)
+    and DB_PATH == _DEFAULT_DB_PATH
+    and os.path.exists(_LEGACY_DB_PATH)
+    and not os.path.exists(_DEFAULT_DB_PATH)
     else DB_PATH
 )
 logger = logging.getLogger("DatabaseEngine")
