@@ -445,7 +445,7 @@ def register_profile_store_collaboration_routes(routes, authorize, read_json_bod
             )
         page_path = Path(__file__).resolve().parent / "dashboard" / "profile-store-admin.html"
         try:
-            html = await page_path.read_text("utf-8")
+            html = page_path.read_text("utf-8")
         except OSError:
             return _json_error(503, "store_admin_ui_unavailable")
         response = _private_html(html, int(raw_guild), collaborator=True)
