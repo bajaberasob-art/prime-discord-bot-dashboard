@@ -26,12 +26,7 @@ from prime_ai.errors import (
     AIMemoryLimitReached,
 )
 from prime_ai.text import sanitize_discord_text
-from prime_ai.providers import (
-    GeminiImageProvider, GeminiProvider, PollinationsProvider, PollinationsImageProvider, PROVIDER_NAME, PROVIDER_MODEL,
-    FALLBACK_PROVIDER_MODEL, RETRYABLE_PROVIDER_STATUSES,
-    FALLBACK_PROVIDER_STATUSES, complete_with_retries, request_with_fallback,
-    request_with_openrouter_fallback,
-)
+from prime_ai.providers import request_with_openrouter_fallback
 from prime_ai.limits import SlidingWindowLimiter
 import runtime_diagnostics
 
@@ -56,25 +51,6 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 _PROVIDER_GATE = _BoundedProviderGate()
-
-
-POLLINATIONS_PROVIDER = PollinationsProvider()
-GEMINI_PROVIDER = GeminiProvider()
-GEMINI_IMAGE_PROVIDER = GeminiImageProvider()
-POLLINATIONS_IMAGE_PROVIDER = PollinationsImageProvider()
-
-
-async def _complete_with_retries(
-    session,
-    payload: dict,
-    *,
-    timeout_seconds: int,
-    retry_count: int,
-) -> tuple[str, int | None]:
-    return await complete_with_retries(
-        session, payload, provider=GEMINI_PROVIDER,
-        timeout_seconds=timeout_seconds, retry_count=retry_count,
-    )
 
 
 _RATE_LIMITER = SlidingWindowLimiter()
@@ -1749,8 +1725,7 @@ async def generate_response(
             try:
                 answer, tokens_used = await request_with_openrouter_fallback(
                     session, payload, timeout_seconds=timeout_seconds,
-                    retry_count=retry_count, complete=_complete_with_retries,
-                    logger=LOGGER,
+                    retry_count=retry_count, logger=LOGGER,
                     # Free-only routing is the default; paid Gemini is never
                     # called by this request path. OpenRouter itself is used only
                     # with the free router or an explicit :free model ID.
