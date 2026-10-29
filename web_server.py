@@ -5621,7 +5621,7 @@ async def api_get_prime_ai_control(req):
             "channels": channels,
             "roles": roles,
             "is_bot_owner": is_bot_owner,
-            "provider_status": provider_status,,
+            "provider_status": provider_status,
         })
     except Exception:
         logger.exception("Failed to read PRIME AI control center for guild %s", guild.id)
