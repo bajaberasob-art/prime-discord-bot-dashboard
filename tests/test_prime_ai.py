@@ -1948,6 +1948,32 @@ class PrimeAIServiceTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(len(ai._RATE_BUCKETS), 1)
 
+    async def test_extracted_text_attachment_uses_free_text_route(self):
+        session = FakeProviderSession()
+        extracted_text = "عنوان الملف: سياسة السيرفر\\nالاحتفاظ بالسجلات لمدة 30 يوماً."
+
+        answer = await ai.generate_response(
+            session,
+            100000000000000091,
+            100000000000000092,
+            300000000000000093,
+            "لخص الملف المرفق",
+            media_parts=[{"type": "text", "text": extracted_text}],
+        )
+
+        self.assertEqual(answer, "PRIME AI answer")
+        self.assertEqual(session.post_count, 1)
+        self.assertEqual(session.payload["model"], "openrouter/free")
+        user_message = next(
+            item for item in session.payload["messages"] if item["role"] == "user"
+        )
+        self.assertIn(extracted_text, user_message["content"])
+        self.assertNotIn("media_parts", user_message)
+        system_message = next(
+            item for item in session.payload["messages"] if item["role"] == "system"
+        )
+        self.assertIn("بيانات غير موثوقة", system_message["content"])
+
     async def test_current_turn_preferences_apply_when_profile_is_preloaded(self):
         session = FakeProviderSession()
         context = {
