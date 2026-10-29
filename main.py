@@ -314,16 +314,38 @@ class EnterpriseBot(commands.Bot):
             "cogs.ai_tools",
         ]
 
+        # A Cog with a stalled setup() must not freeze startup forever.
+        # Keep the timeout configurable but bounded to avoid accidental zero or
+        # excessively large values in deployment configuration.
+        try:
+            cog_load_timeout = max(
+                10, min(int(os.getenv("PRIME_COG_LOAD_TIMEOUT_SECONDS", "60")), 180)
+            )
+        except (TypeError, ValueError):
+            cog_load_timeout = 60
+
         loaded_modules: list[str] = []
         for module in modules:
             try:
-                await self.load_extension(module)
+                await asyncio.wait_for(
+                    self.load_extension(module),
+                    timeout=cog_load_timeout,
+                )
                 loaded_modules.append(module)
-                logger.info(f"✅ تم تحميل الوحدة بنجاح: {module}")
+                logger.info("✅ تم تحميل الوحدة بنجاح: %s", module)
             except commands.ExtensionAlreadyLoaded:
                 logger.debug("الوحدة محملة مسبقاً: %s", module)
             except Exception as error:
+                # Extension setup may have partially registered commands or
+                # listeners before failing. Attempt to unload the active module
+                # first, then roll back every extension loaded in this attempt.
+                with contextlib.suppress(Exception):
+                    await self.unload_extension(module)
                 await self._cleanup_failed_setup(loaded_modules)
+                if isinstance(error, asyncio.TimeoutError):
+                    raise RuntimeError(
+                        f"انتهت مهلة تحميل الوحدة {module} بعد {cog_load_timeout} ثانية."
+                    ) from error
                 raise RuntimeError(f"فشل تحميل الوحدة {module}; أوقف الإقلاع.") from error
 
         try:
