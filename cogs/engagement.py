@@ -1329,7 +1329,7 @@ class Engagement(commands.Cog):
                         guild.id, background_slot, exc_info=True,
                     )
             image_inviter = str(inviter or "")
-            inviter_match = re.fullmatch(r"<@!?(\\d+)>", image_inviter)
+            inviter_match = re.fullmatch(r"<@!?(\d+)>", image_inviter)
             if inviter_match:
                 inviter_member = guild.get_member(int(inviter_match.group(1)))
                 if inviter_member is not None:
