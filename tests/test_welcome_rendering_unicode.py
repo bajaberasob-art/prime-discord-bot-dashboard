@@ -71,8 +71,23 @@ class WelcomeImageVariableTests(unittest.TestCase):
             invite_code="AB12CD",
         )
         rendered = Image.open(output).convert("RGB")
-        crop = rendered.crop((35, 40, 1165, 360))
-        self.assertGreater(len(crop.getcolors(crop.width * crop.height) or []), 2)
+
+        blank_config = {
+            "canvas_format": "banner",
+            "elements": [{**config["elements"][0], "text": ""}],
+        }
+        blank_output = Engagement._render_welcome_image(
+            stream.getvalue(),
+            "عبودي",
+            "PRIME TEAM",
+            283,
+            "#7c3aed",
+            blank_config,
+            inviter="صالح",
+            invite_code="AB12CD",
+        )
+        blank = Image.open(blank_output).convert("RGB")
+        self.assertNotEqual(rendered.tobytes(), blank.tobytes())
 
     def test_fontstack_preprocessor_preserves_arabic_harakat(self):
         import fontstack.manager as fontstack_manager
