@@ -74,6 +74,21 @@ class WelcomeImageVariableTests(unittest.TestCase):
         crop = rendered.crop((35, 40, 1165, 360))
         self.assertGreater(len(crop.getcolors(crop.width * crop.height) or []), 2)
 
+    def test_fontstack_preprocessor_preserves_arabic_harakat(self):
+        import fontstack.manager as fontstack_manager
+
+        manager = Engagement._welcome_font_manager("sans", "normal")
+        reshaped = fontstack_manager._prepare_bidi("السَّلَامُ عَلَيْكُمْ")
+        self.assertTrue(any(char in reshaped for char in "\u064b\u064c\u064d\u064e\u064f\u0650\u0651\u0652"))
+
+        marked = Image.new("RGBA", (1000, 180), (8, 12, 20, 255))
+        plain = Image.new("RGBA", (1000, 180), (8, 12, 20, 255))
+        sample_marked = "السَّلَامُ عَلَيْكُمْ"
+        sample_plain = "السلام عليكم"
+        manager.draw(marked, sample_marked, position=(20, 20), size=54, fill=(255, 255, 255, 255))
+        manager.draw(plain, sample_plain, position=(20, 20), size=54, fill=(255, 255, 255, 255))
+        self.assertNotEqual(marked.tobytes(), plain.tobytes())
+
     def test_unicode_fallback_renders_arabic_marks_and_multiple_scripts(self):
         image = Image.new("RGBA", (1160, 260), (8, 12, 20, 255))
         manager = Engagement._welcome_font_manager("sans", "normal")
