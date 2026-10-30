@@ -853,13 +853,45 @@ class Engagement(commands.Cog):
 
     @staticmethod
     @lru_cache(maxsize=8)
-    def _welcome_font_manager(family: str = "sans", weight: str = "normal"):
-        """Build a cached Unicode fallback stack from bundled and system Noto fonts."""
+    def _welcome_font_manager(
+        family: str = "sans",
+        weight: str = "normal",
+        style: str = "normal",
+    ):
+        """Build a cached Unicode fallback stack and preserve Arabic tashkeel."""
+        from arabic_reshaper import ArabicReshaper
+        from bidi.algorithm import get_display
+        import fontstack.manager as fontstack_manager
         from fontstack import FontConfig, FontManager
 
         family = family if family in {"sans", "serif", "mono", "condensed"} else "sans"
         weight = "bold" if weight == "bold" else "normal"
-        suffix = "Bold" if weight == "bold" else "Regular"
+        style = "italic" if style == "italic" else "normal"
+
+        # FontStack 0.3.8's default ArabicReshaper configuration deletes harakat.
+        # PRIME needs full tashkeel, so replace its preprocessing hook with the
+        # same BiDi pipeline but keep harakat and compensate their visual position.
+        if not getattr(fontstack_manager, "_prime_harakat_preservation", False):
+            reshaper = ArabicReshaper(configuration={
+                "delete_harakat": False,
+                "shift_harakat_position": True,
+                "delete_tatweel": False,
+                "support_zwj": True,
+                "support_ligatures": True,
+            })
+
+            def prepare_welcome_text(text: str) -> str:
+                return str(get_display(reshaper.reshape(str(text or ""))))
+
+            fontstack_manager._prepare_bidi = prepare_welcome_text
+            fontstack_manager._prime_harakat_preservation = True
+
+        style_suffix = (
+            "BoldItalic" if weight == "bold" and style == "italic"
+            else "Bold" if weight == "bold"
+            else "Italic" if style == "italic"
+            else "Regular"
+        )
 
         roots = (
             Path(__file__).resolve().parent.parent / "assets" / "fonts",
@@ -888,18 +920,19 @@ class Engagement(commands.Cog):
                 continue
 
         family_names = {
-            "sans": [f"NotoSans-{suffix}.ttf", "DejaVuSans-Bold.ttf" if weight == "bold" else "DejaVuSans.ttf"],
-            "serif": [f"NotoSerif-{suffix}.ttf", "DejaVuSerif-Bold.ttf" if weight == "bold" else "DejaVuSerif.ttf"],
-            "mono": [f"NotoSansMono-{suffix}.ttf", "DejaVuSansMono-Bold.ttf" if weight == "bold" else "DejaVuSansMono.ttf"],
-            "condensed": [f"NotoSansCondensed-{suffix}.ttf", "DejaVuSansCondensed-Bold.ttf" if weight == "bold" else "DejaVuSansCondensed.ttf"],
+            "sans": [f"NotoSans-{style_suffix}.ttf", "DejaVuSans-Oblique.ttf" if style == "italic" else ("DejaVuSans-Bold.ttf" if weight == "bold" else "DejaVuSans.ttf")],
+            "serif": [f"NotoSerif-{style_suffix}.ttf", "DejaVuSerif-Italic.ttf" if style == "italic" else ("DejaVuSerif-Bold.ttf" if weight == "bold" else "DejaVuSerif.ttf")],
+            "mono": [f"NotoSansMono-{style_suffix}.ttf", "DejaVuSansMono-Oblique.ttf" if style == "italic" else ("DejaVuSansMono-Bold.ttf" if weight == "bold" else "DejaVuSansMono.ttf")],
+            "condensed": [f"NotoSansCondensed-{style_suffix}.ttf", "DejaVuSansCondensed-Oblique.ttf" if style == "italic" else ("DejaVuSansCondensed-Bold.ttf" if weight == "bold" else "DejaVuSansCondensed.ttf")],
         }
+        fallback_suffix = "Bold" if weight == "bold" else "Regular"
         fallback_names = [
-            f"NotoSansArabic-{suffix}.ttf",
-            f"NotoNaskhArabic-{suffix}.ttf",
-            f"NotoSansDevanagari-{suffix}.ttf",
-            f"NotoSansHebrew-{suffix}.ttf",
-            f"NotoSansBengali-{suffix}.ttf",
-            f"NotoSansThai-{suffix}.ttf",
+            f"NotoSansArabic-{fallback_suffix}.ttf",
+            f"NotoNaskhArabic-{fallback_suffix}.ttf",
+            f"NotoSansDevanagari-{fallback_suffix}.ttf",
+            f"NotoSansHebrew-{fallback_suffix}.ttf",
+            f"NotoSansBengali-{fallback_suffix}.ttf",
+            f"NotoSansThai-{fallback_suffix}.ttf",
             "NotoSansSymbols2-Regular.ttf",
             "NotoSansSymbols-Regular.ttf",
             "NotoSansCJK-Regular.ttc",
@@ -936,9 +969,10 @@ class Engagement(commands.Cog):
         anchor: str,
         font_family: str = "sans",
         font_weight: str = "normal",
+        font_style: str = "normal",
     ) -> None:
         """Render mixed-script text with per-glyph fallback, Arabic shaping and emoji."""
-        manager = cls._welcome_font_manager(font_family, font_weight)
+        manager = cls._welcome_font_manager(font_family, font_weight, font_style)
         manager.draw(
             target,
             str(text_value),
@@ -962,14 +996,21 @@ class Engagement(commands.Cog):
         if not any(0x0600 <= ord(char) <= 0x06FF or 0x0750 <= ord(char) <= 0x077F for char in text):
             return text
         try:
-            import arabic_reshaper
+            from arabic_reshaper import ArabicReshaper
             from bidi.algorithm import get_display
         except ImportError as exc:
             # Never silently generate a broken Arabic welcome image.
             raise RuntimeError(
                 "Arabic welcome rendering requires arabic-reshaper and python-bidi"
             ) from exc
-        return get_display(arabic_reshaper.reshape(text))
+        reshaper = ArabicReshaper(configuration={
+            "delete_harakat": False,
+            "shift_harakat_position": True,
+            "delete_tatweel": False,
+            "support_zwj": True,
+            "support_ligatures": True,
+        })
+        return get_display(reshaper.reshape(text))
 
     @staticmethod
     def _welcome_font(size: int, family: str = "sans", weight: str = "normal", style: str = "normal"):
@@ -1245,6 +1286,7 @@ class Engagement(commands.Cog):
                             anchor=horizontal_anchor,
                             font_family=font_family,
                             font_weight=font_weight,
+                            font_style=font_style,
                         )
                 if rotation:
                     overlay = overlay.rotate(-rotation, resample=Image.Resampling.BICUBIC,
