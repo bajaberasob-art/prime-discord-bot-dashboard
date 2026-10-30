@@ -9,8 +9,8 @@ pytest
 Pillow>=12.2.0
 CairoSVG>=2.7.1
 imageio-ffmpeg>=0.5.1
-arabic-reshaper
-python-bidi
+arabic-reshaper>=3.0.0
+python-bidi>=0.6.7
 asyncpg
 
 # Unicode shaping, glyph-level fallback and emoji rendering for welcome cards.
