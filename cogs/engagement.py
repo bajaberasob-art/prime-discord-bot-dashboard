@@ -898,7 +898,6 @@ class Engagement(commands.Cog):
             Path("/usr/share/fonts/truetype/noto"),
             Path("/usr/share/fonts/opentype/noto"),
             Path("/usr/share/fonts/truetype/dejavu"),
-            Path("/usr/share/fonts"),
             Path("/usr/local/share/fonts"),
         )
         found: dict[str, Path] = {}
@@ -919,11 +918,22 @@ class Engagement(commands.Cog):
             except OSError:
                 continue
 
+        def dejavu_name(root_name: str) -> str:
+            if weight == "bold" and style == "italic":
+                suffix_name = "BoldItalic" if root_name == "DejaVuSerif" else "BoldOblique"
+                return f"{root_name}-{suffix_name}.ttf"
+            if weight == "bold":
+                return f"{root_name}-Bold.ttf"
+            if style == "italic":
+                suffix_name = "Italic" if root_name == "DejaVuSerif" else "Oblique"
+                return f"{root_name}-{suffix_name}.ttf"
+            return f"{root_name}.ttf"
+
         family_names = {
-            "sans": [f"NotoSans-{style_suffix}.ttf", "DejaVuSans-Oblique.ttf" if style == "italic" else ("DejaVuSans-Bold.ttf" if weight == "bold" else "DejaVuSans.ttf")],
-            "serif": [f"NotoSerif-{style_suffix}.ttf", "DejaVuSerif-Italic.ttf" if style == "italic" else ("DejaVuSerif-Bold.ttf" if weight == "bold" else "DejaVuSerif.ttf")],
-            "mono": [f"NotoSansMono-{style_suffix}.ttf", "DejaVuSansMono-Oblique.ttf" if style == "italic" else ("DejaVuSansMono-Bold.ttf" if weight == "bold" else "DejaVuSansMono.ttf")],
-            "condensed": [f"NotoSansCondensed-{style_suffix}.ttf", "DejaVuSansCondensed-Oblique.ttf" if style == "italic" else ("DejaVuSansCondensed-Bold.ttf" if weight == "bold" else "DejaVuSansCondensed.ttf")],
+            "sans": [f"NotoSans-{style_suffix}.ttf", dejavu_name("DejaVuSans")],
+            "serif": [f"NotoSerif-{style_suffix}.ttf", dejavu_name("DejaVuSerif")],
+            "mono": [f"NotoSansMono-{style_suffix}.ttf", dejavu_name("DejaVuSansMono")],
+            "condensed": [f"NotoSansCondensed-{style_suffix}.ttf", dejavu_name("DejaVuSansCondensed")],
         }
         fallback_suffix = "Bold" if weight == "bold" else "Regular"
         fallback_names = [
