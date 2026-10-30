@@ -849,7 +849,7 @@ class Engagement(commands.Cog):
         for key, value in values.items():
             rendered = rendered.replace("{" + key + "}", value)
         # Unknown tokens are not allowed to leak into the final welcome graphic.
-        return re.sub(r"\\{[^{}]*\\}", "", rendered)
+        return re.sub(r"\{[^{}]*\}", "", rendered)
 
     @staticmethod
     @lru_cache(maxsize=8)
