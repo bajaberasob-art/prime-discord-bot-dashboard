@@ -4,6 +4,7 @@ import io
 import logging
 import re
 from collections import defaultdict
+from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any, Optional
 from pathlib import Path
@@ -809,6 +810,152 @@ class Engagement(commands.Cog):
         return guild.system_channel
 
     @staticmethod
+    def _welcome_image_template(
+        template: str,
+        member_name: str,
+        guild_name: str,
+        member_count: int,
+        *,
+        inviter: Optional[str] = None,
+        invite_code: Optional[str] = None,
+        template_data: Optional[dict[str, Any]] = None,
+    ) -> str:
+        """Resolve the same welcome variables for image layers as for message templates.
+
+        Image text uses the member's display name for {user}; sending a Discord
+        mention token into a raster image would expose raw markup rather than a name.
+        """
+        username = str(member_name or "عضو جديد")
+        server = str(guild_name or "السيرفر")
+        count = str(max(0, int(member_count or 0)))
+        values = {
+            "user": username,
+            "username": username,
+            "member": username,
+            "member_name": username,
+            "server": server,
+            "server_name": server,
+            "count": count,
+            "member_count": count,
+            "inviter": str(inviter or ""),
+            "invite_code": str(invite_code or ""),
+        }
+        if isinstance(template_data, dict):
+            for key, value in template_data.items():
+                normalized_key = str(key).strip().strip("{}")
+                if normalized_key in values and value is not None:
+                    values[normalized_key] = str(value)
+        rendered = str(template or "")
+        for key, value in values.items():
+            rendered = rendered.replace("{" + key + "}", value)
+        # Unknown tokens are not allowed to leak into the final welcome graphic.
+        return re.sub(r"\\{[^{}]*\\}", "", rendered)
+
+    @staticmethod
+    @lru_cache(maxsize=8)
+    def _welcome_font_manager(family: str = "sans", weight: str = "normal"):
+        """Build a cached Unicode fallback stack from bundled and system Noto fonts."""
+        from fontstack import FontConfig, FontManager
+
+        family = family if family in {"sans", "serif", "mono", "condensed"} else "sans"
+        weight = "bold" if weight == "bold" else "normal"
+        suffix = "Bold" if weight == "bold" else "Regular"
+
+        roots = (
+            Path(__file__).resolve().parent.parent / "assets" / "fonts",
+            Path("/usr/share/fonts/truetype/noto"),
+            Path("/usr/share/fonts/opentype/noto"),
+            Path("/usr/share/fonts/truetype/dejavu"),
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+        )
+        found: dict[str, Path] = {}
+        allowed_prefixes = (
+            "noto", "dejavusans", "dejavuserif", "dejavusansmono",
+            "dejavusanscondensed",
+        )
+        for root in roots:
+            if not root.is_dir():
+                continue
+            try:
+                for path in root.rglob("*"):
+                    if not path.is_file() or path.suffix.lower() not in {".ttf", ".otf", ".ttc", ".otc"}:
+                        continue
+                    lower_name = path.name.lower()
+                    if lower_name.startswith(allowed_prefixes):
+                        found.setdefault(lower_name, path)
+            except OSError:
+                continue
+
+        family_names = {
+            "sans": [f"NotoSans-{suffix}.ttf", "DejaVuSans-Bold.ttf" if weight == "bold" else "DejaVuSans.ttf"],
+            "serif": [f"NotoSerif-{suffix}.ttf", "DejaVuSerif-Bold.ttf" if weight == "bold" else "DejaVuSerif.ttf"],
+            "mono": [f"NotoSansMono-{suffix}.ttf", "DejaVuSansMono-Bold.ttf" if weight == "bold" else "DejaVuSansMono.ttf"],
+            "condensed": [f"NotoSansCondensed-{suffix}.ttf", "DejaVuSansCondensed-Bold.ttf" if weight == "bold" else "DejaVuSansCondensed.ttf"],
+        }
+        fallback_names = [
+            f"NotoSansArabic-{suffix}.ttf",
+            f"NotoNaskhArabic-{suffix}.ttf",
+            f"NotoSansDevanagari-{suffix}.ttf",
+            f"NotoSansHebrew-{suffix}.ttf",
+            f"NotoSansBengali-{suffix}.ttf",
+            f"NotoSansThai-{suffix}.ttf",
+            "NotoSansSymbols2-Regular.ttf",
+            "NotoSansSymbols-Regular.ttf",
+            "NotoSansCJK-Regular.ttc",
+            "NotoEmoji.ttf",
+            "DejaVuSans-Bold.ttf" if weight == "bold" else "DejaVuSans.ttf",
+            "DejaVuSans.ttf",
+        ]
+
+        ordered_paths: list[Path] = []
+        seen: set[Path] = set()
+        for name in family_names[family] + fallback_names:
+            path = found.get(name.lower())
+            if path is not None and path not in seen:
+                ordered_paths.append(path)
+                seen.add(path)
+        if not ordered_paths:
+            raise RuntimeError("No Unicode fonts found; install fonts-noto-core and fonts-noto-extra")
+
+        stack = [FontConfig(path=str(path)) for path in ordered_paths]
+        return FontManager(default_stack=stack, max_cache=12)
+
+    @classmethod
+    def _draw_welcome_text(
+        cls,
+        target: Image.Image,
+        text_value: str,
+        *,
+        position: tuple[int, int],
+        max_width: int,
+        max_height: int,
+        font_size: int,
+        fill: tuple[int, int, int, int],
+        align: str,
+        anchor: str,
+        font_family: str = "sans",
+        font_weight: str = "normal",
+    ) -> None:
+        """Render mixed-script text with per-glyph fallback, Arabic shaping and emoji."""
+        manager = cls._welcome_font_manager(font_family, font_weight)
+        manager.draw(
+            target,
+            str(text_value),
+            position=position,
+            size=max(6, int(font_size)),
+            weight=700 if font_weight == "bold" else 400,
+            mode="fit",
+            max_width=max(4, int(max_width)),
+            max_height=max(4, int(max_height)),
+            min_size=6,
+            align=align if align in {"left", "center", "right"} else "left",
+            line_spacing=1.18,
+            fill=fill,
+            anchor=anchor,
+        )
+
+    @staticmethod
     def _welcome_image_text(value: str) -> str:
         """Convert logical Arabic text once for Pillow's BASIC layout engine."""
         text = str(value or "")
@@ -882,7 +1029,9 @@ class Engagement(commands.Cog):
     def _render_welcome_image(
         cls, avatar_data: bytes, member_name: str, guild_name: str, member_count: int,
         accent: str, canvas_config: Optional[dict[str, Any]] = None,
-        guild_id: Optional[int] = None,
+        guild_id: Optional[int] = None, inviter: Optional[str] = None,
+        invite_code: Optional[str] = None,
+        template_data: Optional[dict[str, Any]] = None,
     ) -> io.BytesIO:
         layout = canvas_config if isinstance(canvas_config, dict) else {}
         canvas_format = str(layout.get("canvas_format") or "auto")
@@ -1025,14 +1174,15 @@ class Engagement(commands.Cog):
                         overlay.paste(avatar, (cx - diameter // 2, cy - diameter // 2), mask)
                 else:
                     template = str(element.get("text") or "")
-                    dynamic_values = {
-                        "{username}": str(member_name or "عضو جديد")[:32],
-                        "{server}": str(guild_name or "السيرفر")[:48],
-                        "{member_count}": str(max(0, int(member_count))),
-                        "{count}": str(max(0, int(member_count))),
-                    }
-                    for token, dynamic in dynamic_values.items():
-                        template = template.replace(token, dynamic)
+                    template = cls._welcome_image_template(
+                        template,
+                        member_name,
+                        guild_name,
+                        member_count,
+                        inviter=inviter,
+                        invite_code=invite_code,
+                        template_data=template_data,
+                    )
                     if element_type == "title" and template in {"", "أهلاً بك في PRIME"}:
                         text_value = "أهلاً بك في PRIME"
                     elif element_type == "name" and template in {"", "اسم العضو"}:
@@ -1072,55 +1222,30 @@ class Engagement(commands.Cog):
                         max_text_width = max(4, box_w - 8)
                         max_text_height = max(4, box_h - 4)
 
-                        def wrap_text(source: str, font: Any) -> list[str]:
-                            lines: list[str] = []
-                            for paragraph in (source.splitlines() or [source]):
-                                words = paragraph.split()
-                                if not words:
-                                    lines.append("")
-                                    continue
-                                line = ""
-                                for word in words:
-                                    candidate = f"{line} {word}".strip()
-                                    shaped_candidate = cls._welcome_image_text(candidate)
-                                    if line and font.getlength(shaped_candidate) > max_text_width:
-                                        lines.append(line)
-                                        line = word
-                                    else:
-                                        line = candidate
-                                if line:
-                                    lines.append(line)
-                            return lines or [""]
-
-                        font = cls._welcome_font(font_size, font_family, font_weight, font_style)
-                        lines = wrap_text(text_value, font)
-                        line_height = max(1, font.getbbox("Ag")[3] - font.getbbox("Ag")[1])
-                        for candidate_size in range(font_size, 5, -1):
-                            candidate_font = cls._welcome_font(candidate_size, font_family, font_weight, font_style)
-                            candidate_lines = wrap_text(text_value, candidate_font)
-                            candidate_height = max(1, int((candidate_font.getbbox("Ag")[3] - candidate_font.getbbox("Ag")[1]) * 1.18))
-                            widest = max((candidate_font.getlength(cls._welcome_image_text(line)) for line in candidate_lines), default=0)
-                            if widest <= max_text_width and candidate_height * len(candidate_lines) <= max_text_height:
-                                font, lines, line_height = candidate_font, candidate_lines, candidate_height
-                                break
-                            font, lines = candidate_font, candidate_lines
-                            line_height = candidate_height
                         align = element.get("align", "left")
-                        if align == "right":
-                            anchor, tx = "rm", x0 + box_w - 4
-                        elif align == "center":
-                            anchor, tx = "mm", x0 + box_w // 2
-                        else:
-                            anchor, tx = "lm", x0 + 4
-                        line_height = max(1, int(line_height * 1.18))
-                        total_height = line_height * len(lines)
-                        text_y = y0 + max(0, (box_h - total_height) // 2) + line_height // 2
-                        for line_index, line in enumerate(lines):
-                            shaped = cls._welcome_image_text(line)
-                            layer_draw.text(
-                                (tx, text_y + line_index * line_height), shaped, font=font,
-                                fill=(*base_color, alpha), anchor=anchor,
-                            )
+                        horizontal_anchor = {
+                            "right": "rm",
+                            "center": "mm",
+                            "left": "lm",
+                        }.get(align, "lm")
+                        anchor_x = (
+                            x0 + box_w - 4 if align == "right"
+                            else x0 + box_w // 2 if align == "center"
+                            else x0 + 4
+                        )
+                        cls._draw_welcome_text(
+                            overlay,
+                            text_value,
+                            position=(anchor_x, y0 + box_h // 2),
+                            max_width=max_text_width,
+                            max_height=max_text_height,
+                            font_size=font_size,
+                            fill=(*base_color, alpha),
+                            align=align,
+                            anchor=horizontal_anchor,
+                            font_family=font_family,
+                            font_weight=font_weight,
+                        )
                 if rotation:
                     overlay = overlay.rotate(-rotation, resample=Image.Resampling.BICUBIC,
                                              center=(x0 + box_w / 2, y0 + box_h / 2))
@@ -1140,14 +1265,34 @@ class Engagement(commands.Cog):
             left, top = cx - avatar_size // 2, cy - avatar_size // 2
             draw.ellipse((left - 7, top - 7, left + avatar_size + 7, top + avatar_size + 7), fill=(*rgb, 75), outline=(*rgb, 220), width=4)
             image.paste(avatar, (left, top), mask); draw = ImageDraw.Draw(image, "RGBA")
-            title_font = cls._welcome_font(27)
-            name_font = cls._welcome_font(48, weight="bold")
-            detail_font = cls._welcome_font(23)
             text_x = int(width * pct("name_x", 94))
-            draw.text((text_x, int(height * pct("title_y", 20))), cls._welcome_image_text("أهلاً بك في PRIME"), font=title_font, fill=(*rgb, 255), anchor="ra")
-            draw.text((text_x, int(height * pct("name_y", 38))), cls._welcome_image_text(str(member_name or "عضو جديد")[:32]), font=name_font, fill=(248, 250, 252, 255), anchor="ra")
-            if layout.get("show_server", True): draw.text((text_x, int(height * pct("server_y", 60))), cls._welcome_image_text(str(guild_name or "السيرفر")[:48]), font=detail_font, fill=(192, 207, 226, 255), anchor="ra")
-            if layout.get("show_count", True): draw.text((text_x, int(height * pct("count_y", 75))), cls._welcome_image_text(f"العضو رقم {max(0, int(member_count)):,}"), font=detail_font, fill=(*rgb, 255), anchor="ra")
+            cls._draw_welcome_text(
+                image, "أهلاً بك في PRIME",
+                position=(text_x, int(height * pct("title_y", 20))),
+                max_width=width - 60, max_height=64, font_size=27,
+                fill=(*rgb, 255), align="right", anchor="rt",
+            )
+            cls._draw_welcome_text(
+                image, str(member_name or "عضو جديد")[:32],
+                position=(text_x, int(height * pct("name_y", 38))),
+                max_width=width - 60, max_height=82, font_size=48,
+                fill=(248, 250, 252, 255), align="right", anchor="rt",
+                font_weight="bold",
+            )
+            if layout.get("show_server", True):
+                cls._draw_welcome_text(
+                    image, str(guild_name or "السيرفر")[:48],
+                    position=(text_x, int(height * pct("server_y", 60))),
+                    max_width=width - 60, max_height=58, font_size=23,
+                    fill=(192, 207, 226, 255), align="right", anchor="rt",
+                )
+            if layout.get("show_count", True):
+                cls._draw_welcome_text(
+                    image, f"العضو رقم {max(0, int(member_count)):,}",
+                    position=(text_x, int(height * pct("count_y", 75))),
+                    max_width=width - 60, max_height=58, font_size=23,
+                    fill=(*rgb, 255), align="right", anchor="rt",
+                )
         buffer = io.BytesIO(); image.save(buffer, format="PNG", optimize=True); buffer.seek(0); return buffer
 
     async def _generate_welcome_image(
@@ -1155,6 +1300,10 @@ class Engagement(commands.Cog):
         member: Optional[discord.Member],
         guild: discord.Guild,
         config: dict[str, Any],
+        *,
+        inviter: Optional[str] = None,
+        invite_code: Optional[str] = None,
+        template_data: Optional[dict[str, Any]] = None,
     ) -> Optional[discord.File]:
         avatar = getattr(member, "display_avatar", None)
         read_avatar = getattr(avatar, "read", None)
@@ -1179,6 +1328,13 @@ class Engagement(commands.Cog):
                         "[WELCOME_IMAGE] تعذر تحميل الخلفية المحفوظة للسيرفر %s في الخانة %s",
                         guild.id, background_slot, exc_info=True,
                     )
+            image_inviter = str(inviter or "")
+            inviter_match = re.fullmatch(r"<@!?(\\d+)>", image_inviter)
+            if inviter_match:
+                inviter_member = guild.get_member(int(inviter_match.group(1)))
+                if inviter_member is not None:
+                    image_inviter = str(inviter_member.display_name)
+
             buffer = await asyncio.to_thread(
                 self._render_welcome_image,
                 avatar_data,
@@ -1188,6 +1344,9 @@ class Engagement(commands.Cog):
                 str(config.get("welcome_embed_color") or "#7c3aed"),
                 canvas_config,
                 int(getattr(guild, "id", 0) or 0),
+                image_inviter,
+                invite_code,
+                template_data,
             )
             return discord.File(buffer, filename="prime-welcome.png")
         except (asyncio.TimeoutError, discord.HTTPException, OSError, ValueError):
@@ -1256,7 +1415,14 @@ class Engagement(commands.Cog):
                 template_data=template_data,
             )
         if delivery_type == "welcome" and config.get("welcome_generated_image_enabled"):
-            file = await self._generate_welcome_image(member, guild, config)
+            file = await self._generate_welcome_image(
+                member,
+                guild,
+                config,
+                inviter=inviter,
+                invite_code=invite_code,
+                template_data=template_data,
+            )
             if file is None:
                 warning_reason = "avatar_image_unavailable"
             elif embed is not None:
@@ -1476,7 +1642,7 @@ class Engagement(commands.Cog):
                 config,
                 target_type="dm",
                 inviter="دعوة تجريبية",
-                template_data={"username": "عضو تجريبي"},
+                template_data={"user": "عضو تجريبي", "username": "عضو تجريبي"},
             )
 
         configured_channel = (
@@ -1545,7 +1711,11 @@ class Engagement(commands.Cog):
             config,
             target_type="channel",
             inviter="دعوة تجريبية",
-            template_data=template_data,
+            template_data={
+                "user": "عضو تجريبي",
+                "username": "عضو تجريبي",
+                **(template_data or {}),
+            },
         )
 
     async def deploy_self_role_panel(
